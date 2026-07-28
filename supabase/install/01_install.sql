@@ -1951,7 +1951,13 @@ USING (
 );
 
 -- 7) subscription_plans write policy restricted to platform admin
+-- Auditoría 2026-07: el DROP apuntaba a un nombre de política viejo
+-- ("plans write real admin") distinto al que realmente se crea aquí
+-- ("plans write platform admin"), así que nunca se borraba a sí misma y
+-- el instalador fallaba con "policy already exists" al re-ejecutarlo
+-- sobre una base ya instalada.
 DROP POLICY IF EXISTS "plans write real admin" ON public.subscription_plans;
+DROP POLICY IF EXISTS "plans write platform admin" ON public.subscription_plans;
 CREATE POLICY "plans write platform admin" ON public.subscription_plans
 FOR ALL
 USING (public.current_user_is_platform_admin())
@@ -2738,6 +2744,7 @@ grant all on public.profile_locations to service_role;
 
 alter table public.profile_locations enable row level security;
 
+drop policy if exists "profile_locations_select_same_company" on public.profile_locations;
 create policy "profile_locations_select_same_company"
   on public.profile_locations
   for select
@@ -3378,7 +3385,7 @@ grant execute on function public.sales_by_payment_method(uuid, text, timestamptz
 -- ============================================================
 
 -- 1) return_items table
-CREATE TABLE public.return_items (
+CREATE TABLE IF NOT EXISTS public.return_items (
   id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   company_id uuid NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
   return_id uuid NOT NULL REFERENCES public.returns(id) ON DELETE CASCADE,
@@ -3395,23 +3402,26 @@ CREATE TABLE public.return_items (
   created_at timestamp with time zone NOT NULL DEFAULT now()
 );
 
-CREATE INDEX return_items_return_idx ON public.return_items(return_id);
-CREATE INDEX return_items_sale_item_idx ON public.return_items(sale_item_id);
+CREATE INDEX IF NOT EXISTS return_items_return_idx ON public.return_items(return_id);
+CREATE INDEX IF NOT EXISTS return_items_sale_item_idx ON public.return_items(sale_item_id);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.return_items TO authenticated;
 GRANT ALL ON public.return_items TO service_role;
 
 ALTER TABLE public.return_items ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "return_items select scoped" ON public.return_items;
 CREATE POLICY "return_items select scoped" ON public.return_items
   FOR SELECT TO authenticated
   USING (can_select_company(company_id, is_demo_data) AND user_can_access_location(location_id));
 
+DROP POLICY IF EXISTS "return_items write scoped" ON public.return_items;
 CREATE POLICY "return_items write scoped" ON public.return_items
   FOR ALL TO authenticated
   USING (can_write_company(company_id) AND user_can_access_location(location_id))
   WITH CHECK (can_write_company(company_id) AND user_can_access_location(location_id));
 
+DROP TRIGGER IF EXISTS prevent_demo_return_items_write ON public.return_items;
 CREATE TRIGGER prevent_demo_return_items_write
   BEFORE INSERT OR UPDATE OR DELETE ON public.return_items
   FOR EACH ROW EXECUTE FUNCTION public.reject_demo_write();
@@ -4263,7 +4273,7 @@ grant execute on function public.profit_report(timestamptz, timestamptz, uuid) t
 -- 20260622163721_308afa43-667f-4088-b722-55ae0d7c91bb.sql
 -- ============================================================
 -- Catálogo global de métodos de pago por país (gestionado por platform admin)
-CREATE TABLE public.country_payment_methods (
+CREATE TABLE IF NOT EXISTS public.country_payment_methods (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   country_code text NOT NULL,
   method_code  text NOT NULL,
@@ -4283,27 +4293,32 @@ GRANT ALL    ON public.country_payment_methods TO service_role;
 
 ALTER TABLE public.country_payment_methods ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "country_payment_methods_read_authenticated" ON public.country_payment_methods;
 CREATE POLICY "country_payment_methods_read_authenticated"
   ON public.country_payment_methods FOR SELECT
   TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS "country_payment_methods_insert_platform_admin" ON public.country_payment_methods;
 CREATE POLICY "country_payment_methods_insert_platform_admin"
   ON public.country_payment_methods FOR INSERT
   TO authenticated
   WITH CHECK (public.current_user_is_platform_admin());
 
+DROP POLICY IF EXISTS "country_payment_methods_update_platform_admin" ON public.country_payment_methods;
 CREATE POLICY "country_payment_methods_update_platform_admin"
   ON public.country_payment_methods FOR UPDATE
   TO authenticated
   USING (public.current_user_is_platform_admin())
   WITH CHECK (public.current_user_is_platform_admin());
 
+DROP POLICY IF EXISTS "country_payment_methods_delete_platform_admin" ON public.country_payment_methods;
 CREATE POLICY "country_payment_methods_delete_platform_admin"
   ON public.country_payment_methods FOR DELETE
   TO authenticated
   USING (public.current_user_is_platform_admin());
 
+DROP TRIGGER IF EXISTS country_payment_methods_touch_updated_at ON public.country_payment_methods;
 CREATE TRIGGER country_payment_methods_touch_updated_at
   BEFORE UPDATE ON public.country_payment_methods
   FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
@@ -6079,12 +6094,14 @@ $$;
 -- 20260622220051_883259f1-9642-4ebf-af88-5d15a63d859e.sql
 -- ============================================================
 -- 1) profile_locations: add INSERT/UPDATE/DELETE policies for same-company admins
+DROP POLICY IF EXISTS "profile_locations_insert_admin" ON public.profile_locations;
 CREATE POLICY "profile_locations_insert_admin"
   ON public.profile_locations
   FOR INSERT
   TO authenticated
   WITH CHECK (public.can_admin_company(company_id));
 
+DROP POLICY IF EXISTS "profile_locations_update_admin" ON public.profile_locations;
 CREATE POLICY "profile_locations_update_admin"
   ON public.profile_locations
   FOR UPDATE
@@ -6092,6 +6109,7 @@ CREATE POLICY "profile_locations_update_admin"
   USING (public.can_admin_company(company_id))
   WITH CHECK (public.can_admin_company(company_id));
 
+DROP POLICY IF EXISTS "profile_locations_delete_admin" ON public.profile_locations;
 CREATE POLICY "profile_locations_delete_admin"
   ON public.profile_locations
   FOR DELETE
@@ -6160,7 +6178,7 @@ CREATE POLICY "plans write platform admin"
 -- 20260623045625_f2160390-75e7-4d82-875c-3dc56ff76725.sql
 -- ============================================================
 ALTER TABLE public.products
-  ADD COLUMN supplier_id uuid NULL
+  ADD COLUMN IF NOT EXISTS supplier_id uuid NULL
   REFERENCES public.suppliers(id) ON DELETE SET NULL;
 
 CREATE INDEX IF NOT EXISTS products_supplier_id_idx
