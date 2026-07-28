@@ -5,7 +5,28 @@
       "Bash(grep -v \"client.server.ts$\")",
       "Bash(git init *)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(npx tsc *)",
+      "Bash(npm install *)",
+      "Bash(git stash *)",
+      "Bash(npx eslint *)",
+      "Bash(npm run *)",
+      "Bash(git diff *)",
+      "Bash(git checkout *)",
+      "Bash(cat)",
+      "Bash(python3 -)",
+      "Bash(pip3 install *)",
+      "Bash(python3 -c \"import pglast; print\\('ok', pglast.__version__ if hasattr\\(pglast,'__version__'\\) else ''\\)\")",
+      "Bash(cd /Users/omarreyesamezcua/Desktop/VentaPro *)",
+      "Bash(python3 -c ' *)",
+      "Bash(git reset *)",
+      "Bash(brew list *)",
+      "Read(//opt/homebrew/**)",
+      "Bash(pip3 index *)",
+      "Bash(python3 -c \"import psycopg2; print\\('psycopg2 ok', psycopg2.__version__\\)\")",
+      "Bash(python3 test_criticals.py)",
+      "Bash(xargs -n1 basename)",
+      "Bash(grep -n \"^security definer$\" /Users/omarreyesamezcua/Desktop/VentaPro/supabase/install/01_install.sql)"
     ]
   }
 }

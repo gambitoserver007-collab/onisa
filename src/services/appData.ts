@@ -506,6 +506,7 @@ export async function createSaleFromCart({
   items,
   companyId,
   locationId,
+  clientRequestId,
 }: {
   customerId: string | null;
   documentType: Sale["type"];
@@ -513,6 +514,13 @@ export async function createSaleFromCart({
   items: CartItem[];
   companyId?: string;
   locationId?: string | null;
+  /**
+   * Clave estable por intento de cobro (mismo carrito). Si el cobro se
+   * reintenta tras perder la respuesta por un corte de red, reenviar la
+   * MISMA clave evita que create_sale duplique la venta y descuente stock
+   * dos veces.
+   */
+  clientRequestId?: string | null;
 }) {
   const { data, error } = await supabase.rpc("create_sale", {
     p_customer_id: (customerId ?? null) as unknown as string,
@@ -525,6 +533,7 @@ export async function createSaleFromCart({
       variant_id: item.variantId ?? null,
     })),
     p_location_id: locationId ?? undefined,
+    p_client_request_id: clientRequestId ?? undefined,
   });
 
   if (error) throw error;

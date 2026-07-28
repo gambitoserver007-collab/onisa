@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Store } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
@@ -31,6 +31,17 @@ export const Route = createFileRoute("/pos")({ component: POS });
 type SaleDocumentType = Sale["type"];
 type PaymentMethod = Sale["method"];
 
+// Huella del carrito para decidir si un cobro es "el mismo intento" (reintento
+// tras un error de red) o uno nuevo. No incluye cliente/método/tipo de
+// documento a propósito: cambiar esos campos entre reintentos del mismo
+// carrito no debe generar una venta duplicada.
+function cartSignature(items: CartItem[]) {
+  return items
+    .map((item) => `${item.productId}:${item.variantId ?? ""}:${item.qty}:${item.price}`)
+    .sort()
+    .join("|");
+}
+
 function POS() {
   const navigate = useNavigate();
   const { formatMoney, settings } = useBusinessSettings();
@@ -46,6 +57,10 @@ function POS() {
   const [method, setMethod] = useState<PaymentMethod>("Efectivo");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [success, setSuccess] = useState<{ amount: number; id: string } | null>(null);
+  // Clave de idempotencia del cobro en curso: se mantiene igual mientras el
+  // carrito no cambie, para que un reintento tras un error de red reutilice
+  // la misma venta en vez de duplicarla (ver create_sale, p_client_request_id).
+  const pendingSaleRef = useRef<{ key: string; signature: string } | null>(null);
   // Stock del punto de venta activo: Map product_id -> stock (null = sin cargar).
   const [locationStock, setLocationStock] = useState<Map<string, number> | null>(null);
   // Stock de variantes en la sucursal: por producto (para el catálogo) y por variante.
@@ -417,6 +432,14 @@ function POS() {
 
     setIsCheckingOut(true);
 
+    // Reutiliza la misma clave si es el mismo carrito de un intento anterior
+    // (reintento tras error de red); genera una nueva si el carrito cambió.
+    const signature = cartSignature(cart);
+    if (pendingSaleRef.current?.signature !== signature) {
+      pendingSaleRef.current = { key: crypto.randomUUID(), signature };
+    }
+    const clientRequestId = pendingSaleRef.current.key;
+
     try {
       const amount = total;
       const validCustomer = customers.some((entry) => entry.id === customer);
@@ -427,8 +450,10 @@ function POS() {
         items: cart,
         companyId: session?.companyId,
         locationId: posLocationId,
+        clientRequestId,
       });
       const saleId = sale?.id ?? "reciente";
+      pendingSaleRef.current = null;
       setCart([]);
       await reload();
       await reloadLocationStock();

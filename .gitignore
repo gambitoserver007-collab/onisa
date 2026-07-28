@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-ssr/
+.output/
+.tanstack/
+.wrangler/
+entrega-plr/
+.env
+.env.local
+.dev.vars
+*.log
+.DS_Store

@@ -18,7 +18,7 @@
 -- ============================================================
 -- 202606170001_init_tienda_agil.sql
 -- ============================================================
-﻿-- Tienda Agil MVP schema
+-- Tienda Agil MVP schema
 -- Multiempresa POS con demo read-only reforzado por RLS.
 
 create extension if not exists pgcrypto;
@@ -915,7 +915,7 @@ on conflict (id) do update set
 -- ============================================================
 -- 20260617235322_16db5c81-054a-4065-bf63-d8301c47d869.sql
 -- ============================================================
-﻿-- Tienda Agil MVP schema
+-- Tienda Agil MVP schema
 -- Multiempresa POS con demo read-only reforzado por RLS.
 
 create extension if not exists pgcrypto;
@@ -1815,9 +1815,11 @@ end;
 $$;
 
 -- Revoke public EXECUTE on privileged bootstrap definer functions; only service_role can call them.
-REVOKE EXECUTE ON FUNCTION public.bootstrap_demo_profiles() FROM PUBLIC, anon, authenticated;
+-- (Auditoría 2026-07: se quitaron las referencias a bootstrap_demo_profiles(),
+-- una función que nunca llegó a definirse en este instalador — rompía la
+-- instalación completa en un proyecto Supabase nuevo con "function does not
+-- exist". bootstrap_owner_profile sí existe y se define más abajo.)
 REVOKE EXECUTE ON FUNCTION public.bootstrap_owner_profile(text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.bootstrap_demo_profiles() TO service_role;
 GRANT EXECUTE ON FUNCTION public.bootstrap_owner_profile(text) TO service_role;
 
 -- create_sale should only be callable by signed-in users (not anon)
@@ -3824,6 +3826,7 @@ create or replace function public.close_cash_session(
   p_real_amount numeric
 ) returns jsonb
 language plpgsql
+security definer
 set search_path to 'public'
 as $function$
 declare
@@ -3843,6 +3846,14 @@ begin
 
   v_company_id := public.current_user_company_id();
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
 
   -- Lock the row so concurrent closes can't double-process
   select * into v_session from public.cash_sessions
@@ -4950,6 +4961,7 @@ create unique index if not exists categories_company_name_active_uniq
 create or replace function public.open_cash_session(p_opening_amount numeric, p_location_id uuid default null)
 returns uuid
 language plpgsql
+security definer
 set search_path to 'public'
 as $$
 declare
@@ -4964,6 +4976,14 @@ begin
 
   v_company_id := public.current_user_company_id();
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
 
   v_location_id := p_location_id;
   if v_location_id is null then
@@ -5009,6 +5029,7 @@ create or replace function public.create_purchase(
   p_location_id uuid, p_items jsonb)
 returns uuid
 language plpgsql
+security definer
 set search_path to 'public'
 as $$
 declare
@@ -5032,6 +5053,14 @@ begin
 
   v_company_id := public.current_user_company_id();
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
   if p_items is null or jsonb_array_length(p_items) = 0 then
     raise exception 'Agrega al menos un producto a la compra.';
   end if;
@@ -5109,6 +5138,11 @@ begin
                       is_active = true,
                       updated_at = now();
 
+      -- Auditoría 2026-07: el costo de la variante se actualiza al último costo de compra
+      -- (antes quedaba fijo con el valor editado a mano y "Ganancias" calculaba margen viejo).
+      update public.product_variants set cost_override = v_unit_cost, updated_at = now()
+      where id = v_variant.id;
+
       update public.products set stock = (
         select coalesce(sum(pvl.stock),0)
         from public.product_variant_locations pvl
@@ -5129,10 +5163,11 @@ begin
                       is_active = true,
                       updated_at = now();
 
+      -- Auditoría 2026-07: mismo criterio para producto simple — costo = último costo de compra.
       update public.products set stock = (
         select coalesce(sum(stock),0) from public.product_locations
         where product_id = v_product.id and is_active = true
-      ), updated_at = now()
+      ), cost = v_unit_cost, updated_at = now()
       where id = v_product.id;
 
       insert into public.stock_movements (company_id, location_id, product_id,
@@ -5158,6 +5193,7 @@ create or replace function public.create_return(
   p_location_id uuid default null, p_refund_cash boolean default true)
 returns uuid
 language plpgsql
+security definer
 set search_path to 'public'
 as $$
 declare
@@ -5189,6 +5225,14 @@ begin
 
   v_company_id := public.current_user_company_id();
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
 
   if p_reason is null or btrim(p_reason) = '' then
     raise exception 'Describe el motivo de la devolucion.';
@@ -5247,7 +5291,10 @@ begin
 
     v_product_id := v_sale_item.product_id;
     v_variant_id := v_sale_item.product_variant_id;
-    v_unit_price := coalesce(nullif(v_item ->> 'unit_price','')::numeric, v_sale_item.unit_price);
+    -- Nunca confiar en el precio que envía el cliente: el reembolso siempre se calcula
+    -- con el precio real cobrado en la venta original (auditoría 2026-07, mismo criterio
+    -- ya aplicado en create_sale).
+    v_unit_price := v_sale_item.unit_price;
 
     select coalesce(sum(ri.qty),0) into v_returned_prev
     from public.return_items ri
@@ -5385,6 +5432,14 @@ begin
 
   v_company_id := public.current_user_company_id();
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
 
   select * into v_product from public.products
     where id = p_product_id and company_id = v_company_id and deleted_at is null
@@ -5518,6 +5573,14 @@ begin
 
   v_company_id := public.current_user_company_id();
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
 
   select * into v_product from public.products
     where id = p_product_id and company_id = v_company_id
@@ -5805,6 +5868,14 @@ begin
 
   v_company_id := public.current_user_company_id();
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
 
   v_role := public.current_user_role();
   if v_role not in ('admin','operador','finanzas') then
@@ -5897,6 +5968,14 @@ begin
 
   v_company_id := public.current_user_company_id();
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
 
   v_role := public.current_user_role();
   if v_role not in ('admin','operador','finanzas') then
@@ -6076,3 +6155,402 @@ ALTER TABLE public.products
 
 CREATE INDEX IF NOT EXISTS products_supplier_id_idx
   ON public.products(supplier_id);
+
+-- ============================================================
+-- Auditoría 2026-07 — Hallazgo crítico #1: cerrar escritura directa
+-- vía API en tablas transaccionales/de auditoría.
+--
+-- Antes, estas tablas tenían una política "for all" con solo
+-- can_write_company(company_id): cualquier usuario autenticado con
+-- acceso de escritura a su empresa podía llamar directo a la API de
+-- Supabase (sin pasar por create_sale/create_purchase/create_return/
+-- adjust_stock/transfer_stock/open_cash_session/close_cash_session) y
+-- editar o borrar ventas históricas, insertar movimientos de caja
+-- falsos, o escribir stock a cualquier valor.
+--
+-- Esas funciones son SECURITY DEFINER (dueñas del objeto = rol que
+-- corrió este instalador, con bypassrls) y siguen escribiendo en estas
+-- tablas sin depender de estas políticas — por eso es seguro quitarle
+-- al cliente la vía directa sin romper ninguna operación real del
+-- sistema (se verificó que el frontend no escribe estas tablas salvo
+-- vía RPC, excepto cash_movements, atendido aparte abajo).
+-- ============================================================
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'sales','sale_items','purchases','purchase_items',
+    'cash_sessions','stock_movements','returns','return_items'
+  ] loop
+    execute format('drop policy if exists "%s write scoped" on public.%I', t, t);
+  end loop;
+end $$;
+
+-- cash_movements: sí tiene una escritura directa legítima desde el frontend
+-- (registrar un ingreso/egreso manual durante un turno abierto), así que en
+-- vez de bloquearla por completo se acota a INSERT (nunca UPDATE/DELETE, que
+-- es lo que permitía alterar o borrar el historial para tapar un faltante) y
+-- se exige que el movimiento referencie una caja realmente abierta de la
+-- misma empresa.
+drop policy if exists "cash_movements write scoped" on public.cash_movements;
+drop policy if exists "cash_movements insert scoped" on public.cash_movements;
+create policy "cash_movements insert scoped" on public.cash_movements
+  for insert to authenticated
+  with check (
+    public.can_write_company(company_id)
+    and public.user_can_access_location(location_id)
+    and exists (
+      select 1 from public.cash_sessions cs
+      where cs.id = cash_movements.cash_session_id
+        and cs.company_id = cash_movements.company_id
+        and cs.status = 'open'
+    )
+  );
+
+-- product_locations / product_variants / product_variant_locations: la edición
+-- directa de catálogo y stock inicial ya está restringida a admin en el
+-- frontend (canManageCatalog); ahora se exige lo mismo en el servidor con
+-- can_admin_company, igual que ya se hizo para products/promotions/companies.
+-- adjust_stock/transfer_stock/sync_product_variants/create_purchase/create_return
+-- siguen funcionando para cualquier rol autorizado porque son SECURITY DEFINER
+-- y no dependen de estas políticas.
+drop policy if exists "product_locations write scoped" on public.product_locations;
+create policy "product_locations write scoped" on public.product_locations
+  for all to authenticated
+  using (public.can_admin_company(company_id))
+  with check (public.can_admin_company(company_id));
+
+drop policy if exists "product_variants write scoped" on public.product_variants;
+create policy "product_variants write scoped" on public.product_variants
+  for all to authenticated
+  using (public.can_admin_company(company_id))
+  with check (public.can_admin_company(company_id));
+
+drop policy if exists "product_variant_locations write scoped" on public.product_variant_locations;
+create policy "product_variant_locations write scoped" on public.product_variant_locations
+  for all to authenticated
+  using (public.can_admin_company(company_id) and public.user_can_access_location(location_id))
+  with check (public.can_admin_company(company_id) and public.user_can_access_location(location_id));
+
+-- ============================================================
+-- Auditoría 2026-07 — Hallazgo crítico #4 (mitigación): idempotencia en
+-- create_sale. Un modo offline completo (cola local + sincronización) es un
+-- proyecto aparte; esto resuelve el riesgo concreto más grave mientras tanto:
+-- si el POS pierde la respuesta de un cobro (corte de red) y el cajero
+-- reintenta con el mismo carrito, NO se debe crear una segunda venta ni
+-- descontar el stock dos veces.
+--
+-- El frontend genera una clave (client_request_id) una sola vez por intento
+-- de cobro y la reenvía tal cual en cada reintento del mismo carrito. Si ya
+-- existe una venta con esa clave para la empresa, se devuelve la venta ya
+-- creada en vez de procesar el cobro de nuevo.
+-- ============================================================
+alter table public.sales add column if not exists client_request_id uuid;
+
+drop index if exists sales_client_request_id_uniq;
+create unique index sales_client_request_id_uniq on public.sales (company_id, client_request_id)
+  where client_request_id is not null;
+
+drop function if exists public.create_sale(uuid, text, text, jsonb, uuid);
+
+create or replace function public.create_sale(
+  p_customer_id uuid,
+  p_document_type text,
+  p_payment_method text,
+  p_items jsonb,
+  p_location_id uuid default null,
+  p_client_request_id uuid default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_company_id uuid; v_location_id uuid; v_tax_rate numeric(5,4); v_doc_types jsonb; v_charges_iva boolean;
+  v_sale_id uuid; v_customer_name text; v_item jsonb; v_product public.products%rowtype; v_loc_stock numeric(12,3);
+  v_qty numeric(12,3); v_line_total numeric(12,2); v_line_tax numeric(12,2);
+  v_total numeric(12,2) := 0; v_tax numeric(12,2) := 0; v_subtotal numeric(12,2); v_sale_number text;
+  v_variant_id uuid; v_variant public.product_variants%rowtype; v_unit_price numeric(12,2); v_unit_cost numeric(12,2);
+  v_variant_label text; v_attr_key text; v_attr_val text; v_label_parts text[];
+  v_price_includes_tax boolean;
+  v_existing record;
+  v_plan_sales_limit integer;
+  v_sales_this_month integer;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.'; end if;
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
+  if p_items is null or jsonb_array_length(p_items) = 0 then raise exception 'El carrito esta vacio.'; end if;
+
+  if p_client_request_id is not null then
+    select id, subtotal, tax, total into v_existing
+    from public.sales
+    where company_id = v_company_id and client_request_id = p_client_request_id;
+    if found then
+      return jsonb_build_object(
+        'sale_id', v_existing.id,
+        'subtotal', v_existing.subtotal,
+        'tax', v_existing.tax,
+        'total', v_existing.total
+      );
+    end if;
+  end if;
+
+  if not public.current_user_is_platform_admin() then
+    select sp.monthly_sales_limit into v_plan_sales_limit
+    from public.companies c
+    join public.subscription_plans sp on sp.id = c.plan_id
+    where c.id = v_company_id;
+
+    if v_plan_sales_limit is not null then
+      select count(*) into v_sales_this_month
+      from public.sales
+      where company_id = v_company_id
+        and deleted_at is null
+        and sale_date >= date_trunc('month', now());
+
+      if v_sales_this_month >= v_plan_sales_limit then
+        raise exception 'Se alcanzo el limite de ventas mensuales de tu plan (%). Actualiza tu plan para seguir vendiendo este mes.', v_plan_sales_limit;
+      end if;
+    end if;
+  end if;
+
+  v_location_id := p_location_id;
+  if v_location_id is null then select location_id into v_location_id from public.profiles where id = auth.uid(); end if;
+  if v_location_id is null then select id into v_location_id from public.locations where company_id = v_company_id order by created_at limit 1; end if;
+  if v_location_id is null then raise exception 'No hay punto de venta configurado.'; end if;
+  select tax_rate, document_types into v_tax_rate, v_doc_types from public.companies where id = v_company_id;
+  v_tax_rate := coalesce(v_tax_rate, 0.18);
+  select (dt ->> 'charges_iva')::boolean into v_charges_iva from jsonb_array_elements(coalesce(v_doc_types,'[]'::jsonb)) dt
+    where lower(dt ->> 'name') = lower(coalesce(p_document_type,'')) limit 1;
+  v_charges_iva := coalesce(v_charges_iva, true);
+  select coalesce(name,'Publico general') into v_customer_name from public.customers
+    where id = p_customer_id and company_id = v_company_id and deleted_at is null;
+  v_customer_name := coalesce(v_customer_name,'Publico general');
+  v_sale_number := 'V-' || to_char(now(),'YYYYMMDD') || '-' || upper(substr(replace(gen_random_uuid()::text,'-',''),1,6));
+  insert into public.sales (company_id, location_id, customer_id, sale_number, document_type, payment_method, customer_name, subtotal, tax, total, created_by, client_request_id)
+  values (v_company_id, v_location_id, p_customer_id, v_sale_number, coalesce(p_document_type,'Ticket'), coalesce(p_payment_method,'Efectivo'), v_customer_name, 0,0,0, auth.uid(), p_client_request_id)
+  returning id into v_sale_id;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_qty := coalesce((v_item ->> 'qty')::numeric, 0);
+    if v_qty <= 0 then raise exception 'Cantidad invalida.'; end if;
+    select * into v_product from public.products where id = (v_item ->> 'product_id')::uuid and company_id = v_company_id and deleted_at is null and active = true;
+    if not found then raise exception 'Producto no encontrado.'; end if;
+
+    v_price_includes_tax := coalesce(v_product.price_includes_tax, true);
+    v_variant_id := nullif(v_item ->> 'variant_id','')::uuid;
+
+    if v_variant_id is not null then
+      select * into v_variant from public.product_variants
+        where id = v_variant_id and product_id = v_product.id and company_id = v_company_id
+          and is_active = true and deleted_at is null;
+      if not found then raise exception 'Variante no encontrada para el producto %.', v_product.name; end if;
+
+      -- SECURITY: server-side price only; never trust client-supplied unit_price/price.
+      v_unit_price := coalesce(v_variant.price_override, v_product.price);
+      v_unit_cost  := coalesce(v_variant.cost_override, v_product.cost);
+
+      select stock into v_loc_stock from public.product_variant_locations
+        where product_variant_id = v_variant.id and location_id = v_location_id for update;
+      if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_product.name; end if;
+      if v_loc_stock < v_qty then raise exception 'Stock insuficiente para % en este local.', v_product.name; end if;
+
+      if not v_charges_iva then
+        v_line_total := round(v_unit_price * v_qty, 2); v_line_tax := 0;
+      elsif v_price_includes_tax then
+        v_line_total := round(v_unit_price * v_qty, 2); v_line_tax := round(v_line_total - v_line_total/(1+v_tax_rate), 2);
+      else
+        v_line_total := round(v_unit_price * v_qty * (1+v_tax_rate), 2); v_line_tax := round(v_unit_price * v_qty * v_tax_rate, 2);
+      end if;
+      v_total := v_total + v_line_total; v_tax := v_tax + v_line_tax;
+
+      v_label_parts := array[]::text[];
+      for v_attr_key, v_attr_val in select key, value::text from jsonb_each_text(coalesce(v_variant.attributes,'{}'::jsonb)) loop
+        v_label_parts := v_label_parts || (v_attr_key || ' ' || v_attr_val);
+      end loop;
+      v_variant_label := array_to_string(v_label_parts, ' / ');
+
+      insert into public.sale_items (company_id, location_id, sale_id, product_id, product_variant_id, variant_label, product_name, qty, unit_price, total, cost, tax_amount, price_includes_tax)
+      values (v_company_id, v_location_id, v_sale_id, v_product.id, v_variant.id, v_variant_label, v_product.name, v_qty, v_unit_price, v_line_total, v_unit_cost, v_line_tax, case when v_charges_iva then v_price_includes_tax else true end);
+
+      update public.product_variant_locations set stock = stock - v_qty, updated_at = now()
+        where product_variant_id = v_variant.id and location_id = v_location_id;
+
+      update public.products set stock = (
+        select coalesce(sum(pvl.stock),0)
+        from public.product_variant_locations pvl
+        join public.product_variants pv on pv.id = pvl.product_variant_id
+        where pv.product_id = v_product.id
+      ) where id = v_product.id;
+
+      insert into public.stock_movements (company_id, location_id, product_id, product_variant_id, movement_type, qty, reference_type, reference_id, notes)
+      values (v_company_id, v_location_id, v_product.id, v_variant.id, 'sale', -v_qty, 'sale', v_sale_id, 'Venta POS');
+
+    else
+      -- SECURITY: server-side price only; never trust client-supplied unit_price/price.
+      v_unit_price := v_product.price;
+      v_unit_cost := v_product.cost;
+
+      select stock into v_loc_stock from public.product_locations where product_id = v_product.id and location_id = v_location_id for update;
+      if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_product.name; end if;
+      if v_loc_stock < v_qty then raise exception 'Stock insuficiente para % en este local.', v_product.name; end if;
+      if not v_charges_iva then
+        v_line_total := round(v_unit_price * v_qty, 2); v_line_tax := 0;
+      elsif v_price_includes_tax then
+        v_line_total := round(v_unit_price * v_qty, 2); v_line_tax := round(v_line_total - v_line_total/(1+v_tax_rate), 2);
+      else
+        v_line_total := round(v_unit_price * v_qty * (1+v_tax_rate), 2); v_line_tax := round(v_unit_price * v_qty * v_tax_rate, 2);
+      end if;
+      v_total := v_total + v_line_total; v_tax := v_tax + v_line_tax;
+
+      insert into public.sale_items (company_id, location_id, sale_id, product_id, product_name, qty, unit_price, total, cost, tax_amount, price_includes_tax)
+      values (v_company_id, v_location_id, v_sale_id, v_product.id, v_product.name, v_qty, v_unit_price, v_line_total, v_unit_cost, v_line_tax, case when v_charges_iva then v_price_includes_tax else true end);
+
+      update public.product_locations set stock = stock - v_qty, updated_at = now() where product_id = v_product.id and location_id = v_location_id;
+      update public.products set stock = (select coalesce(sum(stock),0) from public.product_locations where product_id = v_product.id) where id = v_product.id;
+      insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty, reference_type, reference_id, notes)
+      values (v_company_id, v_location_id, v_product.id, 'sale', -v_qty, 'sale', v_sale_id, 'Venta POS');
+    end if;
+  end loop;
+
+  v_subtotal := v_total - v_tax;
+  update public.sales set subtotal = v_subtotal, tax = v_tax, total = v_total where id = v_sale_id;
+
+  return jsonb_build_object(
+    'sale_id', v_sale_id,
+    'subtotal', v_subtotal,
+    'tax', v_tax,
+    'total', v_total
+  );
+end;
+$function$;
+
+revoke execute on function public.create_sale(uuid, text, text, jsonb, uuid, uuid) from public, anon;
+grant execute on function public.create_sale(uuid, text, text, jsonb, uuid, uuid) to authenticated, service_role;
+
+-- ============================================================
+-- Auditoría 2026-07 — Hallazgo crítico #5: marcar una empresa como
+-- "Suspendida" o "Vencida" en el panel de plataforma (admin.empresas) no
+-- bloqueaba nada — subscription_status era solo una etiqueta decorativa.
+--
+-- Se agrega el chequeo a can_write_company/can_admin_company (usadas por
+-- las políticas RLS de categorías, clientes, proveedores, productos,
+-- promociones, unidades, etc.) para que una empresa suspendida/vencida deje
+-- de poder escribir. El Super Admin de plataforma sigue sin bloqueo (para
+-- poder revisar/gestionar el tenant suspendido). El bloqueo de venta/compra/
+-- devolución/caja/inventario/variantes se agrega directo dentro de cada RPC
+-- (create_sale, create_purchase, create_return, adjust_stock, transfer_stock,
+-- open_cash_session, close_cash_session, sync_product_variants,
+-- soft_delete_product), porque esas funciones son SECURITY DEFINER y no
+-- dependen de RLS.
+-- ============================================================
+create or replace function public.can_write_company(p_company_id uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select auth.uid() is not null
+    and not public.current_user_is_demo()
+    and (
+      public.current_user_is_platform_admin()
+      or p_company_id = public.current_user_company_id()
+    )
+    and (
+      public.current_user_is_platform_admin()
+      or exists (
+        select 1 from public.companies c
+        where c.id = p_company_id
+          and c.subscription_status in ('active','trial')
+          and (c.expires_at is null or c.expires_at >= now())
+      )
+    );
+$$;
+
+create or replace function public.can_admin_company(p_company_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select auth.uid() is not null
+    and not public.current_user_is_demo()
+    and (
+      public.current_user_is_platform_admin()
+      or (
+        p_company_id = public.current_user_company_id()
+        and public.current_user_role() = 'admin'::public.app_role
+      )
+    )
+    and (
+      public.current_user_is_platform_admin()
+      or exists (
+        select 1 from public.companies c
+        where c.id = p_company_id
+          and c.subscription_status in ('active','trial')
+          and (c.expires_at is null or c.expires_at >= now())
+      )
+    );
+$$;
+
+-- ============================================================
+-- Auditoría 2026-07 — Hallazgo crítico #6: los límites de plan
+-- (product_limit, monthly_sales_limit) se guardaban pero nunca se
+-- aplicaban — solo user_limit se hacía valer (en team-create-user). Un
+-- negocio en el plan más barato podía tener productos y ventas ilimitadas.
+--
+-- product_limit: se aplica con un trigger BEFORE INSERT en products (no se
+-- puede resolver desde una política RLS simple porque necesita contar filas).
+-- monthly_sales_limit: se aplica dentro de create_sale, mismo criterio.
+-- Si la empresa no tiene plan asignado (plan_id null) no se limita, igual
+-- que ya hacía user_limit. El Super Admin de plataforma no queda sujeto a
+-- estos límites (puede seguir operando/probando cualquier tenant).
+-- ============================================================
+create or replace function public.enforce_product_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_limit integer;
+  v_count integer;
+begin
+  if public.current_user_is_platform_admin() then
+    return new;
+  end if;
+
+  select sp.product_limit into v_limit
+  from public.companies c
+  join public.subscription_plans sp on sp.id = c.plan_id
+  where c.id = new.company_id;
+
+  if v_limit is null then
+    return new;
+  end if;
+
+  select count(*) into v_count
+  from public.products
+  where company_id = new.company_id and deleted_at is null;
+
+  if v_count >= v_limit then
+    raise exception 'Se alcanzo el limite de productos de tu plan (%). Actualiza tu plan para agregar mas productos.', v_limit;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_product_limit_trg on public.products;
+create trigger enforce_product_limit_trg
+  before insert on public.products
+  for each row execute function public.enforce_product_limit();
