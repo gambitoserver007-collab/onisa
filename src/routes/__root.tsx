@@ -71,10 +71,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Tienda Ágil" },
+      { title: "Onisa" },
       { name: "description", content: "SaaS POS multiempresa para tiendas y bodegas." },
-      { property: "og:title", content: "Tienda Ágil" },
-      { name: "twitter:title", content: "Tienda Ágil" },
+      { property: "og:title", content: "Onisa" },
+      { name: "twitter:title", content: "Onisa" },
       { property: "og:description", content: "SaaS POS multiempresa para tiendas y bodegas." },
       { name: "twitter:description", content: "SaaS POS multiempresa para tiendas y bodegas." },
       { name: "twitter:card", content: "summary" },

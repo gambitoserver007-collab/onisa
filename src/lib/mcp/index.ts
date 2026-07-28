@@ -7,11 +7,11 @@ import lowStockTool from "./tools/low-stock";
 const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unset";
 
 export default defineMcp({
-  name: "tienda-agil-mcp",
-  title: "Tienda Ágil MCP",
+  name: "onisa-mcp",
+  title: "Onisa MCP",
   version: "0.1.0",
   instructions:
-    "Herramientas de solo lectura para consultar productos, ventas y stock bajo de la empresa del usuario autenticado en Tienda Ágil.",
+    "Herramientas de solo lectura para consultar productos, ventas y stock bajo de la empresa del usuario autenticado en Onisa.",
   auth: auth.oauth.issuer({
     issuer: `https://${projectRef}.supabase.co/auth/v1`,
     acceptedAudiences: "authenticated",

@@ -79,6 +79,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const allowed = canAccessSaaS(session);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [platformLogo, setPlatformLogo] = useState<string | null>(null);
+  const [platformName, setPlatformName] = useState("Onisa");
 
   useEffect(() => {
     if (!isReady) return;
@@ -89,7 +90,10 @@ export function AdminShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!allowed) return;
     void fetchPlatformBranding()
-      .then((branding) => setPlatformLogo(branding.logoUrl))
+      .then((branding) => {
+        setPlatformLogo(branding.logoUrl);
+        setPlatformName(branding.name);
+      })
       .catch(() => undefined);
   }, [allowed]);
   if (!isReady || !session || !allowed) return null;
@@ -100,13 +104,13 @@ export function AdminShell({ children }: { children: ReactNode }) {
         <div className="flex items-center gap-3 border-b border-sidebar-border px-4 py-4">
           <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-2xl bg-brand-gradient text-primary-foreground shadow-glow">
             {platformLogo ? (
-              <img src={platformLogo} alt="Tienda Ágil" className="h-full w-full object-cover" />
+              <img src={platformLogo} alt={platformName} className="h-full w-full object-cover" />
             ) : (
               <Store className="h-5 w-5" />
             )}
           </span>
           <div className="min-w-0">
-            <p className="truncate text-sm font-bold text-sidebar-foreground">Tienda Ágil</p>
+            <p className="truncate text-sm font-bold text-sidebar-foreground">{platformName}</p>
             <p className="truncate text-xs text-muted-foreground">Plataforma SaaS</p>
           </div>
         </div>

@@ -96,7 +96,7 @@ function Consent() {
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 p-8">
       <h1 className="text-2xl font-bold">Conectar {clientName} a tu cuenta</h1>
       <p className="text-sm text-muted-foreground">
-        Al aprobar, {clientName} podrá usar Tienda Ágil como tú (mismo acceso a tus datos que tu
+        Al aprobar, {clientName} podrá usar Onisa como tú (mismo acceso a tus datos que tu
         sesión actual).
       </p>
       {error && (

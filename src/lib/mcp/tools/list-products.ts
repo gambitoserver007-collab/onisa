@@ -13,7 +13,7 @@ export default defineTool({
   name: "list_products",
   title: "Listar productos",
   description:
-    "Lista los productos de la empresa del usuario (Tienda Ágil), opcionalmente filtrando por texto en el nombre o SKU.",
+    "Lista los productos de la empresa del usuario (Onisa), opcionalmente filtrando por texto en el nombre o SKU.",
   inputSchema: {
     search: z.string().optional().describe("Texto a buscar en nombre o SKU."),
     limit: z.number().int().min(1).max(200).optional().describe("Máximo de filas (default 50)."),

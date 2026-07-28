@@ -1962,25 +1962,29 @@ ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS logo_url text;
 -- 2) platform_settings table
 CREATE TABLE IF NOT EXISTS public.platform_settings (
   id uuid PRIMARY KEY,
-  brand_name text NOT NULL DEFAULT 'Tienda Ágil',
+  brand_name text NOT NULL DEFAULT 'Onisa',
   logo_url text,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-GRANT SELECT ON public.platform_settings TO authenticated;
+GRANT SELECT ON public.platform_settings TO anon, authenticated;
 GRANT UPDATE ON public.platform_settings TO authenticated;
 GRANT ALL ON public.platform_settings TO service_role;
 
 ALTER TABLE public.platform_settings ENABLE ROW LEVEL SECURITY;
 
 INSERT INTO public.platform_settings (id, brand_name, logo_url)
-VALUES ('00000000-0000-4000-8000-0000000000a1', 'Tienda Ágil', NULL)
-ON CONFLICT (id) DO NOTHING;
+VALUES ('00000000-0000-4000-8000-0000000000a1', 'Onisa', NULL)
+ON CONFLICT (id) DO UPDATE SET brand_name = EXCLUDED.brand_name
+WHERE public.platform_settings.brand_name = 'Tienda Ágil';
 
+-- select pública (anon + authenticated): el nombre/logo de marca deben verse
+-- en login/registro ANTES de iniciar sesión, no es información sensible.
 DROP POLICY IF EXISTS "platform_settings select authenticated" ON public.platform_settings;
-CREATE POLICY "platform_settings select authenticated"
+DROP POLICY IF EXISTS "platform_settings select public" ON public.platform_settings;
+CREATE POLICY "platform_settings select public"
   ON public.platform_settings FOR SELECT
-  TO authenticated
+  TO anon, authenticated
   USING (true);
 
 DROP POLICY IF EXISTS "platform_settings update platform admin" ON public.platform_settings;

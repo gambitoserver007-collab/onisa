@@ -22,6 +22,7 @@ import { canAccessSaaS } from "@/lib/permissions";
 import type { DemoSession } from "@/types";
 import { getBusinessSettings } from "@/lib/businessSettings";
 import { detectCountryCode } from "@/lib/detectCountry";
+import { fetchPlatformBranding } from "@/services/appData";
 
 export const Route = createFileRoute("/login")({
   validateSearch: (s: Record<string, unknown>) => ({
@@ -54,12 +55,19 @@ function LoginPage() {
   const [demoDialogRole, setDemoDialogRole] = useState<DemoRole | null>(null);
   const [demoCountryCode, setDemoCountryCode] = useState(() => getBusinessSettings().countryCode);
   const selectedDemoMarket = getMarketByCountryCode(demoCountryCode);
+  const [platformName, setPlatformName] = useState("Onisa");
 
   // Preselect the visitor's country (timezone + language) unless one was set.
   useEffect(() => {
     setDemoCountryCode((current) =>
       current === DEFAULT_MARKET_CODE ? detectCountryCode() : current,
     );
+  }, []);
+
+  useEffect(() => {
+    void fetchPlatformBranding()
+      .then((branding) => setPlatformName(branding.name))
+      .catch(() => undefined);
   }, []);
   const selectedDemoOption = demoOptions.find((option) => option.role === demoDialogRole);
 
@@ -114,7 +122,7 @@ function LoginPage() {
             <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/15 text-white">
               <Store className="h-6 w-6" />
             </div>
-            <span className="text-lg font-black text-white">Tienda Ágil</span>
+            <span className="text-lg font-black text-white">{platformName}</span>
           </div>
 
           <div>
@@ -153,7 +161,7 @@ function LoginPage() {
             <div className="text-center lg:hidden">
               <div className="mb-2 inline-flex items-center gap-2">
                 <Store className="h-5 w-5" />
-                <span className="font-bold">Tienda Ágil</span>
+                <span className="font-bold">{platformName}</span>
               </div>
             </div>
             <Card className="border-0 bg-card shadow-xl shadow-emerald-950/10">

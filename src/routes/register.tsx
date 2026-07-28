@@ -11,6 +11,7 @@ import { DEFAULT_MARKET_CODE } from "@/data/markets";
 import { detectCountryCode } from "@/lib/detectCountry";
 import { registerLocalAccount } from "@/lib/demoAuth";
 import { translateAuthError } from "@/lib/authMessages";
+import { fetchPlatformBranding } from "@/services/appData";
 
 export const Route = createFileRoute("/register")({ component: RegisterPage });
 
@@ -21,11 +22,18 @@ function RegisterPage() {
   const [password, setPassword] = useState("");
   const [countryCode, setCountryCode] = useState(DEFAULT_MARKET_CODE);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [platformName, setPlatformName] = useState("Onisa");
 
   // Auto-detect the visitor's country (timezone + language). No picker: the
   // platform admin adjusts country/currency/tax per store if ever needed.
   useEffect(() => {
     setCountryCode(detectCountryCode());
+  }, []);
+
+  useEffect(() => {
+    void fetchPlatformBranding()
+      .then((branding) => setPlatformName(branding.name))
+      .catch(() => undefined);
   }, []);
 
   if (!PUBLIC_REGISTRATION_ENABLED) {
@@ -37,7 +45,7 @@ function RegisterPage() {
               <span className="grid h-9 w-9 place-items-center rounded-2xl bg-brand-gradient text-primary-foreground shadow-glow">
                 <Store className="h-5 w-5" />
               </span>
-              <span className="font-black">Tienda Ágil</span>
+              <span className="font-black">{platformName}</span>
             </div>
             <CardTitle className="text-2xl font-black">Registro público deshabilitado</CardTitle>
             <CardDescription>
@@ -102,7 +110,7 @@ function RegisterPage() {
             <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/15 text-white">
               <Store className="h-6 w-6" />
             </div>
-            <span className="text-lg font-black text-white">Tienda Ágil</span>
+            <span className="text-lg font-black text-white">{platformName}</span>
           </div>
 
           <div>
@@ -141,7 +149,7 @@ function RegisterPage() {
             <div className="text-center lg:hidden">
               <div className="mb-2 inline-flex items-center gap-2">
                 <Store className="h-5 w-5" />
-                <span className="font-bold">Tienda Ágil</span>
+                <span className="font-bold">{platformName}</span>
               </div>
             </div>
             <Card className="border-0 bg-card shadow-xl shadow-emerald-950/10">

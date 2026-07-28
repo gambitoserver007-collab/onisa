@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import landingHtml from "./landing.html?raw";
 
 /**
- * Página de ventas (landing) de Tienda Ágil.
+ * Página de ventas (landing) de Onisa.
  *
  * El marcado + estilos viven en `landing.html` (todo el CSS está scopeado bajo
  * `.tienda-landing`). Regla de robustez: TODO el contenido es visible sin

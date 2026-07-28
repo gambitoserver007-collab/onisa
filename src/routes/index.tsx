@@ -9,12 +9,12 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       {
-        title: "Tienda Ágil — El sistema para vender, controlar y hacer crecer tu tienda",
+        title: "Onisa — El sistema para vender, controlar y hacer crecer tu tienda",
       },
       {
         name: "description",
         content:
-          "Tienda Ágil es el punto de venta que conecta tus ventas, tu inventario y tus ganancias en un solo lugar. Empieza gratis.",
+          "Onisa es el punto de venta que conecta tus ventas, tu inventario y tus ganancias en un solo lugar. Empieza gratis.",
       },
     ],
   }),
@@ -42,7 +42,7 @@ function Index() {
           <Store className="h-8 w-8" />
         </span>
         <div className="animate-fade-up">
-          <p className="text-lg font-black tracking-tight text-foreground">Tienda Ágil</p>
+          <p className="text-lg font-black tracking-tight text-foreground">Onisa</p>
           <p className="text-sm text-muted-foreground">Cargando…</p>
         </div>
       </div>

@@ -121,11 +121,11 @@ export async function fetchPlatformBranding(): Promise<PlatformBranding> {
       .maybeSingle();
     if (error) throw error;
     return {
-      name: (data?.brand_name as string) || "Tienda Ágil",
+      name: (data?.brand_name as string) || "Onisa",
       logoUrl: (data?.logo_url as string | null) ?? null,
     };
   } catch {
-    return { name: "Tienda Ágil", logoUrl: null };
+    return { name: "Onisa", logoUrl: null };
   }
 }
 
@@ -133,6 +133,16 @@ export async function updatePlatformLogo(logoUrl: string | null) {
   const { error } = await (supabase as any)
     .from("platform_settings")
     .update({ logo_url: logoUrl, updated_at: new Date().toISOString() })
+    .eq("id", PLATFORM_SETTINGS_ID);
+  if (error) throw error;
+}
+
+export async function updatePlatformBrandName(name: string) {
+  const cleanName = name.trim();
+  if (!cleanName) throw new Error("Ingresa el nombre de la plataforma.");
+  const { error } = await (supabase as any)
+    .from("platform_settings")
+    .update({ brand_name: cleanName, updated_at: new Date().toISOString() })
     .eq("id", PLATFORM_SETTINGS_ID);
   if (error) throw error;
 }
