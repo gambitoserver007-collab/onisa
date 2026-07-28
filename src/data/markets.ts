@@ -16,7 +16,7 @@ export interface Market {
   note?: string;
 }
 
-export const DEFAULT_MARKET_CODE = "PE";
+export const DEFAULT_MARKET_CODE = "MX";
 export const DEFAULT_BUSINESS_NAME = "Tienda Demo";
 export const DEFAULT_TAX_RATE = 0.18;
 

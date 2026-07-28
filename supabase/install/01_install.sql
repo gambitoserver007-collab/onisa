@@ -68,9 +68,9 @@ create table if not exists public.companies (
   fiscal_id_label text not null default 'ID fiscal',
   address text,
   phone text,
-  country_code text not null default 'PE',
-  currency_code text not null default 'PEN',
-  locale text not null default 'es-PE',
+  country_code text not null default 'MX',
+  currency_code text not null default 'MXN',
+  locale text not null default 'es-MX',
   tax_name text not null default 'Impuesto demo',
   tax_rate numeric(5, 4) not null default 0.18,
   plan_id uuid references public.subscription_plans(id) on delete set null,
@@ -463,10 +463,10 @@ declare
   v_currency_code text;
   v_locale text;
 begin
-  v_company_name := coalesce(new.raw_user_meta_data ->> 'company_name', 'Mi Tienda Agil');
-  v_country_code := coalesce(new.raw_user_meta_data ->> 'country_code', 'PE');
-  v_currency_code := coalesce(new.raw_user_meta_data ->> 'currency_code', 'PEN');
-  v_locale := coalesce(new.raw_user_meta_data ->> 'locale', 'es-PE');
+  v_company_name := coalesce(new.raw_user_meta_data ->> 'company_name', 'Mi Tienda');
+  v_country_code := coalesce(new.raw_user_meta_data ->> 'country_code', 'MX');
+  v_currency_code := coalesce(new.raw_user_meta_data ->> 'currency_code', 'MXN');
+  v_locale := coalesce(new.raw_user_meta_data ->> 'locale', 'es-MX');
 
   v_company_id := nullif(new.raw_user_meta_data ->> 'company_id', '')::uuid;
 
@@ -965,9 +965,9 @@ create table if not exists public.companies (
   fiscal_id_label text not null default 'ID fiscal',
   address text,
   phone text,
-  country_code text not null default 'PE',
-  currency_code text not null default 'PEN',
-  locale text not null default 'es-PE',
+  country_code text not null default 'MX',
+  currency_code text not null default 'MXN',
+  locale text not null default 'es-MX',
   tax_name text not null default 'Impuesto demo',
   tax_rate numeric(5, 4) not null default 0.18,
   plan_id uuid references public.subscription_plans(id) on delete set null,
@@ -1302,10 +1302,10 @@ declare
   v_currency_code text;
   v_locale text;
 begin
-  v_company_name := coalesce(new.raw_user_meta_data ->> 'company_name', 'Mi Tienda Agil');
-  v_country_code := coalesce(new.raw_user_meta_data ->> 'country_code', 'PE');
-  v_currency_code := coalesce(new.raw_user_meta_data ->> 'currency_code', 'PEN');
-  v_locale := coalesce(new.raw_user_meta_data ->> 'locale', 'es-PE');
+  v_company_name := coalesce(new.raw_user_meta_data ->> 'company_name', 'Mi Tienda');
+  v_country_code := coalesce(new.raw_user_meta_data ->> 'country_code', 'MX');
+  v_currency_code := coalesce(new.raw_user_meta_data ->> 'currency_code', 'MXN');
+  v_locale := coalesce(new.raw_user_meta_data ->> 'locale', 'es-MX');
   v_company_id := nullif(new.raw_user_meta_data ->> 'company_id', '')::uuid;
   if v_company_id is null then
     insert into public.companies (name, contact_email, country_code, currency_code, locale, fiscal_id_label, tax_name, tax_rate)
@@ -1626,14 +1626,14 @@ insert into public.companies (
 )
 values (
   '00000000-0000-4000-8000-000000000010',
-  'Mi Tienda Agil',
-  'owner@tiendaagil.test',
-  'RUC',
-  'PE',
-  'PEN',
-  'es-PE',
-  'IGV',
-  0.18,
+  'Onisa',
+  'owner@example.com',
+  'RFC',
+  'MX',
+  'MXN',
+  'es-MX',
+  'IVA',
+  0.16,
   '00000000-0000-4000-8000-000000000103',
   'active',
   false
@@ -1675,7 +1675,7 @@ when (old.email is distinct from new.email)
 execute function public.sync_profile_email_from_auth_user();
 
 create or replace function public.bootstrap_owner_profile(
-  p_owner_email text default 'owner@tiendaagil.test'
+  p_owner_email text default 'owner@example.com'
 )
 returns void
 language plpgsql
@@ -1715,7 +1715,7 @@ begin
     v_user_id,
     '00000000-0000-4000-8000-000000000010',
     v_email,
-    'Owner Tienda Agil',
+    'Owner Onisa',
     'admin',
     false,
     'none',
@@ -1746,8 +1746,8 @@ insert into public.companies (
   id, name, contact_email, fiscal_id_label, country_code, currency_code, locale,
   tax_name, tax_rate, plan_id, subscription_status, is_demo_data
 ) values (
-  '00000000-0000-4000-8000-000000000010', 'Mi Tienda Agil', 'owner@tiendaagil.test',
-  'RUC', 'PE', 'PEN', 'es-PE', 'IGV', 0.18,
+  '00000000-0000-4000-8000-000000000010', 'Onisa', 'owner@example.com',
+  'RFC', 'MX', 'MXN', 'es-MX', 'IVA', 0.16,
   '00000000-0000-4000-8000-000000000103', 'active', false
 )
 on conflict (id) do update set
@@ -1773,7 +1773,7 @@ for each row when (old.email is distinct from new.email)
 execute function public.sync_profile_email_from_auth_user();
 
 create or replace function public.bootstrap_owner_profile(
-  p_owner_email text default 'owner@tiendaagil.test'
+  p_owner_email text default 'owner@example.com'
 ) returns void language plpgsql security definer set search_path = public as $$
 declare v_user_id uuid; v_email text;
 begin
@@ -3082,10 +3082,10 @@ declare
   v_locale text;
   v_is_owner boolean;
 begin
-  v_company_name  := coalesce(new.raw_user_meta_data ->> 'company_name', 'Mi Tienda Agil');
-  v_country_code  := coalesce(new.raw_user_meta_data ->> 'country_code', 'PE');
-  v_currency_code := coalesce(new.raw_user_meta_data ->> 'currency_code', 'PEN');
-  v_locale        := coalesce(new.raw_user_meta_data ->> 'locale', 'es-PE');
+  v_company_name  := coalesce(new.raw_user_meta_data ->> 'company_name', 'Mi Tienda');
+  v_country_code  := coalesce(new.raw_user_meta_data ->> 'country_code', 'MX');
+  v_currency_code := coalesce(new.raw_user_meta_data ->> 'currency_code', 'MXN');
+  v_locale        := coalesce(new.raw_user_meta_data ->> 'locale', 'es-MX');
   v_company_id    := nullif(new.raw_user_meta_data ->> 'company_id', '')::uuid;
 
   v_is_owner := (v_company_id is null);
@@ -6582,3 +6582,14 @@ drop trigger if exists enforce_product_limit_trg on public.products;
 create trigger enforce_product_limit_trg
   before insert on public.products
   for each row execute function public.enforce_product_limit();
+
+-- ============================================================
+-- Rebranding 2026-07 (a pedido del cliente): default de país cambia de
+-- Perú a México. El default de la tabla ya se corrigió arriba, pero
+-- "create table if not exists" no toca una tabla que ya existe -- por
+-- eso se agrega este ALTER explícito, para que también aplique al
+-- re-ejecutar el instalador sobre una base ya instalada.
+-- ============================================================
+alter table public.companies alter column country_code set default 'MX';
+alter table public.companies alter column currency_code set default 'MXN';
+alter table public.companies alter column locale set default 'es-MX';
