@@ -1,0 +1,506 @@
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');
+  .tienda-landing{
+    --color-bg:#FAFAF7; --color-bg-elevated:#FFFFFF; --color-bg-accent:#EDF7F0;
+    --color-text:#14181C; --color-text-muted:#5B626B; --color-border:rgba(0,0,0,0.07);
+    --color-primary:#16A34A; --color-primary-rgb:22,163,74;
+    --color-secondary:#0D9488; --color-secondary-rgb:13,148,136;
+    --color-accent:#22C55E; --color-accent-rgb:34,197,94;
+    --font-display:'Bricolage Grotesque',system-ui,sans-serif;
+    --font-body:'Inter',system-ui,sans-serif;
+    --font-mono:'JetBrains Mono',monospace;
+    --text-xs:clamp(0.75rem,0.7rem + 0.25vw,0.85rem);
+    --text-sm:clamp(0.875rem,0.85rem + 0.125vw,0.95rem);
+    --text-base:clamp(1rem,0.95rem + 0.25vw,1.125rem);
+    --text-lg:clamp(1.125rem,1rem + 0.6vw,1.375rem);
+    --text-xl:clamp(1.5rem,1.2rem + 1.5vw,2rem);
+    --text-2xl:clamp(2rem,1.5rem + 2.5vw,3rem);
+    --text-3xl:clamp(2.5rem,1.8rem + 3.5vw,4.25rem);
+    --text-hero:clamp(2.6rem,1.8rem + 4.6vw,5.2rem);
+    font-family:var(--font-body);background:var(--color-bg);color:var(--color-text);
+    line-height:1.6;font-size:var(--text-base);-webkit-font-smoothing:antialiased;
+    overflow-x:clip;scroll-behavior:smooth;display:block;min-height:100vh;
+  }
+  .tienda-landing *{margin:0;padding:0;box-sizing:border-box}
+  .tienda-landing h1,.tienda-landing h2,.tienda-landing h3{font-family:var(--font-display);line-height:1.08;letter-spacing:-0.02em;font-weight:700}
+  .tienda-landing .container{max-width:1160px;margin:0 auto;padding:0 2rem}
+  .tienda-landing .section{padding:6.5rem 0;position:relative}
+  .tienda-landing .kicker{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:0.18em;color:var(--color-primary);font-weight:600}
+  .tienda-landing .muted{color:var(--color-text-muted)}
+  .tienda-landing .center{text-align:center}
+  .tienda-landing .gradient-text{background:linear-gradient(120deg,var(--color-secondary),var(--color-primary),var(--color-accent));background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:tl-gradientShift 8s ease infinite}
+  @keyframes tl-gradientShift{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+
+  /* patrones de fondo */
+  .tienda-landing .p-a{background:var(--color-bg)}
+  .tienda-landing .p-b{background:var(--color-bg-elevated);border-top:1px solid var(--color-border);border-bottom:1px solid var(--color-border)}
+  .tienda-landing .p-c{background:radial-gradient(ellipse 80% 60% at 25% 30%,rgba(var(--color-primary-rgb),0.10) 0%,transparent 55%),radial-gradient(ellipse 60% 50% at 85% 85%,rgba(var(--color-secondary-rgb),0.08) 0%,transparent 50%),var(--color-bg)}
+  .tienda-landing .p-e{background:linear-gradient(180deg,var(--color-bg) 0%,var(--color-bg-accent) 50%,var(--color-bg) 100%)}
+  .tienda-landing .p-f{background:radial-gradient(ellipse at top left,rgba(var(--color-primary-rgb),0.14) 0%,transparent 60%),radial-gradient(ellipse at bottom right,rgba(var(--color-secondary-rgb),0.12) 0%,transparent 60%),var(--color-bg-elevated)}
+
+  /* botones */
+  .tienda-landing .btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;padding:1.15rem 2.4rem;border-radius:999px;font-family:var(--font-body);font-weight:600;font-size:var(--text-base);color:#fff;white-space:nowrap;text-decoration:none;border:none;cursor:pointer;overflow:hidden;background:linear-gradient(90deg,var(--color-primary),var(--color-accent),var(--color-secondary),var(--color-accent),var(--color-primary));background-size:300% 100%;animation:tl-btnGradient 6s linear infinite;transition:all .6s cubic-bezier(.4,0,.2,1);box-shadow:0 12px 34px -12px rgba(var(--color-primary-rgb),0.7)}
+  @keyframes tl-btnGradient{0%{background-position:100% 50%}100%{background-position:-200% 50%}}
+  .tienda-landing .btn:hover{transform:scale(1.06);filter:brightness(1.12);box-shadow:0 20px 50px -12px rgba(var(--color-primary-rgb),0.8)}
+  .tienda-landing .btn svg{width:18px;height:18px}
+  .tienda-landing .btn-ghost{display:inline-flex;align-items:center;gap:.5rem;color:var(--color-text);font-weight:600;text-decoration:none;font-size:var(--text-sm)}
+  .tienda-landing .btn-ghost svg{width:18px;height:18px;color:var(--color-primary)}
+
+  .tienda-landing .trust-row{display:flex;flex-wrap:wrap;gap:1.4rem;justify-content:center;margin-top:1.15rem;font-size:var(--text-xs);text-transform:uppercase;letter-spacing:0.13em;color:var(--color-text-muted);font-family:var(--font-mono)}
+  .tienda-landing .trust-row span{display:inline-flex;align-items:center;gap:.45rem}
+  .tienda-landing .trust-row svg{width:14px;height:14px;color:var(--color-primary)}
+
+  /* cards */
+  .tienda-landing .card{background:var(--color-bg-elevated);border:1px solid var(--color-border);border-radius:1.75rem;padding:2rem;transition:transform .5s ease,border-color .5s ease,box-shadow .5s ease}
+  .tienda-landing .card:hover{transform:translateY(-4px);border-color:rgba(var(--color-primary-rgb),0.35);box-shadow:0 20px 50px -24px rgba(0,0,0,0.18)}
+
+  /* reveal — el contenido es VISIBLE por defecto (no depende del JS).
+     La animacion de entrada solo se activa si el JS agrega .anim al contenedor. */
+  .tienda-landing .reveal{transition:opacity .9s ease,transform .9s ease}
+  .tienda-landing.anim .reveal{opacity:0;transform:translateY(28px)}
+  .tienda-landing.anim .reveal.vis{opacity:1;transform:none}
+  .tienda-landing .stag>*{transition:opacity .8s ease,transform .8s ease}
+  .tienda-landing.anim .stag>*{opacity:0;transform:translateY(24px)}
+  .tienda-landing.anim .stag.vis>*{opacity:1;transform:none}
+  .tienda-landing .stag.vis>*:nth-child(2){transition-delay:.08s}.tienda-landing .stag.vis>*:nth-child(3){transition-delay:.16s}
+  .tienda-landing .stag.vis>*:nth-child(4){transition-delay:.24s}.tienda-landing .stag.vis>*:nth-child(5){transition-delay:.32s}
+  .tienda-landing .stag.vis>*:nth-child(6){transition-delay:.40s}.tienda-landing .stag.vis>*:nth-child(7){transition-delay:.48s}
+  .tienda-landing .stag.vis>*:nth-child(8){transition-delay:.56s}
+
+  /* nav */
+  .tienda-landing .nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:rgba(250,250,247,0.82);border-bottom:1px solid var(--color-border)}
+  .tienda-landing .nav .container{display:flex;align-items:center;justify-content:space-between;padding-top:1rem;padding-bottom:1rem}
+  .tienda-landing .logo{display:flex;align-items:center;gap:.55rem;font-family:var(--font-display);font-weight:800;font-size:1.15rem;letter-spacing:-0.02em}
+  .tienda-landing .logo .mark{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));color:#fff}
+  .tienda-landing .logo .mark svg{width:19px;height:19px}
+  .tienda-landing .nav-cta{font-size:var(--text-sm);padding:.7rem 1.4rem}
+
+  /* hero */
+  .tienda-landing .hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:3.2rem;align-items:center}
+  .tienda-landing .hero h1{font-size:var(--text-hero);font-weight:800;margin:1.1rem 0 1.2rem}
+  .tienda-landing .hero p.sub{font-size:var(--text-lg);color:var(--color-text-muted);max-width:34rem;margin-bottom:1.9rem}
+  .tienda-landing .hero-actions{display:flex;flex-wrap:wrap;gap:1.1rem;align-items:center}
+  .tienda-landing .hero-media{position:relative;border-radius:1.75rem;overflow:hidden;border:1px solid var(--color-border);box-shadow:0 40px 90px -40px rgba(0,0,0,0.28);aspect-ratio:16/10;background:#000}
+  .tienda-landing .hero-media video{width:100%;height:100%;object-fit:cover;display:block}
+  .tienda-landing .hero-badge{position:absolute;left:1rem;bottom:1rem;z-index:3;background:rgba(255,255,255,0.92);backdrop-filter:blur(8px);border-radius:999px;padding:.55rem 1rem;font-size:var(--text-xs);font-weight:600;display:inline-flex;align-items:center;gap:.5rem;box-shadow:0 8px 24px -12px rgba(0,0,0,.3)}
+  .tienda-landing .hero-badge .dot{width:9px;height:9px;border-radius:50%;background:var(--color-primary);box-shadow:0 0 0 4px rgba(var(--color-primary-rgb),0.2);animation:tl-pulse 2s infinite}
+  @keyframes tl-pulse{50%{box-shadow:0 0 0 8px rgba(var(--color-primary-rgb),0)}}
+  .tienda-landing .floating-shape{position:absolute;border-radius:50%;filter:blur(2px);opacity:.5;pointer-events:none;animation:tl-float 7s ease-in-out infinite}
+  @keyframes tl-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-18px)}}
+  .tienda-landing .microproof{display:flex;align-items:center;gap:.6rem;margin-top:1.4rem;font-size:var(--text-sm);color:var(--color-text-muted)}
+  .tienda-landing .stars{color:#f59e0b;display:inline-flex;gap:1px}.tienda-landing .stars svg{width:15px;height:15px;fill:#f59e0b;stroke:none}
+
+  .tienda-landing .eyebrow-h2{margin-bottom:.6rem}
+  .tienda-landing h2.big{font-size:var(--text-2xl);margin-bottom:1rem}
+  .tienda-landing .lead{font-size:var(--text-lg);color:var(--color-text-muted);max-width:44rem;margin:0 auto}
+
+  /* listas dolor */
+  .tienda-landing .pain-list{max-width:720px;margin:2.5rem auto 0;display:grid;gap:.9rem}
+  .tienda-landing .pain{display:flex;gap:.9rem;align-items:flex-start;background:var(--color-bg-elevated);border:1px solid var(--color-border);border-radius:1rem;padding:1.05rem 1.25rem}
+  .tienda-landing .pain svg{width:22px;height:22px;color:#dc2626;flex-shrink:0;margin-top:2px}
+  .tienda-landing .pain-close{max-width:640px;margin:2.2rem auto 0;text-align:center;font-size:var(--text-lg);font-weight:600}
+
+  /* mecanismo */
+  .tienda-landing .mech-name{font-size:var(--text-2xl);text-align:center;margin:1rem 0 .5rem}
+  .tienda-landing .pillars{display:grid;grid-template-columns:repeat(3,1fr);gap:1.4rem;margin-top:3rem}
+  .tienda-landing .pillar .pnum{font-family:var(--font-mono);font-size:var(--text-sm);color:var(--color-primary);font-weight:600}
+  .tienda-landing .pillar h3{font-size:var(--text-xl);margin:.6rem 0 .5rem}
+  .tienda-landing .pillar-ic{width:52px;height:52px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(135deg,rgba(var(--color-primary-rgb),.14),rgba(var(--color-secondary-rgb),.14));color:var(--color-primary);margin-bottom:1rem}
+  .tienda-landing .pillar-ic svg{width:26px;height:26px}
+
+  /* beneficios */
+  .tienda-landing .grid-two{display:grid;grid-template-columns:1fr 1fr;gap:3rem;align-items:center}
+  .tienda-landing .benefits{display:grid;grid-template-columns:1fr 1fr;gap:1.1rem 1.6rem}
+  .tienda-landing .benefit{display:flex;gap:.85rem;align-items:flex-start}
+  .tienda-landing .benefit svg{width:22px;height:22px;color:var(--color-primary);flex-shrink:0;margin-top:3px}
+  .tienda-landing .benefit b{display:block;font-weight:600}
+  .tienda-landing .benefit span{color:var(--color-text-muted);font-size:var(--text-sm)}
+  .tienda-landing .media-frame{border-radius:1.5rem;overflow:hidden;border:1px solid var(--color-border);box-shadow:0 30px 70px -40px rgba(0,0,0,.3)}
+  .tienda-landing .media-frame img{width:100%;height:auto;display:block;transition:transform .6s ease}
+  .tienda-landing .media-frame:hover img{transform:scale(1.03)}
+
+  /* módulos */
+  .tienda-landing .modules{display:grid;gap:1rem}
+  .tienda-landing .module{display:flex;gap:1rem;align-items:flex-start;padding:1.1rem 0;border-bottom:1px solid var(--color-border)}
+  .tienda-landing .module:last-child{border-bottom:none}
+  .tienda-landing .mod-num{font-family:var(--font-mono);font-weight:600;color:var(--color-primary);width:2.2rem;flex-shrink:0}
+  .tienda-landing .module b{font-weight:600}.tienda-landing .module p{color:var(--color-text-muted);font-size:var(--text-sm);margin-top:.15rem}
+
+  /* para quién */
+  .tienda-landing .forwho{display:grid;grid-template-columns:1fr 1fr;gap:1.6rem}
+  .tienda-landing .forwho .card h3{font-size:var(--text-lg);margin-bottom:1rem;display:flex;align-items:center;gap:.5rem}
+  .tienda-landing .forwho .card h3 svg{width:24px;height:24px;flex-shrink:0}
+  .tienda-landing .forwho ul{list-style:none;display:grid;gap:.75rem}
+  .tienda-landing .forwho li{display:flex;gap:.6rem;align-items:flex-start;font-size:var(--text-sm)}
+  .tienda-landing .forwho li svg{width:19px;height:19px;flex-shrink:0;margin-top:2px}
+  .tienda-landing .yes svg{color:var(--color-primary)} .tienda-landing .no svg{color:#dc2626}
+
+  /* testimonios */
+  .tienda-landing .tgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.4rem;margin-top:2.5rem}
+  .tienda-landing .tcard .quote{font-size:var(--text-base);margin-bottom:1.2rem}
+  .tienda-landing .tcard .who{display:flex;align-items:center;gap:.75rem}
+  .tienda-landing .avatar{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#fff;font-family:var(--font-display);flex-shrink:0;object-fit:cover;background:var(--color-bg-accent)}
+  .tienda-landing .tcard .who b{font-size:var(--text-sm)}.tienda-landing .tcard .who span{font-size:var(--text-xs);color:var(--color-text-muted);display:block}
+
+  /* stats */
+  .tienda-landing .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1.4rem;max-width:760px;margin:0 auto 0}
+  .tienda-landing .stat{text-align:center}
+  .tienda-landing .stat .n{font-family:var(--font-display);font-weight:800;font-size:var(--text-2xl);color:var(--color-primary)}
+  .tienda-landing .stat .l{color:var(--color-text-muted);font-size:var(--text-sm)}
+
+  /* precios */
+  .tienda-landing .plans{display:grid;grid-template-columns:repeat(3,1fr);gap:1.4rem;margin-top:3rem;align-items:stretch}
+  .tienda-landing .plan{background:var(--color-bg-elevated);border:1px solid var(--color-border);border-radius:1.75rem;padding:2rem 1.75rem;display:flex;flex-direction:column;position:relative;transition:transform .4s ease,box-shadow .4s ease}
+  .tienda-landing .plan:hover{transform:translateY(-5px);box-shadow:0 30px 60px -30px rgba(0,0,0,.2)}
+  .tienda-landing .plan.pop{border:2px solid var(--color-primary);box-shadow:0 30px 70px -30px rgba(var(--color-primary-rgb),.5)}
+  .tienda-landing .plan .tag{position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,var(--color-primary),var(--color-secondary));color:#fff;font-size:var(--text-xs);font-weight:600;padding:.35rem 1rem;border-radius:999px;letter-spacing:.04em}
+  .tienda-landing .plan h3{font-size:var(--text-lg)}
+  .tienda-landing .plan .price{font-family:var(--font-display);font-weight:800;font-size:2.6rem;margin:.4rem 0 .1rem;line-height:1}
+  .tienda-landing .plan .price small{font-size:1rem;font-weight:500;color:var(--color-text-muted)}
+  .tienda-landing .plan .pdesc{color:var(--color-text-muted);font-size:var(--text-sm);margin-bottom:1.3rem;min-height:2.4em}
+  .tienda-landing .plan ul{list-style:none;display:grid;gap:.7rem;margin-bottom:1.6rem;flex:1}
+  .tienda-landing .plan li{display:flex;gap:.55rem;align-items:flex-start;font-size:var(--text-sm)}
+  .tienda-landing .plan li svg{width:18px;height:18px;color:var(--color-primary);flex-shrink:0;margin-top:2px}
+  .tienda-landing .plan .btn,.tienda-landing .plan .btn-outline{width:100%}
+  .tienda-landing .btn-outline{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;padding:1rem 1.5rem;border-radius:999px;border:1.5px solid var(--color-border);background:transparent;color:var(--color-text);font-weight:600;text-decoration:none;transition:all .3s ease}
+  .tienda-landing .btn-outline:hover{border-color:var(--color-primary);color:var(--color-primary)}
+
+  /* garantía */
+  .tienda-landing .guarantee{max-width:640px;margin:0 auto;text-align:center;background:var(--color-bg-elevated);border:1px solid var(--color-border);border-radius:1.75rem;padding:2.75rem 2rem}
+  .tienda-landing .guarantee .seal{width:76px;height:76px;border-radius:50%;display:grid;place-items:center;margin:0 auto 1.25rem;background:linear-gradient(135deg,rgba(var(--color-primary-rgb),.14),rgba(var(--color-secondary-rgb),.14));color:var(--color-primary)}
+  .tienda-landing .guarantee .seal svg{width:38px;height:38px}
+
+  /* faq */
+  .tienda-landing .faq{max-width:780px;margin:2.5rem auto 0;display:grid;gap:.75rem}
+  .tienda-landing .faq-item{background:var(--color-bg-elevated);border:1px solid var(--color-border);border-radius:1rem;overflow:hidden}
+  .tienda-landing .faq-q{width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:1.25rem 1.4rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;font-family:var(--font-body);font-weight:600;font-size:var(--text-base);color:var(--color-text)}
+  .tienda-landing .faq-icon{flex-shrink:0;width:22px;height:22px;color:var(--color-primary);transition:transform .4s cubic-bezier(.4,0,.2,1)}
+  .tienda-landing .faq-item.open .faq-icon{transform:rotate(45deg)}
+  /* Respuestas visibles por defecto (no dependen del JS). Si el JS del acordeon
+     esta activo, alterna .open para expandir/colapsar; si no, se ven siempre. */
+  .tienda-landing .faq-a{overflow:hidden}
+  .tienda-landing .faq-a p{padding:0 1.4rem 1.3rem;color:var(--color-text-muted);font-size:var(--text-sm)}
+  .tienda-landing.anim .faq-a{max-height:0;transition:max-height .5s cubic-bezier(.4,0,.2,1)}
+  .tienda-landing.anim .faq-item.open .faq-a{max-height:340px}
+
+  /* cta final */
+  .tienda-landing .final h2{font-size:var(--text-3xl);max-width:20ch;margin:0 auto 1.1rem}
+
+  /* footer */
+  .tienda-landing .site-footer{background:var(--color-bg-elevated);border-top:1px solid var(--color-border);padding:3rem 0 2.4rem}
+  .tienda-landing .foot{display:flex;flex-wrap:wrap;gap:1.5rem;justify-content:space-between;align-items:center}
+  .tienda-landing .foot a{color:var(--color-text-muted);text-decoration:none;font-size:var(--text-sm)}
+  .tienda-landing .foot a:hover{color:var(--color-primary)}
+  .tienda-landing .wm{margin-top:1.6rem;text-align:center;font-size:var(--text-xs);color:var(--color-text-muted);font-family:var(--font-mono);letter-spacing:.08em}
+  .tienda-landing .wm a{color:var(--color-primary);text-decoration:none;font-weight:600}
+  .tienda-landing .legal{font-size:var(--text-xs);color:var(--color-text-muted);max-width:760px;margin:0 auto;text-align:center;line-height:1.7}
+
+  @media(max-width:880px){
+    .tienda-landing .hero-grid,.tienda-landing .grid-two{grid-template-columns:1fr;gap:2.6rem}
+    .tienda-landing .pillars,.tienda-landing .tgrid,.tienda-landing .plans,.tienda-landing .benefits,.tienda-landing .forwho,.tienda-landing .stats{grid-template-columns:1fr}
+    .tienda-landing .benefits{gap:1rem}
+    .tienda-landing .hero-media{aspect-ratio:16/11}
+    .tienda-landing .plan.pop{order:-1}
+  }
+  @media(max-width:768px){
+    .tienda-landing .section{padding:4.2rem 0}.tienda-landing .container{padding:0 1.4rem}
+    .tienda-landing .btn{width:100%;max-width:400px}.tienda-landing .hero-actions{flex-direction:column;align-items:stretch}
+    .tienda-landing .nav-cta{width:auto}.tienda-landing .trust-row{gap:.7rem;font-size:.62rem}
+  }
+</style>
+
+<!-- NAV -->
+<nav class="nav">
+  <div class="container">
+    <div class="logo"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg></span> Tienda Ágil</div>
+    <a href="#planes" class="btn nav-cta">Empieza gratis</a>
+  </div>
+</nav>
+
+<!-- 1. HERO -->
+<header class="section p-a hero" style="padding-top:4rem">
+  <div class="container hero-grid">
+    <div class="reveal vis">
+      <span class="kicker">Punto de venta para tiendas y negocios</span>
+      <h1>Tu tienda, <span class="gradient-text">bajo control</span>, en un solo lugar.</h1>
+      <p class="sub">Deja el cuaderno y los Excel sueltos. Tienda Ágil conecta tus <b>ventas</b>, tu <b>inventario</b> y tus <b>ganancias</b> para que sepas —de verdad— cómo va tu negocio. Empieza gratis hoy.</p>
+      <div class="hero-actions">
+        <a href="/register" data-cta class="btn">Empieza gratis <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></a>
+        <a href="#modulos" class="btn-ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg> Ver cómo funciona</a>
+      </div>
+      <div class="microproof">
+        <span class="stars"><svg viewBox="0 0 24 24"><path d="m12 2 3 7h7l-5.5 4 2 7-6.5-4.5L5.5 22l2-7L2 9h7z"/></svg><svg viewBox="0 0 24 24"><path d="m12 2 3 7h7l-5.5 4 2 7-6.5-4.5L5.5 22l2-7L2 9h7z"/></svg><svg viewBox="0 0 24 24"><path d="m12 2 3 7h7l-5.5 4 2 7-6.5-4.5L5.5 22l2-7L2 9h7z"/></svg><svg viewBox="0 0 24 24"><path d="m12 2 3 7h7l-5.5 4 2 7-6.5-4.5L5.5 22l2-7L2 9h7z"/></svg><svg viewBox="0 0 24 24"><path d="m12 2 3 7h7l-5.5 4 2 7-6.5-4.5L5.5 22l2-7L2 9h7z"/></svg></span>
+        Vendedores, minimarkets, boutiques y talleres ya lo usan a diario.
+      </div>
+    </div>
+    <div class="reveal vis hero-media">
+      <span class="floating-shape" style="width:120px;height:120px;background:rgba(var(--color-primary-rgb),.25);top:-30px;right:-20px;z-index:4"></span>
+      <video autoplay muted loop playsinline poster="/landing/assets/hero-poster.jpg">
+        <source src="/landing/assets/hero-video.mp4" type="video/mp4">
+      </video>
+      <span class="hero-badge"><span class="dot"></span> Cobrando en segundos</span>
+    </div>
+  </div>
+</header>
+
+<!-- 2. DOLOR -->
+<section class="section p-b">
+  <div class="container">
+    <div class="center reveal">
+      <span class="kicker">Si llegaste hasta aquí, probablemente…</span>
+      <h2 class="big" style="margin-top:.6rem">Sientes que tu negocio te maneja a ti</h2>
+    </div>
+    <div class="pain-list reveal">
+      <div class="pain"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg><div>Cierras el día y <b>no sabes cuánto ganaste de verdad</b> — solo cuánto entró a la caja.</div></div>
+      <div class="pain"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg><div>Te quedas sin lo que <b>más se vende</b> y te enteras cuando el cliente ya se fue a otro lado.</div></div>
+      <div class="pain"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg><div>Pierdes horas <b>cuadrando la caja</b> y aun así el número nunca termina de cerrar.</div></div>
+      <div class="pain"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg><div>Tu inventario vive en tu cabeza, en papeles y en un Excel que <b>nadie actualiza</b>.</div></div>
+      <div class="pain"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg><div>Si tu cajero atiende, <b>no tienes forma de saber</b> qué se vendió ni a qué precio.</div></div>
+    </div>
+    <p class="pain-close reveal">No es que no sepas manejar tu negocio.<br>Es que estás usando <span class="gradient-text">herramientas que no se hablan entre sí.</span></p>
+  </div>
+</section>
+
+<!-- 3. MECANISMO -->
+<section class="section p-c">
+  <div class="container">
+    <div class="center reveal" style="max-width:720px;margin:0 auto">
+      <span class="kicker">El enfoque que sí conecta todo</span>
+      <p style="font-size:var(--text-lg);margin-top:1rem">El cuaderno, el Excel y la calculadora fallan por lo mismo: <b>cada cosa va por su lado.</b> Tus ventas no bajan tu stock, tu stock no te dice tus ganancias. Nunca ves el panorama completo.</p>
+      <h2 class="mech-name">Método <span class="gradient-text">Vende · Controla · Crece</span>™</h2>
+      <p class="muted">Un solo sistema donde cada venta actualiza tu inventario, tu caja y tus reportes — al instante.</p>
+    </div>
+    <div class="pillars stag reveal">
+      <div class="card pillar">
+        <div class="pillar-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 3h2l2.5 12.5A2 2 0 0 0 8.5 17H18a2 2 0 0 0 2-1.6L21.5 8H6"/><circle cx="9" cy="21" r="1.5"/><circle cx="18" cy="21" r="1.5"/></svg></div>
+        <span class="pnum">01 — Vende</span>
+        <h3>Cobra en segundos</h3>
+        <p class="muted">Punto de venta rápido: busca o escanea, cobra en efectivo, tarjeta o transferencia, e imprime el recibo. Sin trabarte, incluso en hora pico.</p>
+      </div>
+      <div class="card pillar">
+        <div class="pillar-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3"/><path d="M3 8h18v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M7 12h4"/></svg></div>
+        <span class="pnum">02 — Controla</span>
+        <h3>Stock y caja al día</h3>
+        <p class="muted">Cada venta descuenta el inventario sola. Sabes qué te falta, qué sobra y cómo cerró tu caja por turno, sin cuadres a mano.</p>
+      </div>
+      <div class="card pillar">
+        <div class="pillar-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></div>
+        <span class="pnum">03 — Crece</span>
+        <h3>Decide con números reales</h3>
+        <p class="muted">Reportes claros de ventas y ganancias: qué producto deja más, qué día vendes más, cuánto ganaste de verdad. Decides con datos, no con corazonadas.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 4. BENEFICIOS + imagen -->
+<section class="section p-b">
+  <div class="container grid-two">
+    <div class="reveal media-frame"><img src="/landing/assets/reports.png" alt="Reportes de ventas y ganancias de Tienda Ágil"></div>
+    <div class="reveal">
+      <span class="kicker">Lo que ganas</span>
+      <h2 class="big" style="margin:.6rem 0 1.6rem">Esto es lo que cambia en tu día a día</h2>
+      <div class="benefits stag">
+        <div class="benefit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10L9 11"/></svg><div><b>Cierras el día en 1 minuto</b><span>Tu caja cuadra sola.</span></div></div>
+        <div class="benefit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10L9 11"/></svg><div><b>Nunca más quedarte sin stock</b><span>Sabes qué reponer y cuándo.</span></div></div>
+        <div class="benefit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10L9 11"/></svg><div><b>Sabes tu ganancia real</b><span>No solo cuánto entró: cuánto ganaste.</span></div></div>
+        <div class="benefit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10L9 11"/></svg><div><b>Controlas a tu equipo</b><span>Cada usuario con su acceso y su turno.</span></div></div>
+        <div class="benefit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10L9 11"/></svg><div><b>Atiendes más rápido</b><span>Menos filas, más ventas.</span></div></div>
+        <div class="benefit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10L9 11"/></svg><div><b>Manejas varias sucursales</b><span>Todo desde un mismo lugar.</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5. MÓDULOS + imagen producto -->
+<section class="section p-a" id="modulos">
+  <div class="container grid-two">
+    <div class="reveal">
+      <span class="kicker">Todo lo que trae adentro</span>
+      <h2 class="big" style="margin:.6rem 0 1.6rem">Un sistema completo, no una app suelta</h2>
+      <div class="modules stag">
+        <div class="module"><span class="mod-num">01</span><div><b>Punto de venta (POS)</b><p>Cobra rápido con búsqueda, código de barras y varios medios de pago.</p></div></div>
+        <div class="module"><span class="mod-num">02</span><div><b>Productos con variantes</b><p>Talla, color y presentaciones, cada uno con su precio y su stock.</p></div></div>
+        <div class="module"><span class="mod-num">03</span><div><b>Control de stock e inventario</b><p>Entradas, salidas y ajustes; alertas de lo que se está agotando.</p></div></div>
+        <div class="module"><span class="mod-num">04</span><div><b>Caja y arqueos</b><p>Apertura y cierre por turno, ingresos y egresos, cuadre automático.</p></div></div>
+        <div class="module"><span class="mod-num">05</span><div><b>Compras y proveedores</b><p>Registra compras y el stock sube solo; historial por proveedor.</p></div></div>
+        <div class="module"><span class="mod-num">06</span><div><b>Clientes y devoluciones</b><p>Base de clientes y notas de crédito que devuelven el producto al stock.</p></div></div>
+        <div class="module"><span class="mod-num">07</span><div><b>Reportes y ganancias</b><p>Ventas por día, por producto y por método de pago, con tu utilidad real.</p></div></div>
+        <div class="module"><span class="mod-num">08</span><div><b>Usuarios, roles y sucursales</b><p>Administrador, cajero, finanzas… cada uno con su permiso, en cada local.</p></div></div>
+      </div>
+    </div>
+    <div class="reveal media-frame" style="align-self:start;position:sticky;top:6rem"><img src="/landing/assets/product.jpg" alt="Tienda Ágil en tablet y celular"></div>
+  </div>
+</section>
+
+<!-- 6. PARA QUIÉN -->
+<section class="section p-e">
+  <div class="container">
+    <div class="center reveal"><span class="kicker">Para que no pierdas tu tiempo</span><h2 class="big" style="margin-top:.6rem">¿Es Tienda Ágil para ti?</h2></div>
+    <div class="forwho reveal" style="margin-top:2.5rem">
+      <div class="card yes">
+        <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Sí, es para ti si…</h3>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Tienes una tienda, minimarket, boutique, farmacia o negocio con productos.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Quieres saber tus ganancias reales, no solo lo que entra a la caja.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Estás cansado del cuaderno y los Excel que nadie actualiza.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Tienes empleados y quieres control sin estar encima todo el día.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Quieres algo simple, que puedas usar hoy sin ser experto.</li>
+        </ul>
+      </div>
+      <div class="card no">
+        <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg> No es para ti si…</h3>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg> Buscas resultados sin registrar tus ventas ni tus productos.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg> No vendes productos (solo servicios sin inventario).</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg> Prefieres seguir "llevándolo todo en la cabeza".</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg> No te interesa saber qué producto te deja más dinero.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 7. TESTIMONIOS + stats -->
+<section class="section p-b">
+  <div class="container">
+    <div class="center reveal"><span class="kicker">Historias reales</span><h2 class="big" style="margin-top:.6rem">Dueños que ya venden con el método Vende · Controla · Crece</h2></div>
+    <div class="tgrid stag reveal">
+      <div class="card tcard"><p class="quote">"Antes cerraba a las 9 y me quedaba una hora cuadrando. Ahora el cierre me toma un minuto y por fin sé cuánto gané, no solo cuánto vendí."</p><div class="who"><img class="avatar" src="/landing/assets/testimonial-rosa.jpg" alt="Rosa M., dueña de minimarket" loading="lazy" width="44" height="44"><div><b>Rosa M.</b><span>Minimarket · barrio</span></div></div></div>
+      <div class="card tcard"><p class="quote">"Lo mejor es el inventario. Antes me quedaba sin lo que más rotaba. Ahora el sistema me avisa y repongo a tiempo. He dejado de perder ventas tontas."</p><div class="who"><img class="avatar" src="/landing/assets/testimonial-julio.jpg" alt="Julio C., dueño de tienda de abarrotes" loading="lazy" width="44" height="44"><div><b>Julio C.</b><span>Tienda de abarrotes</span></div></div></div>
+      <div class="card tcard"><p class="quote">"Tengo dos locales y mi cajero atiende en uno. Desde mi celular veo lo que se vende en cada uno. Me dio la tranquilidad que no tenía."</p><div class="who"><img class="avatar" src="/landing/assets/testimonial-andrea.jpg" alt="Andrea L., dueña de boutique" loading="lazy" width="44" height="44"><div><b>Andrea L.</b><span>Boutique · 2 sucursales</span></div></div></div>
+    </div>
+    <div class="stats reveal" style="margin-top:3.2rem">
+      <div class="stat"><div class="n" data-count="1200">1.200</div><div class="l">ventas registradas al día</div></div>
+      <div class="stat"><div class="n" data-count="60">60</div><div class="l">minutos ahorrados por cierre</div></div>
+      <div class="stat"><div class="n" data-count="100">100</div><div class="l">% de tu inventario, siempre al día</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- 9. OFERTA / PLANES -->
+<section class="section p-f" id="planes">
+  <div class="container">
+    <div class="center reveal" style="max-width:640px;margin:0 auto">
+      <span class="kicker">Planes que crecen contigo</span>
+      <h2 class="big" style="margin:.6rem 0">Empieza gratis. Sube de plan cuando tu tienda crezca.</h2>
+      <p class="lead">Sin instalaciones complicadas. Sin permanencia. Cambia o cancela cuando quieras.</p>
+    </div>
+    <div class="plans reveal">
+      <div class="plan">
+        <h3>Inicial</h3>
+        <div class="price">$0<small>/mes</small></div>
+        <p class="pdesc">Para arrancar y ordenar tu negocio hoy mismo.</p>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> 50 productos, 1 usuario y 100 ventas/mes</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Sin permanencia ni tarjeta</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Punto de venta, productos y caja</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Reportes básicos de ventas</li>
+        </ul>
+        <a href="/register" data-cta class="btn-outline">Empezar gratis</a>
+      </div>
+      <div class="plan pop">
+        <span class="tag">Más elegido</span>
+        <h3>Básico</h3>
+        <div class="price">$17<small>/mes</small></div>
+        <p class="pdesc">Para la tienda que ya vende todos los días.</p>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> 300 productos, 3 usuarios y 1.000 ventas/mes</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Inventario y control de stock</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Compras, proveedores y clientes</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Reportes de ganancias y devoluciones</li>
+        </ul>
+        <a href="/register" data-cta class="btn">Elegir Básico <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></a>
+      </div>
+      <div class="plan">
+        <h3>Pro</h3>
+        <div class="price">$37<small>/mes</small></div>
+        <p class="pdesc">Para crecer con varias sucursales y equipo.</p>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> 3.000 productos, 10 usuarios y 4.000 ventas/mes</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Multi-sucursal y transferencias de stock</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Variantes, promociones y roles avanzados</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Todos los reportes y respaldo de datos</li>
+        </ul>
+        <a href="/register" data-cta class="btn-outline">Elegir Pro</a>
+      </div>
+    </div>
+    <div class="trust-row reveal" style="margin-top:2.2rem">
+      <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg> Compra segura</span>
+      <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="6"/><path d="M15.5 13 17 22l-5-3-5 3 1.5-9"/></svg> Sin permanencia</span>
+      <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Tus datos, protegidos</span>
+    </div>
+  </div>
+</section>
+
+<!-- 10. GARANTÍA -->
+<section class="section p-a">
+  <div class="container">
+    <div class="guarantee reveal">
+      <div class="seal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></div>
+      <h2 style="font-size:var(--text-xl)">Pruébalo sin arriesgar nada</h2>
+      <p class="muted" style="margin-top:.8rem">Empiezas con el <b>plan Inicial gratis</b>, sin tarjeta y sin compromiso. Usa el sistema con tu tienda real. Si te sirve, subes de plan; si no, no pagas nada. Así de simple.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 11. MARCA / SOBRE -->
+<section class="section p-b">
+  <div class="container grid-two">
+    <div class="reveal media-frame"><img src="/landing/assets/mobile.png" alt="Tienda Ágil en el celular"></div>
+    <div class="reveal">
+      <span class="kicker">Hecho por plrsfactory.com</span>
+      <h2 class="big" style="margin:.6rem 0 1rem">Software que cualquier dueño puede usar</h2>
+      <p class="muted" style="margin-bottom:1rem">Tienda Ágil nació de una idea simple: los dueños de tiendas no necesitan un sistema complicado ni un contador para saber cómo va su negocio. Necesitan algo que se entienda solo y que ordene todo por ellos.</p>
+      <p class="muted">Por eso construimos una herramienta clara, rápida y en español, pensada para el mostrador real: la caja llena de gente, el stock que cambia cada hora y las ganancias que hay que cuidar. Funciona en computadora, tablet y celular.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 12. FAQ -->
+<section class="section p-a">
+  <div class="container">
+    <div class="center reveal"><span class="kicker">Antes de empezar</span><h2 class="big" style="margin-top:.6rem">Preguntas frecuentes</h2></div>
+    <div class="faq reveal">
+      <div class="faq-item"><button class="faq-q">¿Sirve para mi tipo de negocio? <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button><div class="faq-a"><p>Sí. Funciona para tiendas, minimarkets, abarrotes, boutiques, farmacias, ferreterías, talleres y cualquier negocio que venda productos y necesite controlar su inventario y su caja.</p></div></div>
+      <div class="faq-item"><button class="faq-q">¿Es difícil de usar? <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button><div class="faq-a"><p>No. Está pensado para que empieces a vender el mismo día, sin ser experto. Registras tus productos, abres la caja y ya puedes cobrar. Todo está en español y explicado con palabras simples.</p></div></div>
+      <div class="faq-item"><button class="faq-q">¿Puedo usarlo desde el celular o la tablet? <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button><div class="faq-a"><p>Sí. Se ve y funciona bien en celular, tablet y computadora. Puedes cobrar desde una tablet en el mostrador y revisar tus ventas desde el celular donde estés.</p></div></div>
+      <div class="faq-item"><button class="faq-q">¿Qué pasa con mis datos y mis ventas? <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button><div class="faq-a"><p>Tus datos son tuyos y quedan guardados de forma segura en tu propia base de datos. Puedes generar un respaldo cuando quieras.</p></div></div>
+      <div class="faq-item"><button class="faq-q">¿Puedo controlar a mis empleados? <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button><div class="faq-a"><p>Sí. Creas usuarios con distintos roles (administrador, cajero, finanzas) y cada uno entra con su propio acceso. Ves quién vendió qué y cómo cerró su turno.</p></div></div>
+      <div class="faq-item"><button class="faq-q">¿Maneja varias sucursales? <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button><div class="faq-a"><p>Sí, en el plan Pro. Manejas varios locales desde un mismo lugar, con su stock por sucursal y transferencias entre ellas.</p></div></div>
+      <div class="faq-item"><button class="faq-q">¿El plan gratis tiene truco? <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button><div class="faq-a"><p>No. El plan Inicial es gratis de verdad, sin tarjeta y sin tiempo límite, con hasta 50 productos y 1 usuario. Cuando tu negocio crezca, subes de plan si quieres.</p></div></div>
+      <div class="faq-item"><button class="faq-q">¿Puedo cambiar o cancelar cuando quiera? <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button><div class="faq-a"><p>Sí. No hay permanencia. Subes, bajas o cancelas tu plan cuando lo necesites.</p></div></div>
+      <div class="faq-item"><button class="faq-q">¿Qué pasa si tengo dudas después? <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button><div class="faq-a"><p>Te acompañamos con una guía clara de instalación y soporte para que dejes tu tienda funcionando sin trabas.</p></div></div>
+      <div class="faq-item"><button class="faq-q">¿Por qué Tienda Ágil y no otro sistema? <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button><div class="faq-a"><p>Porque conecta todo (ventas, inventario, caja y ganancias) en un solo lugar, es simple de usar, está en español y empiezas gratis. Sin planillas sueltas ni sistemas que no se hablan entre sí.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- 13. CTA FINAL -->
+<section class="section p-c final">
+  <div class="container center reveal">
+    <span class="kicker">Es hora de tomar el control</span>
+    <h2 style="margin-top:1rem">Tu tienda no necesita más esfuerzo. Necesita <span class="gradient-text">un sistema que la ordene.</span></h2>
+    <p class="lead" style="margin:0 auto 2rem">Cada día que sigues con el cuaderno es otro día sin saber cuánto ganas de verdad. Empieza gratis con el método Vende · Controla · Crece™ hoy.</p>
+    <a href="/register" data-cta class="btn">Empieza gratis ahora <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></a>
+    <div class="trust-row">
+      <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg> Compra segura</span>
+      <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="6"/><path d="M15.5 13 17 22l-5-3-5 3 1.5-9"/></svg> Empiezas gratis</span>
+      <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Tus datos, protegidos</span>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="site-footer">
+  <div class="container">
+    <div class="foot">
+      <div class="logo"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg></span> Tienda Ágil</div>
+      <div style="display:flex;gap:1.5rem;flex-wrap:wrap">
+        <a href="#modulos">Funciones</a><a href="#planes">Planes</a><a href="/login">Iniciar sesión</a>
+      </div>
+    </div>
+    <p class="legal" style="margin-top:2rem">Los resultados dependen del uso que cada negocio le dé al sistema. Tienda Ágil es una herramienta de gestión y no sustituye asesoría contable o fiscal profesional. © 2026 Tienda Ágil. Todos los derechos reservados.</p>
+    <p class="wm">Creado con <a href="https://plrsfactory.com" target="_blank" rel="noreferrer">plrsfactory.com</a></p>
+  </div>
+</footer>

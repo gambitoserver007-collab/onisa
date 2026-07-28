@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.protect_company_subscription_fields() FROM PUBLIC, anon;
