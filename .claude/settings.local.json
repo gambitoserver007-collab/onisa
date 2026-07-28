@@ -26,7 +26,8 @@
       "Bash(python3 -c \"import psycopg2; print\\('psycopg2 ok', psycopg2.__version__\\)\")",
       "Bash(python3 test_criticals.py)",
       "Bash(xargs -n1 basename)",
-      "Bash(grep -n \"^security definer$\" /Users/omarreyesamezcua/Desktop/VentaPro/supabase/install/01_install.sql)"
+      "Bash(grep -n \"^security definer$\" /Users/omarreyesamezcua/Desktop/VentaPro/supabase/install/01_install.sql)",
+      "Bash(grep -n \"^-- Tienda Agil MVP schema$\" /Users/omarreyesamezcua/Desktop/VentaPro/supabase/install/01_install.sql)"
     ]
   }
 }

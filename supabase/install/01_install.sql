@@ -1,5 +1,5 @@
 -- ==================================================================
--- Tienda Agil - Instalador Supabase (esquema completo)
+-- Onisa - Instalador Supabase (esquema completo)
 --
 -- Recrea TODO el esquema en un proyecto Supabase NUEVO y externo:
 -- extensiones, tipos, tablas, indices, funciones, triggers, RLS,
@@ -18,7 +18,7 @@
 -- ============================================================
 -- 202606170001_init_tienda_agil.sql
 -- ============================================================
--- Tienda Agil MVP schema
+-- Onisa MVP schema (nombre original de trabajo: Tienda Agil)
 -- Multiempresa POS con demo read-only reforzado por RLS.
 
 create extension if not exists pgcrypto;
@@ -562,7 +562,7 @@ begin
   end if;
 
   if p_items is null or jsonb_array_length(p_items) = 0 then
-    raise exception 'El carrito estÃ¡ vacÃ­o.';
+    raise exception 'El carrito está vacío.';
   end if;
 
   select tax_rate into v_tax_rate from public.companies where id = v_company_id;
@@ -582,7 +582,7 @@ begin
     v_price := nullif(v_item ->> 'price', '')::numeric;
 
     if v_qty <= 0 then
-      raise exception 'Cantidad invÃ¡lida.';
+      raise exception 'Cantidad inválida.';
     end if;
 
     select *
@@ -915,7 +915,7 @@ on conflict (id) do update set
 -- ============================================================
 -- 20260617235322_16db5c81-054a-4065-bf63-d8301c47d869.sql
 -- ============================================================
--- Tienda Agil MVP schema
+-- Onisa MVP schema (nombre original de trabajo: Tienda Agil)
 -- Multiempresa POS con demo read-only reforzado por RLS.
 
 create extension if not exists pgcrypto;
@@ -1356,7 +1356,7 @@ begin
   if public.current_user_is_demo() then raise exception 'Esta acción está deshabilitada en el Modo de Prueba.'; end if;
   v_company_id := public.current_user_company_id();
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
-  if p_items is null or jsonb_array_length(p_items) = 0 then raise exception 'El carrito estÃ¡ vacÃ­o.'; end if;
+  if p_items is null or jsonb_array_length(p_items) = 0 then raise exception 'El carrito está vacío.'; end if;
   select tax_rate into v_tax_rate from public.companies where id = v_company_id;
   v_tax_rate := coalesce(v_tax_rate, 0.18);
   select coalesce(name, 'Publico general') into v_customer_name
@@ -1366,7 +1366,7 @@ begin
   for v_item in select * from jsonb_array_elements(p_items) loop
     v_qty := coalesce((v_item ->> 'qty')::numeric, 0);
     v_price := nullif(v_item ->> 'price', '')::numeric;
-    if v_qty <= 0 then raise exception 'Cantidad invÃ¡lida.'; end if;
+    if v_qty <= 0 then raise exception 'Cantidad inválida.'; end if;
     select * into v_product from public.products
       where id = (v_item ->> 'product_id')::uuid and company_id = v_company_id
       and deleted_at is null and active = true for update;
