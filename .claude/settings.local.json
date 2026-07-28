@@ -28,7 +28,8 @@
       "Bash(xargs -n1 basename)",
       "Bash(grep -n \"^security definer$\" /Users/omarreyesamezcua/Desktop/VentaPro/supabase/install/01_install.sql)",
       "Bash(grep -n \"^-- Tienda Agil MVP schema$\" /Users/omarreyesamezcua/Desktop/VentaPro/supabase/install/01_install.sql)",
-      "Bash(awk 'NR>=4322 && NR<=4470 && /ON CONFLICT/' /Users/omarreyesamezcua/Desktop/VentaPro/supabase/install/01_install.sql)"
+      "Bash(awk 'NR>=4322 && NR<=4470 && /ON CONFLICT/' /Users/omarreyesamezcua/Desktop/VentaPro/supabase/install/01_install.sql)",
+      "Bash(curl -s -o /tmp/supabase_test_response.json -w 'HTTP_STATUS:%{http_code}\\\\n' https://bfqvwxsqxoukiuccjeoj.supabase.co/rest/v1/platform_settings?select=brand_name,logo_url -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmcXZ3eHNxeG91a2l1Y2NqZW9qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyNTM4MDAsImV4cCI6MjEwMDgyOTgwMH0.BqaQR1n9R-qmAnPV9nZmBg2898pMI8LJuGUEveGIRbM' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmcXZ3eHNxeG91a2l1Y2NqZW9qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyNTM4MDAsImV4cCI6MjEwMDgyOTgwMH0.BqaQR1n9R-qmAnPV9nZmBg2898pMI8LJuGUEveGIRbM')"
     ]
   }
 }
