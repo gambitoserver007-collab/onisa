@@ -1784,12 +1784,18 @@ begin
   end if;
   update public.companies set contact_email = v_email, updated_at = now()
   where id = '00000000-0000-4000-8000-000000000010';
-  insert into public.profiles (id, company_id, email, full_name, role, is_demo, demo_mode, is_active)
-  values (v_user_id, '00000000-0000-4000-8000-000000000010', v_email, 'Owner Tienda Agil',
-    'admin', false, 'none', true)
+  -- Auditoría 2026-07: is_platform_admin se otorga aquí directamente. Antes
+  -- dependía de un UPDATE de una sola vez, atado al correo literal
+  -- 'owner@tiendaagil.test' (línea ~1859) -- seguir las instrucciones propias
+  -- del archivo (bootstrap con 'superadmin@user.test') dejaba al usuario
+  -- como admin de una tienda demo, SIN acceso real al panel de plataforma.
+  insert into public.profiles (id, company_id, email, full_name, role, is_platform_admin, is_demo, demo_mode, is_active)
+  values (v_user_id, '00000000-0000-4000-8000-000000000010', v_email, 'Owner Onisa',
+    'admin', true, false, 'none', true)
   on conflict (id) do update set
     company_id = excluded.company_id, email = excluded.email, full_name = excluded.full_name,
-    role = 'admin', is_demo = false, demo_mode = 'none', is_active = true, updated_at = now();
+    role = 'admin', is_platform_admin = true, is_demo = false, demo_mode = 'none', is_active = true,
+    updated_at = now();
 end;
 $$;
 
