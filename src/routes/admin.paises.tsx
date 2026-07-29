@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Globe, Pencil, Plus, Trash2 } from "lucide-react";
+import { Globe, Info, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -119,6 +120,17 @@ function Paises() {
         title="Países / Impuestos"
         description="El IVA y los comprobantes se configuran por país y aplican a todas las tiendas de ese país."
       />
+      <Alert className="mb-4">
+        <Info className="h-4 w-4" />
+        <AlertTitle>Los "comprobantes" son etiquetas internas, no facturación electrónica</AlertTitle>
+        <AlertDescription>
+          Los tipos de comprobante que configuras aquí (Boleta, Factura, Ticket, etc.) son solo
+          etiquetas para tus propios registros de venta: no generan folio fiscal, no se timbran ni
+          se envían a ninguna autoridad (SAT, DIAN, SUNAT u otra). Si tu tienda o tus clientes
+          necesitan facturación electrónica certificada, van a necesitar un proveedor especializado
+          aparte — esto no lo reemplaza.
+        </AlertDescription>
+      </Alert>
       <Card>
         <CardContent className="p-4">
           <div className="overflow-x-auto">

@@ -2605,6 +2605,16 @@ export interface AdminStats {
 }
 
 export async function fetchAdminCompanies(): Promise<AdminCompany[]> {
+  // Antes de listar, pasa a "expired" cualquier trial cuya fecha ya venció
+  // (ver expire_overdue_trials en el instalador). No pasa nada si falla o si
+  // quien llama no es Super Admin: la RPC simplemente no hace nada en ese
+  // caso, y el listado se sigue mostrando con lo que ya había.
+  try {
+    await supabase.rpc("expire_overdue_trials");
+  } catch {
+    // ignorar: el listado se muestra igual con lo que ya había
+  }
+
   const { data: companies, error } = await supabase
     .from("companies")
     .select(

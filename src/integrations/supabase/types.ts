@@ -1683,6 +1683,7 @@ export type Database = {
       default_document_types: { Args: { p_country: string }; Returns: Json }
       default_tax_name: { Args: { p_country: string }; Returns: string }
       default_tax_rate: { Args: { p_country: string }; Returns: number }
+      expire_overdue_trials: { Args: never; Returns: number }
       open_cash_session: {
         Args: { p_location_id?: string; p_opening_amount: number }
         Returns: string

@@ -3091,12 +3091,17 @@ begin
   v_is_owner := (v_company_id is null);
 
   if v_company_id is null then
+    -- Auditoría 2026-07: se asigna fecha de vencimiento de prueba (14 días).
+    -- Antes ninguna empresa nueva tenía expires_at, así que un trial nunca
+    -- vencía por sí solo (ajustable: cambia el intervalo si quieres otro
+    -- largo de periodo de prueba).
     insert into public.companies (name, contact_email, country_code, currency_code, locale,
-                                  fiscal_id_label, tax_name, tax_rate)
+                                  fiscal_id_label, tax_name, tax_rate, expires_at)
     values (v_company_name, new.email, v_country_code, v_currency_code, v_locale,
       coalesce(new.raw_user_meta_data ->> 'fiscal_id_label', 'ID fiscal'),
       coalesce(new.raw_user_meta_data ->> 'tax_name', 'Impuesto demo'),
-      coalesce(nullif(new.raw_user_meta_data ->> 'tax_rate', '')::numeric, 0.18))
+      coalesce(nullif(new.raw_user_meta_data ->> 'tax_rate', '')::numeric, 0.18),
+      (now() + interval '14 days')::date)
     returning id into v_company_id;
   end if;
 
@@ -6593,3 +6598,48 @@ create trigger enforce_product_limit_trg
 alter table public.companies alter column country_code set default 'MX';
 alter table public.companies alter column currency_code set default 'MXN';
 alter table public.companies alter column locale set default 'es-MX';
+
+-- ============================================================
+-- Fase 1 (2026-07) — Vencimiento automático de periodo de prueba.
+--
+-- Antes: subscription_status nunca pasaba de 'trial' a 'expired' por sí
+-- solo, y ninguna empresa nueva tenía expires_at asignado (ver el fix en
+-- handle_new_user más arriba). El bloqueo real de operación ya funcionaba
+-- vía current_company_is_operational (hallazgo crítico #5), pero la
+-- ETIQUETA de estado que ve el Super Admin en /admin/empresas se quedaba
+-- diciendo "Prueba" indefinidamente, incluso con la empresa ya bloqueada.
+--
+-- Esta función pasa a 'expired' cualquier trial cuya fecha ya pasó. No
+-- depende de pg_cron (no siempre disponible/habilitado en todos los
+-- proyectos Supabase): se llama de forma oportunista desde el frontend
+-- cada vez que el Super Admin abre el listado de empresas o el dashboard
+-- de la plataforma (fetchAdminCompanies), así el estado que ve siempre
+-- está al día sin depender de un job programado.
+-- ============================================================
+create or replace function public.expire_overdue_trials()
+returns integer
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_count integer;
+begin
+  if not public.current_user_is_platform_admin() then
+    raise exception 'Solo un administrador de la plataforma puede ejecutar esto.';
+  end if;
+
+  update public.companies
+  set subscription_status = 'expired', updated_at = now()
+  where subscription_status = 'trial'
+    and expires_at is not null
+    and expires_at < now()
+    and deleted_at is null;
+
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+
+revoke execute on function public.expire_overdue_trials() from public, anon;
+grant execute on function public.expire_overdue_trials() to authenticated;

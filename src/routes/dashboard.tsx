@@ -44,7 +44,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useDashboardData } from "@/hooks/useDashboardData";
+import { useDemoSession } from "@/hooks/useDemoSession";
 import { DateRangeSelect } from "@/components/reports/DateRangeSelect";
+import { OnboardingChecklist } from "@/components/dashboard/OnboardingChecklist";
 
 export const Route = createFileRoute("/dashboard")({ component: Dashboard });
 
@@ -124,6 +126,7 @@ function ProgressRow({
 
 function Dashboard() {
   const { formatMoney, settings } = useBusinessSettings();
+  const { session } = useDemoSession();
   const { currentLocationId } = useCurrentLocation();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -168,6 +171,12 @@ function Dashboard() {
             </Button>
           </div>
         </div>
+
+        <OnboardingChecklist
+          companyId={session?.companyId}
+          productsCount={data.productsCount}
+          hasSales={data.recentSales.length > 0}
+        />
 
         <DateRangeSelect
           onChange={(r) => {

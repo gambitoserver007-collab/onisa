@@ -1,6 +1,6 @@
-# Tienda Agil SaaS
+# Onisa — POS SaaS multiempresa
 
-Frontend TanStack/Vite conectado a Supabase Auth y Postgres para un MVP multiempresa de POS,
+Frontend TanStack/Vite conectado a Supabase Auth y Postgres para un sistema multiempresa de POS,
 inventario, ventas y reportes.
 
 ## Requisitos
@@ -53,16 +53,14 @@ dependas solo del frontend para bloquear registros.
 
 ## Cómo entrar (usuario administrador)
 
-Al montar el backend en tu Supabase se crea la cuenta de administrador. Para entrar al sistema
-usa estas credenciales:
+El instalador **no** crea ninguna cuenta de administrador por sí solo — eso es un paso aparte,
+explicado con detalle en [`supabase/README_SUPABASE.md`](supabase/README_SUPABASE.md):
 
-```text
-Usuario:     superadmin@user.test
-Contraseña:  Demo1234
-```
+1. Crea el usuario en **Supabase → Authentication → Users**, con tu correo y contraseña reales.
+2. En el SQL Editor, corre `select public.bootstrap_owner_profile('tu-correo@ejemplo.com');`
+   para darle permisos de Super Admin de plataforma.
 
-**Cambia el correo y la contraseña** desde tu perfil después del primer ingreso. La cuenta queda
-como administrador (rol admin) — no es una cuenta de prueba.
+No hay contraseña "de fábrica" que cambiar después — desde el paso 1 ya usas tu contraseña real.
 
 ## Base de datos
 
@@ -99,6 +97,21 @@ El bloqueo esta centralizado en `src/lib/demoMode.ts`, `src/hooks/useDemoSession
 `src/components/demo/DemoGuardedButton.tsx`. La base tambien bloquea escrituras en Modo de Prueba con RLS y
 triggers.
 
+## Facturación electrónica: qué SÍ y qué NO hace este sistema
+
+**Los "tipos de comprobante" (Boleta, Factura, Ticket, Nota de venta, etc.) son solo etiquetas
+internas para tus propios registros de venta.** El sistema:
+
+- ✅ Sí registra qué tipo de comprobante eligió el cajero, y si ese tipo carga IVA o no.
+- ✅ Sí calcula el IVA/impuesto correspondiente según el país de la tienda.
+- ❌ **No** genera folio fiscal, **no** timbra, **no** se conecta ni envía nada a ninguna
+  autoridad fiscal (SAT, DIAN, SUNAT, DGI u otra).
+
+Si tu negocio (o un cliente al que le revendas el sistema) necesita facturación electrónica
+certificada para cumplir con la ley de su país, van a necesitar contratar un proveedor de
+facturación electrónica aparte (un PAC, en el caso de México) — este sistema no lo reemplaza.
+Este mismo aviso también aparece dentro de la app, en **Administración → Países / Impuestos**.
+
 ## Modulos conectados
 
 - Supabase Auth: login, registro opcional, logout y sesion persistente.
@@ -119,9 +132,18 @@ npm run build
 
 ## Pendiente recomendado
 
-- Probar el instalador en un Supabase limpio.
+Ya resuelto (auditoría 2026-07): escritura directa vía API en tablas transaccionales, precio
+manipulable en devoluciones, costo desactualizado tras una compra, idempotencia de `create_sale`,
+bloqueo real por suscripción suspendida/vencida, límites de plan, vencimiento automático de
+periodo de prueba, checklist de onboarding, instalador idempotente (re-ejecutable sin errores) y
+verificado en un Supabase limpio.
+
+Sigue pendiente:
+
 - Regenerar tipos con `supabase gen types typescript` si cambia la base.
-- Desactivar registro publico tambien en Supabase Auth si el sitio queda publico.
-- Conectar compras, caja, devoluciones, promociones, usuarios, suscripcion y admin SaaS a servicios
-  reales.
-- Reforzar reglas del Modo de Prueba tambien en cualquier endpoint/backend futuro.
+- Desactivar registro público también en Supabase Auth si el sitio queda público.
+- Desplegar las Edge Functions (`supabase/functions/`) si vas a usar "crear empresa desde
+  /admin" o "invitar usuarios desde /usuarios" — sin ellas, el resto del sistema funciona igual.
+- Sumar pruebas automatizadas (hoy no hay ninguna) — ver recomendación de prioridades en la
+  auditoría.
+- Reforzar reglas del Modo de Prueba también en cualquier endpoint/backend futuro.
