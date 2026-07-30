@@ -6,8 +6,8 @@ import {
 } from "@/data/markets";
 import type { DemoSession } from "@/types";
 
-const BUSINESS_SETTINGS_KEY = "tienda_agil_business_settings";
-const BUSINESS_SETTINGS_CHANGED_EVENT = "tienda-agil:business-settings-changed";
+const BUSINESS_SETTINGS_KEY = "onisa_business_settings";
+const BUSINESS_SETTINGS_CHANGED_EVENT = "onisa:business-settings-changed";
 
 export interface BusinessSettings {
   businessName: string;

@@ -14,8 +14,8 @@ import type { Tables } from "@/integrations/supabase/types";
 type CompanyRow = Tables<"companies">;
 type ProfileRow = Tables<"profiles">;
 
-const SESSION_CHANGED_EVENT = "tienda-agil:session-changed";
-const DEMO_MARKET_OVERRIDE_KEY = "tienda_agil_demo_market_code";
+const SESSION_CHANGED_EVENT = "onisa:session-changed";
+const DEMO_MARKET_OVERRIDE_KEY = "onisa_demo_market_code";
 
 export const DEMO_USERS = DEMO_ACCOUNTS;
 
