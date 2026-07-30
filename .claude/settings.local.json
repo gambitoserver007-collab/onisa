@@ -33,7 +33,25 @@
       "Bash(node -e ' *)",
       "Bash(curl -fsSL https://bun.sh/install)",
       "Bash(bash)",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "Bash(python3 -c \"import pglast; print\\(pglast.__version__\\)\")",
+      "Bash(find / -maxdepth 4 -iname \"*venv*\")",
+      "Bash(python3 /private/tmp/claude-501/-Users-omarreyesamezcua-Desktop-VentaPro/3db706f3-ccaf-40f9-8357-8d69ad7d0bae/scratchpad/analyze2.py)",
+      "Bash(python3 /private/tmp/claude-501/-Users-omarreyesamezcua-Desktop-VentaPro/3db706f3-ccaf-40f9-8357-8d69ad7d0bae/scratchpad/analyze3.py)",
+      "Bash(python3 /private/tmp/claude-501/-Users-omarreyesamezcua-Desktop-VentaPro/3db706f3-ccaf-40f9-8357-8d69ad7d0bae/scratchpad/boundary_check.py)",
+      "Bash(python3 /private/tmp/claude-501/-Users-omarreyesamezcua-Desktop-VentaPro/3db706f3-ccaf-40f9-8357-8d69ad7d0bae/scratchpad/boundary_check2.py)",
+      "Bash(python3 /private/tmp/claude-501/-Users-omarreyesamezcua-Desktop-VentaPro/3db706f3-ccaf-40f9-8357-8d69ad7d0bae/scratchpad/consolidate.py)",
+      "Bash(node /private/tmp/claude-501/-Users-omarreyesamezcua-Desktop-VentaPro/3db706f3-ccaf-40f9-8357-8d69ad7d0bae/scratchpad/compare_schemas.mjs supabase/install/01_install.sql /private/tmp/claude-501/-Users-omarreyesamezcua-Desktop-VentaPro/3db706f3-ccaf-40f9-8357-8d69ad7d0bae/scratchpad/01_install_consolidated.sql)",
+      "Bash(node scratch_compare_schemas.mjs supabase/install/01_install.sql /private/tmp/claude-501/-Users-omarreyesamezcua-Desktop-VentaPro/3db706f3-ccaf-40f9-8357-8d69ad7d0bae/scratchpad/01_install_consolidated.sql)",
+      "Bash(node scratch_full_install.mjs)",
+      "Bash(node scratch_repro.mjs)",
+      "Bash(python3 /private/tmp/claude-501/-Users-omarreyesamezcua-Desktop-VentaPro/3db706f3-ccaf-40f9-8357-8d69ad7d0bae/scratchpad/consolidate3.py)",
+      "Bash(timeout 60 python3 /private/tmp/claude-501/-Users-omarreyesamezcua-Desktop-VentaPro/3db706f3-ccaf-40f9-8357-8d69ad7d0bae/scratchpad/consolidate4.py)",
+      "Bash(python3 /private/tmp/claude-501/-Users-omarreyesamezcua-Desktop-VentaPro/3db706f3-ccaf-40f9-8357-8d69ad7d0bae/scratchpad/consolidate4.py)",
+      "Bash(python3 /private/tmp/claude-501/-Users-omarreyesamezcua-Desktop-VentaPro/3db706f3-ccaf-40f9-8357-8d69ad7d0bae/scratchpad/consolidate5.py)",
+      "Bash(python3 /private/tmp/claude-501/-Users-omarreyesamezcua-Desktop-VentaPro/3db706f3-ccaf-40f9-8357-8d69ad7d0bae/scratchpad/consolidate6.py)",
+      "Bash(node scratch_policy_diff.mjs supabase/install/01_install.sql /private/tmp/claude-501/-Users-omarreyesamezcua-Desktop-VentaPro/3db706f3-ccaf-40f9-8357-8d69ad7d0bae/scratchpad/01_install_consolidated.sql)",
+      "Bash(node scratch_idempotency_check.mjs)"
     ]
   }
 }
