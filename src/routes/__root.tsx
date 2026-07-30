@@ -18,8 +18,12 @@ function NotFoundComponent() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Página no encontrada</h2>
-        <p className="mt-2 text-sm text-muted-foreground">La página que buscas no existe.</p>
+        <h2 className="mt-4 text-xl font-semibold text-foreground">
+          Página no encontrada
+        </h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          La página que buscas no existe.
+        </p>
         <div className="mt-6">
           <Link
             to="/"
@@ -42,8 +46,12 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
-        <h1 className="text-xl font-semibold text-foreground">Ocurrió un error</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Algo salió mal. Intenta de nuevo.</p>
+        <h1 className="text-xl font-semibold text-foreground">
+          Ocurrió un error
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Algo salió mal. Intenta de nuevo.
+        </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
             onClick={() => {
@@ -66,36 +74,51 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   );
 }
 
-export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  head: () => ({
-    meta: [
-      { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Onisa" },
-      { name: "description", content: "SaaS POS multiempresa para tiendas y bodegas." },
-      { property: "og:title", content: "Onisa" },
-      { name: "twitter:title", content: "Onisa" },
-      { property: "og:description", content: "SaaS POS multiempresa para tiendas y bodegas." },
-      { name: "twitter:description", content: "SaaS POS multiempresa para tiendas y bodegas." },
-      { name: "twitter:card", content: "summary" },
-      { property: "og:type", content: "website" },
-    ],
-    links: [
-      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&display=swap",
-      },
-      { rel: "stylesheet", href: appCss },
-    ],
-  }),
-  shellComponent: RootShell,
-  component: RootComponent,
-  notFoundComponent: NotFoundComponent,
-  errorComponent: ErrorComponent,
-});
+export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
+  {
+    head: () => ({
+      meta: [
+        { charSet: "utf-8" },
+        { name: "viewport", content: "width=device-width, initial-scale=1" },
+        { title: "Onisa" },
+        {
+          name: "description",
+          content: "SaaS POS multiempresa para tiendas y bodegas.",
+        },
+        { property: "og:title", content: "Onisa" },
+        { name: "twitter:title", content: "Onisa" },
+        {
+          property: "og:description",
+          content: "SaaS POS multiempresa para tiendas y bodegas.",
+        },
+        {
+          name: "twitter:description",
+          content: "SaaS POS multiempresa para tiendas y bodegas.",
+        },
+        { name: "twitter:card", content: "summary" },
+        { property: "og:type", content: "website" },
+      ],
+      links: [
+        { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+        { rel: "preconnect", href: "https://fonts.googleapis.com" },
+        {
+          rel: "preconnect",
+          href: "https://fonts.gstatic.com",
+          crossOrigin: "anonymous",
+        },
+        {
+          rel: "stylesheet",
+          href: "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&display=swap",
+        },
+        { rel: "stylesheet", href: appCss },
+      ],
+    }),
+    shellComponent: RootShell,
+    component: RootComponent,
+    notFoundComponent: NotFoundComponent,
+    errorComponent: ErrorComponent,
+  },
+);
 
 function RootShell({ children }: { children: ReactNode }) {
   return (

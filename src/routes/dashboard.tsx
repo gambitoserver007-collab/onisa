@@ -83,7 +83,9 @@ function MetricCard({
     <Card className="border-0 bg-card/95">
       <CardContent className="flex min-h-28 flex-col justify-between p-4">
         <div className="flex items-start justify-between gap-3">
-          <div className={`grid h-11 w-11 place-items-center rounded-2xl ${tone}`}>
+          <div
+            className={`grid h-11 w-11 place-items-center rounded-2xl ${tone}`}
+          >
             <Icon className="h-5 w-5" />
           </div>
           <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
@@ -91,7 +93,9 @@ function MetricCard({
         <div>
           <p className="text-xs text-muted-foreground">{label}</p>
           <p className="mt-1 truncate text-xl font-black">{value}</p>
-          {hint && <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>}
+          {hint && (
+            <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -118,7 +122,10 @@ function ProgressRow({
         <span className="text-xs text-muted-foreground">{amount}</span>
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-        <div className="h-full rounded-full bg-primary" style={{ width: `${width}%` }} />
+        <div
+          className="h-full rounded-full bg-primary"
+          style={{ width: `${width}%` }}
+        />
       </div>
     </div>
   );
@@ -130,13 +137,22 @@ function Dashboard() {
   const { currentLocationId } = useCurrentLocation();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const range = useMemo(() => ({ from: from || undefined, to: to || undefined }), [from, to]);
+  const range = useMemo(
+    () => ({ from: from || undefined, to: to || undefined }),
+    [from, to],
+  );
   const { data, error, isLoading, source } = useDashboardData(
-    currentLocationId === ALL_LOCATIONS ? undefined : (currentLocationId ?? undefined),
+    currentLocationId === ALL_LOCATIONS
+      ? undefined
+      : (currentLocationId ?? undefined),
     range,
   );
-  const timeline = data.salesLast7Days.length ? data.salesLast7Days : EMPTY_TIMELINE;
-  const byCategory = data.salesByCategory.length ? data.salesByCategory : EMPTY_CHART;
+  const timeline = data.salesLast7Days.length
+    ? data.salesLast7Days
+    : EMPTY_TIMELINE;
+  const byCategory = data.salesByCategory.length
+    ? data.salesByCategory
+    : EMPTY_CHART;
   const byMethod = data.salesByMethod.length ? data.salesByMethod : EMPTY_CHART;
   const totalByCategory = byCategory.reduce((sum, item) => sum + item.value, 0);
   const totalByMethod = byMethod.reduce((sum, item) => sum + item.value, 0);
@@ -150,10 +166,16 @@ function Dashboard() {
       <div className="space-y-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-primary">Centro de control</p>
-            <h1 className="mt-1 text-3xl font-black text-foreground">Dashboard</h1>
+            <p className="text-sm font-semibold text-primary">
+              Centro de control
+            </p>
+            <h1 className="mt-1 text-3xl font-black text-foreground">
+              Dashboard
+            </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {isLoading ? "Cargando datos de la tienda..." : "Resumen operativo de la tienda."}
+              {isLoading
+                ? "Cargando datos de la tienda..."
+                : "Resumen operativo de la tienda."}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -204,11 +226,14 @@ function Dashboard() {
                     Hola, {settings.businessName}
                   </h2>
                   <p className="mt-3 max-w-xl text-sm leading-6 text-white/68">
-                    Controla ventas, stock y clientes desde una vista rápida pensada para operar sin
-                    perder tiempo.
+                    Controla ventas, stock y clientes desde una vista rápida
+                    pensada para operar sin perder tiempo.
                   </p>
                   <div className="mt-6 flex flex-wrap gap-2">
-                    <Button asChild className="bg-white text-primary hover:bg-white/90">
+                    <Button
+                      asChild
+                      className="bg-white text-primary hover:bg-white/90"
+                    >
                       <Link to="/pos">Abrir Punto de venta</Link>
                     </Button>
                     <Button
@@ -240,11 +265,15 @@ function Dashboard() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-2xl bg-white/10 p-3 ring-1 ring-white/10">
                       <p className="text-xs text-white/55">Comprobantes</p>
-                      <p className="mt-1 text-xl font-black text-white">{data.salesTodayCount}</p>
+                      <p className="mt-1 text-xl font-black text-white">
+                        {data.salesTodayCount}
+                      </p>
                     </div>
                     <div className="rounded-2xl bg-white/10 p-3 ring-1 ring-white/10">
                       <p className="text-xs text-white/55">Stock bajo</p>
-                      <p className="mt-1 text-xl font-black text-white">{data.lowStockCount}</p>
+                      <p className="mt-1 text-xl font-black text-white">
+                        {data.lowStockCount}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -288,8 +317,12 @@ function Dashboard() {
               <Card className="border-0 bg-card/95">
                 <CardHeader className="flex-row items-center justify-between space-y-0">
                   <div>
-                    <CardTitle className="text-base">Ventas recientes</CardTitle>
-                    <p className="mt-1 text-xs text-muted-foreground">Últimos días registrados</p>
+                    <CardTitle className="text-base">
+                      Ventas recientes
+                    </CardTitle>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Últimos días registrados
+                    </p>
                   </div>
                   <TrendingUp className="h-5 w-5 text-primary" />
                 </CardHeader>
@@ -301,9 +334,23 @@ function Dashboard() {
                   >
                     <AreaChart data={timeline}>
                       <defs>
-                        <linearGradient id="ventasFill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#149457" stopOpacity={0.3} />
-                          <stop offset="100%" stopColor="#149457" stopOpacity={0.02} />
+                        <linearGradient
+                          id="ventasFill"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="0%"
+                            stopColor="#149457"
+                            stopOpacity={0.3}
+                          />
+                          <stop
+                            offset="100%"
+                            stopColor="#149457"
+                            stopOpacity={0.02}
+                          />
                         </linearGradient>
                       </defs>
                       <CartesianGrid {...GRID_PROPS} />
@@ -324,9 +371,13 @@ function Dashboard() {
 
               <Card className="border-0 bg-card/95">
                 <CardHeader>
-                  <CardTitle className="text-base">Ventas por categoría</CardTitle>
+                  <CardTitle className="text-base">
+                    Ventas por categoría
+                  </CardTitle>
                   <p className="text-xs text-muted-foreground">
-                    {bestCategory ? `Mejor categoría: ${bestCategory.name}` : "Sin datos"}
+                    {bestCategory
+                      ? `Mejor categoría: ${bestCategory.name}`
+                      : "Sin datos"}
                   </p>
                 </CardHeader>
                 <CardContent className="h-72">
@@ -340,9 +391,16 @@ function Dashboard() {
                       <XAxis dataKey="name" {...AXIS_PROPS} />
                       <YAxis {...AXIS_PROPS} />
                       <Tooltip {...TOOLTIP_PROPS} />
-                      <Bar dataKey="value" radius={[10, 10, 0, 0]} maxBarSize={56}>
+                      <Bar
+                        dataKey="value"
+                        radius={[10, 10, 0, 0]}
+                        maxBarSize={56}
+                      >
                         {byCategory.map((_, index) => (
-                          <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                          <Cell
+                            key={index}
+                            fill={CHART_COLORS[index % CHART_COLORS.length]}
+                          />
                         ))}
                       </Bar>
                     </BarChart>
@@ -355,7 +413,9 @@ function Dashboard() {
               <CardHeader className="flex-row items-center justify-between space-y-0">
                 <div>
                   <CardTitle className="text-base">Últimas ventas</CardTitle>
-                  <p className="mt-1 text-xs text-muted-foreground">Comprobantes recientes</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Comprobantes recientes
+                  </p>
                 </div>
                 <Button asChild variant="outline" size="sm">
                   <Link to="/ventas">Ver todo</Link>
@@ -372,12 +432,16 @@ function Dashboard() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold">{sale.customer}</p>
+                          <p className="truncate text-sm font-semibold">
+                            {sale.customer}
+                          </p>
                           <p className="mt-1 text-xs text-muted-foreground">
                             {sale.id} · {formatDate(sale.date)}
                           </p>
                         </div>
-                        <p className="shrink-0 text-sm font-black">{formatMoney(sale.total)}</p>
+                        <p className="shrink-0 text-sm font-black">
+                          {formatMoney(sale.total)}
+                        </p>
                       </div>
                       <div className="mt-3 inline-flex items-center gap-1 rounded-full bg-muted px-2 py-1 text-[11px] text-muted-foreground">
                         <CreditCard className="h-3 w-3" />
@@ -394,7 +458,9 @@ function Dashboard() {
             <Card className="border-0 bg-secondary">
               <CardHeader>
                 <CardTitle className="text-base">Rendimiento</CardTitle>
-                <p className="text-xs text-muted-foreground">Lectura rápida del negocio</p>
+                <p className="text-xs text-muted-foreground">
+                  Lectura rápida del negocio
+                </p>
               </CardHeader>
               <CardContent className="space-y-3">
                 <ProgressRow
@@ -411,10 +477,14 @@ function Dashboard() {
                 />
                 <div className="rounded-2xl border border-border/70 bg-card/80 p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Clientes registrados</span>
+                    <span className="text-sm font-medium">
+                      Clientes registrados
+                    </span>
                     <Users className="h-4 w-4 text-primary" />
                   </div>
-                  <p className="mt-2 text-2xl font-black">{data.customersCount}</p>
+                  <p className="mt-2 text-2xl font-black">
+                    {data.customersCount}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -423,7 +493,9 @@ function Dashboard() {
               <CardHeader className="flex-row items-center justify-between space-y-0">
                 <div>
                   <CardTitle className="text-base">Alertas de stock</CardTitle>
-                  <p className="mt-1 text-xs text-muted-foreground">Productos por reponer</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Productos por reponer
+                  </p>
                 </div>
                 <Boxes className="h-5 w-5 text-primary" />
               </CardHeader>
@@ -435,8 +507,12 @@ function Dashboard() {
                       className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-background/55 p-3"
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{product.name}</p>
-                        <p className="text-xs text-muted-foreground">Stock mínimo sugerido</p>
+                        <p className="truncate text-sm font-medium">
+                          {product.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Stock mínimo sugerido
+                        </p>
                       </div>
                       <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">
                         {product.stock} {product.unit}
@@ -499,7 +575,10 @@ function Dashboard() {
                       paddingAngle={2}
                     >
                       {byMethod.map((_, index) => (
-                        <Cell key={index} fill={COLORS[index % COLORS.length]} />
+                        <Cell
+                          key={index}
+                          fill={COLORS[index % COLORS.length]}
+                        />
                       ))}
                     </Pie>
                   </PieChart>

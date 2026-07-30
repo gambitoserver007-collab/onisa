@@ -10,7 +10,11 @@ export function translateAuthError(raw?: string): string {
   }
 
   // Correo ya registrado
-  if (m.includes("already") || m.includes("registered") || m.includes("exists")) {
+  if (
+    m.includes("already") ||
+    m.includes("registered") ||
+    m.includes("exists")
+  ) {
     return "Ese correo ya está registrado. Inicia sesión con él, o usa otro correo para crear una cuenta nueva.";
   }
 
@@ -25,12 +29,19 @@ export function translateAuthError(raw?: string): string {
   }
 
   // Contraseña muy corta
-  if (m.includes("at least") || m.includes("too short") || m.includes("password should")) {
+  if (
+    m.includes("at least") ||
+    m.includes("too short") ||
+    m.includes("password should")
+  ) {
     return "La contraseña es muy corta. Usa al menos 8 caracteres, combinando letras y números.";
   }
 
   // Correo con formato inválido
-  if (m.includes("validate email") || (m.includes("invalid") && m.includes("email"))) {
+  if (
+    m.includes("validate email") ||
+    (m.includes("invalid") && m.includes("email"))
+  ) {
     return "El correo no parece válido. Revisa que esté bien escrito (ejemplo: nombre@dominio.com).";
   }
 
@@ -45,7 +56,10 @@ export function translateAuthError(raw?: string): string {
   }
 
   // Registro deshabilitado
-  if (m.includes("signup") && (m.includes("disabled") || m.includes("not allowed"))) {
+  if (
+    m.includes("signup") &&
+    (m.includes("disabled") || m.includes("not allowed"))
+  ) {
     return "El registro está deshabilitado por ahora. Contacta al administrador del sistema.";
   }
 

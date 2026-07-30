@@ -38,7 +38,9 @@ import {
   getErrorMessage,
 } from "@/services/appData";
 
-export const Route = createFileRoute("/puntos-de-venta")({ component: PuntosDeVenta });
+export const Route = createFileRoute("/puntos-de-venta")({
+  component: PuntosDeVenta,
+});
 
 // El horario se guarda como "HH:MM - HH:MM" en la columna opening_hours.
 function buildHours(open: string, close: string) {
@@ -47,8 +49,13 @@ function buildHours(open: string, close: string) {
 }
 function parseHours(value: string | null) {
   const isTime = /^\d{1,2}:\d{2}$/;
-  const [open = "", close = ""] = (value ?? "").split(" - ").map((part) => part.trim());
-  return { open: isTime.test(open) ? open : "", close: isTime.test(close) ? close : "" };
+  const [open = "", close = ""] = (value ?? "")
+    .split(" - ")
+    .map((part) => part.trim());
+  return {
+    open: isTime.test(open) ? open : "",
+    close: isTime.test(close) ? close : "",
+  };
 }
 
 function PuntosDeVenta() {
@@ -72,7 +79,9 @@ function PuntosDeVenta() {
     try {
       setLocations(await fetchLocations(session?.companyId));
     } catch (error) {
-      toast.error(getErrorMessage(error, "No se pudieron cargar las sucursales."));
+      toast.error(
+        getErrorMessage(error, "No se pudieron cargar las sucursales."),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -132,7 +141,10 @@ function PuntosDeVenta() {
         openingHours: buildHours(openHour, closeHour),
       };
       if (editing) {
-        await updateLocation(editing.id, { ...fields, isActive: editing.isActive });
+        await updateLocation(editing.id, {
+          ...fields,
+          isActive: editing.isActive,
+        });
         toast.success("Sucursal actualizada.");
       } else {
         await createLocation(session, fields);
@@ -159,7 +171,9 @@ function PuntosDeVenta() {
       return;
     }
     setLocations((current) =>
-      current.map((item) => (item.id === location.id ? { ...item, isActive } : item)),
+      current.map((item) =>
+        item.id === location.id ? { ...item, isActive } : item,
+      ),
     );
     try {
       await setLocationActive(location.id, isActive);
@@ -200,7 +214,10 @@ function PuntosDeVenta() {
               <TableBody>
                 {isLoading && (
                   <TableRow>
-                    <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={5}
+                      className="py-8 text-center text-muted-foreground"
+                    >
                       Cargando sucursales...
                     </TableCell>
                   </TableRow>
@@ -237,15 +254,23 @@ function PuntosDeVenta() {
                         <div className="flex items-center gap-2">
                           <Switch
                             checked={location.isActive}
-                            onCheckedChange={(checked) => handleToggle(location, checked)}
+                            onCheckedChange={(checked) =>
+                              handleToggle(location, checked)
+                            }
                           />
-                          <Badge variant={location.isActive ? "success" : "warm"}>
+                          <Badge
+                            variant={location.isActive ? "success" : "warm"}
+                          >
                             {location.isActive ? "Activo" : "Inactivo"}
                           </Badge>
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button size="icon" variant="ghost" onClick={() => openEdit(location)}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => openEdit(location)}
+                        >
                           <Pencil className="h-4 w-4" />
                         </Button>
                       </TableCell>
@@ -260,7 +285,9 @@ function PuntosDeVenta() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editing ? "Editar sucursal" : "Nueva sucursal"}</DialogTitle>
+            <DialogTitle>
+              {editing ? "Editar sucursal" : "Nueva sucursal"}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
@@ -342,7 +369,11 @@ function PuntosDeVenta() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="brand" disabled={isSaving || !name.trim()} onClick={handleSave}>
+            <Button
+              variant="brand"
+              disabled={isSaving || !name.trim()}
+              onClick={handleSave}
+            >
               {isSaving ? "Guardando..." : "Guardar"}
             </Button>
           </DialogFooter>

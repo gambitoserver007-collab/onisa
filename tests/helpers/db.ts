@@ -1,0 +1,206 @@
+// Arma un Postgres real (PGlite, compilado a WASM) con el esquema completo del
+// proyecto (supabase/install/01_install.sql), para poder probar los RPC
+// críticos de dinero/stock exactamente como corren en producción -- RLS,
+// triggers, SECURITY DEFINER y todo -- sin necesitar Docker ni un Supabase
+// real. Se usa como base de las pruebas en critical-rpcs.test.ts.
+import { PGlite } from "@electric-sql/pglite";
+import { readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const INSTALL_SQL_PATH = path.join(
+  __dirname,
+  "../../supabase/install/01_install.sql",
+);
+
+const AUTH_BOOTSTRAP_SQL = `
+  create role anon nologin;
+  create role authenticated nologin;
+  create role service_role nologin bypassrls;
+  create schema if not exists auth;
+  create table auth.users (
+    id uuid primary key default gen_random_uuid(),
+    email text,
+    raw_user_meta_data jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now()
+  );
+  create or replace function auth.uid() returns uuid
+  language sql stable as $$
+    select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+  $$;
+  grant usage on schema auth to anon, authenticated, service_role;
+  grant select on auth.users to anon, authenticated, service_role;
+  grant execute on function auth.uid() to anon, authenticated, service_role, public;
+`;
+
+/**
+ * Crea una base de datos nueva con el esquema completo instalado.
+ * Cada llamada es independiente (PGlite en memoria) -- no comparte estado
+ * entre pruebas.
+ */
+export async function createTestDb(): Promise<PGlite> {
+  const db = new PGlite();
+  await db.exec(AUTH_BOOTSTRAP_SQL);
+
+  let sql = readFileSync(INSTALL_SQL_PATH, "utf-8");
+  // PGlite no trae el contrib pgcrypto compilado; gen_random_uuid() ya es
+  // nativo del core desde PG13, así que basta con omitir esta línea SOLO
+  // para las pruebas (el archivo real no se toca).
+  sql = sql.replaceAll(
+    "create extension if not exists pgcrypto;",
+    "-- (omitido en pruebas: pgcrypto no disponible en PGlite)",
+  );
+  await db.exec(sql);
+  return db;
+}
+
+/** Ejecuta `fn` como si la sesión fuera la del usuario `userId` (rol
+ * `authenticated`, con `auth.uid()` resuelto vía el mismo mecanismo que usa
+ * Supabase real a través del JWT). Restaura el rol de superusuario al salir,
+ * incluso si `fn` lanza.
+ *
+ * `set_config(..., false)` deja el valor a nivel de sesión (no de
+ * transacción), y PGlite reutiliza la misma sesión entre llamadas -- así que
+ * hay que limpiar el claim explícitamente al salir, o `auth.uid()` seguiría
+ * resolviendo al último usuario incluso después de `reset role`. */
+export async function asUser<T>(
+  db: PGlite,
+  userId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  await db.exec(`set role authenticated;`);
+  await db.query("select set_config('request.jwt.claim.sub', $1, false);", [
+    userId,
+  ]);
+  try {
+    return await fn();
+  } finally {
+    await db.exec(`reset role;`);
+    await db.exec("select set_config('request.jwt.claim.sub', '', false);");
+  }
+}
+
+export interface TestCompany {
+  id: string;
+  loc1: string;
+  loc2: string;
+}
+
+export async function makeCompany(
+  db: PGlite,
+  name: string,
+  opts: { status?: string; planId?: string | null } = {},
+): Promise<TestCompany> {
+  const id = randomUUID();
+  await db.query(
+    `insert into public.companies
+       (id, name, country_code, currency_code, locale, fiscal_id_label, tax_name, tax_rate, subscription_status, plan_id)
+     values ($1,$2,'MX','MXN','es-MX','RFC','IVA',0.16,$3,$4)`,
+    [id, name, opts.status ?? "active", opts.planId ?? null],
+  );
+  const { rows } = await db.query<{ id: string }>(
+    "select id from public.locations where company_id=$1 limit 1",
+    [id],
+  );
+  const loc1 = rows[0].id;
+  const loc2 = randomUUID();
+  await db.query(
+    "insert into public.locations (id, company_id, name) values ($1,$2,'Sucursal 2')",
+    [loc2, id],
+  );
+  return { id, loc1, loc2 };
+}
+
+export async function makeUser(
+  db: PGlite,
+  companyId: string,
+  role: string,
+  isPlatformAdmin = false,
+): Promise<string> {
+  const id = randomUUID();
+  const email = `${role}-${id.slice(0, 8)}@test.local`;
+  // Pasamos company_id en los metadatos para que el trigger handle_new_user
+  // trate esto como "usuario nuevo de una empresa existente" en lugar de
+  // crear una empresa fantasma (su rama por defecto cuando no hay company_id).
+  await db.query(
+    "insert into auth.users (id, email, raw_user_meta_data) values ($1,$2,$3)",
+    [id, email, JSON.stringify({ company_id: companyId })],
+  );
+  await db.query(
+    `insert into public.profiles (id, company_id, email, full_name, role, is_platform_admin, is_demo, demo_mode)
+     values ($1,$2,$3,$4,$5,$6,false,'none')
+     on conflict (id) do update set company_id=excluded.company_id, role=excluded.role,
+       is_platform_admin=excluded.is_platform_admin`,
+    [id, companyId, email, role, role, isPlatformAdmin],
+  );
+  return id;
+}
+
+export async function makeProduct(
+  db: PGlite,
+  companyId: string,
+  locationId: string,
+  name: string,
+  cost: number,
+  price: number,
+  stock: number,
+): Promise<string> {
+  const id = randomUUID();
+  await db.query(
+    "insert into public.products (id, company_id, name, cost, price, stock, unit) values ($1,$2,$3,$4,$5,$6,'und')",
+    [id, companyId, name, cost, price, stock],
+  );
+  await db.query(
+    "insert into public.product_locations (company_id, product_id, location_id, stock, is_active) values ($1,$2,$3,$4,true)",
+    [companyId, id, locationId, stock],
+  );
+  return id;
+}
+
+export async function makePlan(
+  db: PGlite,
+  name: string,
+  productLimit: number,
+  userLimit: number,
+  salesLimit: number,
+): Promise<string> {
+  const id = randomUUID();
+  await db.query(
+    `insert into public.subscription_plans (id, name, price, product_limit, user_limit, monthly_sales_limit)
+     values ($1,$2,10,$3,$4,$5)`,
+    [id, name, productLimit, userLimit, salesLimit],
+  );
+  return id;
+}
+
+export interface CartLine {
+  product_id: string;
+  qty: number;
+  unit_price: number;
+}
+
+export async function createSale(
+  db: PGlite,
+  items: CartLine[],
+  locationId: string,
+  clientRequestId?: string,
+): Promise<{ sale_id: string; subtotal: number; tax: number; total: number }> {
+  const { rows } = await db.query<{ create_sale: unknown }>(
+    "select create_sale(null, 'Ticket', 'Efectivo', $1::jsonb, $2, $3) as create_sale",
+    [JSON.stringify(items), locationId, clientRequestId ?? null],
+  );
+  return rows[0].create_sale as {
+    sale_id: string;
+    subtotal: number;
+    tax: number;
+    total: number;
+  };
+}
+
+/** Extrae un mensaje de error legible sin importar la forma exacta del throw. */
+export function errMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}

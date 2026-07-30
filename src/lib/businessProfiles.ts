@@ -182,8 +182,13 @@ export const BUSINESS_PROFILES: Record<string, BusinessProfile> = {
 
 export const DEFAULT_BUSINESS_TYPE = "general";
 
-export function getBusinessProfile(businessType?: string | null): BusinessProfile {
-  return BUSINESS_PROFILES[businessType ?? ""] ?? BUSINESS_PROFILES[DEFAULT_BUSINESS_TYPE];
+export function getBusinessProfile(
+  businessType?: string | null,
+): BusinessProfile {
+  return (
+    BUSINESS_PROFILES[businessType ?? ""] ??
+    BUSINESS_PROFILES[DEFAULT_BUSINESS_TYPE]
+  );
 }
 
 export function getAllBusinessProfiles(): BusinessProfile[] {

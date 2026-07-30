@@ -1,4 +1,9 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import type { Product, ProductVariant } from "@/types";
@@ -31,10 +36,14 @@ export function VariantSelectorDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Elige la variante{product ? ` — ${product.name}` : ""}</DialogTitle>
+          <DialogTitle>
+            Elige la variante{product ? ` — ${product.name}` : ""}
+          </DialogTitle>
         </DialogHeader>
         {loading ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">Cargando variantes…</p>
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            Cargando variantes…
+          </p>
         ) : variants.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
             Este producto no tiene variantes disponibles en esta sucursal.
@@ -44,7 +53,9 @@ export function VariantSelectorDialog({
             {variants.map((variant) => {
               const stock = variantStock.get(variant.id) ?? 0;
               const price =
-                variant.priceOverride != null ? variant.priceOverride : (product?.price ?? 0);
+                variant.priceOverride != null
+                  ? variant.priceOverride
+                  : (product?.price ?? 0);
               return (
                 <Button
                   key={variant.id}
@@ -56,7 +67,8 @@ export function VariantSelectorDialog({
                   <span className="flex flex-col items-start">
                     <span className="font-semibold">{variant.label}</span>
                     <span className="text-xs text-muted-foreground">
-                      {formatMoney(price)} · {stock > 0 ? `${stock} disp.` : "Sin stock"}
+                      {formatMoney(price)} ·{" "}
+                      {stock > 0 ? `${stock} disp.` : "Sin stock"}
                     </span>
                   </span>
                 </Button>

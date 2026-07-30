@@ -19,7 +19,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useCompanyCatalog } from "@/hooks/useCompanyCatalog";
 import { useCurrentLocation } from "@/hooks/useCurrentLocation";
@@ -28,7 +34,11 @@ import { ALL_LOCATIONS } from "@/lib/currentLocation";
 import { blockDemoAction } from "@/lib/demoMode";
 import { variantLabel } from "@/components/productos/VariantEditor";
 import { ProductFormSheet } from "@/components/productos/ProductFormSheet";
-import { createPurchase, fetchProductVariants, getErrorMessage } from "@/services/appData";
+import {
+  createPurchase,
+  fetchProductVariants,
+  getErrorMessage,
+} from "@/services/appData";
 import type { ProductVariant } from "@/types";
 
 interface Row {
@@ -59,12 +69,16 @@ export function PurchaseFormSheet({
   const [date, setDate] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [isSaving, setIsSaving] = useState(false);
-  const [variantsByProduct, setVariantsByProduct] = useState<Record<string, ProductVariant[]>>({});
+  const [variantsByProduct, setVariantsByProduct] = useState<
+    Record<string, ProductVariant[]>
+  >({});
   const [newProdOpen, setNewProdOpen] = useState(false);
 
   const supplier = suppliers.find((s) => s.id === supplierId) ?? null;
   // Solo los productos de este proveedor (más los que aún no tienen proveedor asignado).
-  const availableProducts = products.filter((p) => p.supplierId === supplierId || !p.supplierId);
+  const availableProducts = products.filter(
+    (p) => p.supplierId === supplierId || !p.supplierId,
+  );
 
   // Al abrir, limpia el formulario y siembra una primera línea si hay productos.
   useEffect(() => {
@@ -92,7 +106,9 @@ export function PurchaseFormSheet({
       const product = products.find((p) => p.id === row.productId);
       if (product?.hasVariants && !variantsByProduct[product.id]) {
         void fetchProductVariants(product.id)
-          .then((vs) => setVariantsByProduct((prev) => ({ ...prev, [product.id]: vs })))
+          .then((vs) =>
+            setVariantsByProduct((prev) => ({ ...prev, [product.id]: vs })),
+          )
           .catch(() => undefined);
       }
     });
@@ -116,7 +132,10 @@ export function PurchaseFormSheet({
   // Tras crear un producto nuevo, recarga el catálogo y lo agrega como línea.
   const handleProductCreated = async (newId: string) => {
     await reload();
-    setRows((current) => [...current, { productId: newId, variantId: null, qty: 1, cost: 0 }]);
+    setRows((current) => [
+      ...current,
+      { productId: newId, variantId: null, qty: 1, cost: 0 },
+    ]);
   };
 
   const handleSave = async () => {
@@ -134,7 +153,9 @@ export function PurchaseFormSheet({
       return product?.hasVariants && !row.variantId;
     });
     if (missingVariant) {
-      toast.error("Elige la variante (talla/color) en los productos que la usan.");
+      toast.error(
+        "Elige la variante (talla/color) en los productos que la usan.",
+      );
       return;
     }
     const items = rows.map((row) => ({
@@ -154,7 +175,9 @@ export function PurchaseFormSheet({
           it.unitCost < 0,
       )
     ) {
-      toast.error("Revisa las líneas: la cantidad debe ser entero ≥ 1 y el costo un número ≥ 0.");
+      toast.error(
+        "Revisa las líneas: la cantidad debe ser entero ≥ 1 y el costo un número ≥ 0.",
+      );
       return;
     }
     setIsSaving(true);
@@ -163,7 +186,8 @@ export function PurchaseFormSheet({
         supplierId,
         documentNumber: document,
         date: date ? new Date(date).toISOString() : undefined,
-        locationId: currentLocationId === ALL_LOCATIONS ? null : currentLocationId,
+        locationId:
+          currentLocationId === ALL_LOCATIONS ? null : currentLocationId,
         items,
       });
       toast.success("Compra registrada y stock actualizado.");
@@ -181,7 +205,9 @@ export function PurchaseFormSheet({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent className="flex w-full flex-col sm:max-w-2xl">
           <SheetHeader>
-            <SheetTitle>Nueva compra{supplier ? ` · ${supplier.name}` : ""}</SheetTitle>
+            <SheetTitle>
+              Nueva compra{supplier ? ` · ${supplier.name}` : ""}
+            </SheetTitle>
           </SheetHeader>
           <div className="flex-1 space-y-4 overflow-y-auto p-4">
             {supplier && (
@@ -193,7 +219,8 @@ export function PurchaseFormSheet({
             {availableProducts.length === 0 ? (
               <div className="space-y-3 rounded-lg border p-4 text-center">
                 <p className="text-sm text-muted-foreground">
-                  Este proveedor aún no tiene productos. Crea el primero para registrar la compra.
+                  Este proveedor aún no tiene productos. Crea el primero para
+                  registrar la compra.
                 </p>
                 <Button variant="brand" onClick={() => setNewProdOpen(true)}>
                   <Plus className="mr-1 h-4 w-4" /> Nuevo producto
@@ -227,7 +254,9 @@ export function PurchaseFormSheet({
                         <TableHead>Producto</TableHead>
                         <TableHead className="w-20">Cantidad</TableHead>
                         <TableHead className="w-24">Costo</TableHead>
-                        <TableHead className="w-24 text-right">Subtotal</TableHead>
+                        <TableHead className="w-24 text-right">
+                          Subtotal
+                        </TableHead>
                         <TableHead></TableHead>
                       </TableRow>
                     </TableHeader>
@@ -238,7 +267,9 @@ export function PurchaseFormSheet({
                             <Select
                               value={row.productId}
                               onValueChange={(v) => {
-                                const product = products.find((x) => x.id === v);
+                                const product = products.find(
+                                  (x) => x.id === v,
+                                );
                                 setRows((rs) =>
                                   rs.map((x, i) =>
                                     i === idx
@@ -258,14 +289,19 @@ export function PurchaseFormSheet({
                               </SelectTrigger>
                               <SelectContent>
                                 {availableProducts.map((product) => (
-                                  <SelectItem key={product.id} value={product.id}>
+                                  <SelectItem
+                                    key={product.id}
+                                    value={product.id}
+                                  >
                                     {product.name}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>
                             {(() => {
-                              const product = products.find((p) => p.id === row.productId);
+                              const product = products.find(
+                                (p) => p.id === row.productId,
+                              );
                               if (!product?.hasVariants) return null;
                               const vs = variantsByProduct[product.id] ?? [];
                               return (
@@ -273,7 +309,11 @@ export function PurchaseFormSheet({
                                   value={row.variantId ?? ""}
                                   onValueChange={(vid) =>
                                     setRows((rs) =>
-                                      rs.map((x, i) => (i === idx ? { ...x, variantId: vid } : x)),
+                                      rs.map((x, i) =>
+                                        i === idx
+                                          ? { ...x, variantId: vid }
+                                          : x,
+                                      ),
                                     )
                                   }
                                 >
@@ -282,7 +322,10 @@ export function PurchaseFormSheet({
                                   </SelectTrigger>
                                   <SelectContent>
                                     {vs.map((variant) => (
-                                      <SelectItem key={variant.id} value={variant.id}>
+                                      <SelectItem
+                                        key={variant.id}
+                                        value={variant.id}
+                                      >
                                         {variantLabel(variant.attributes)}
                                       </SelectItem>
                                     ))}
@@ -302,7 +345,12 @@ export function PurchaseFormSheet({
                                 setRows((rs) =>
                                   rs.map((x, i) =>
                                     i === idx
-                                      ? { ...x, qty: Number.isFinite(n) ? Math.max(0, n) : 0 }
+                                      ? {
+                                          ...x,
+                                          qty: Number.isFinite(n)
+                                            ? Math.max(0, n)
+                                            : 0,
+                                        }
                                       : x,
                                   ),
                                 );
@@ -320,7 +368,12 @@ export function PurchaseFormSheet({
                                 setRows((rs) =>
                                   rs.map((x, i) =>
                                     i === idx
-                                      ? { ...x, cost: Number.isFinite(n) ? Math.max(0, n) : 0 }
+                                      ? {
+                                          ...x,
+                                          cost: Number.isFinite(n)
+                                            ? Math.max(0, n)
+                                            : 0,
+                                        }
                                       : x,
                                   ),
                                 );
@@ -334,7 +387,9 @@ export function PurchaseFormSheet({
                             <Button
                               size="icon"
                               variant="ghost"
-                              onClick={() => setRows((rs) => rs.filter((_, i) => i !== idx))}
+                              onClick={() =>
+                                setRows((rs) => rs.filter((_, i) => i !== idx))
+                              }
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -349,7 +404,10 @@ export function PurchaseFormSheet({
                   <Button variant="outline" onClick={addRow}>
                     <Plus className="mr-1 h-4 w-4" /> Agregar producto
                   </Button>
-                  <Button variant="outline" onClick={() => setNewProdOpen(true)}>
+                  <Button
+                    variant="outline"
+                    onClick={() => setNewProdOpen(true)}
+                  >
                     <Plus className="mr-1 h-4 w-4" /> Nuevo producto
                   </Button>
                 </div>
@@ -359,7 +417,9 @@ export function PurchaseFormSheet({
           <SheetFooter>
             <div className="flex w-full items-center justify-between">
               <div>
-                <p className="text-xs text-muted-foreground">Total de la compra</p>
+                <p className="text-xs text-muted-foreground">
+                  Total de la compra
+                </p>
                 <span className="text-gradient text-2xl font-black tabular-nums">
                   {formatMoney(total)}
                 </span>

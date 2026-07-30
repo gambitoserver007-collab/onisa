@@ -41,18 +41,23 @@ import {
 export const Route = createFileRoute("/categorias")({ component: Categorias });
 
 function Categorias() {
-  const { categories, products, error, source, isLoading, reload, session } = useCompanyCatalog();
+  const { categories, products, error, source, isLoading, reload, session } =
+    useCompanyCatalog();
   const { isDemo } = useDemoSession();
   const [query, setQuery] = useState("");
   const [name, setName] = useState("");
   const [open, setOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(
+    null,
+  );
   const [editName, setEditName] = useState("");
   const [isEditSaving, setIsEditSaving] = useState(false);
   const list = useMemo(
     () =>
-      categories.filter((category) => category.name.toLowerCase().includes(query.toLowerCase())),
+      categories.filter((category) =>
+        category.name.toLowerCase().includes(query.toLowerCase()),
+      ),
     [categories, query],
   );
 
@@ -96,7 +101,9 @@ function Categorias() {
       setEditing(null);
       await reload();
     } catch (error) {
-      toast.error(getErrorMessage(error, "No se pudo actualizar la categoría."));
+      toast.error(
+        getErrorMessage(error, "No se pudo actualizar la categoría."),
+      );
     } finally {
       setIsEditSaving(false);
     }
@@ -110,7 +117,9 @@ function Categorias() {
 
     // No dejar productos huérfanos: si la categoría está en uso, bloquear el borrado.
     const cat = categories.find((c) => c.id === categoryId);
-    const enUso = cat ? products.filter((p) => p.category === cat.name).length : 0;
+    const enUso = cat
+      ? products.filter((p) => p.category === cat.name).length
+      : 0;
     if (enUso > 0) {
       toast.error(
         `No puedes eliminar "${cat?.name}": ${enUso} producto(s) la usan. Reasígnalos a otra categoría primero.`,
@@ -147,10 +156,17 @@ function Categorias() {
               </DialogHeader>
               <div className="space-y-2">
                 <Label>Nombre</Label>
-                <Input value={name} onChange={(event) => setName(event.target.value)} />
+                <Input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
               </div>
               <DialogFooter>
-                <Button variant="brand" disabled={isSaving} onClick={handleCreate}>
+                <Button
+                  variant="brand"
+                  disabled={isSaving}
+                  onClick={handleCreate}
+                >
                   {isSaving ? "Guardando..." : "Guardar"}
                 </Button>
               </DialogFooter>
@@ -181,7 +197,10 @@ function Categorias() {
               <TableBody>
                 {isLoading && (
                   <TableRow>
-                    <TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={3}
+                      className="py-8 text-center text-muted-foreground"
+                    >
                       Cargando categorías...
                     </TableCell>
                   </TableRow>
@@ -200,9 +219,13 @@ function Categorias() {
                 {!isLoading &&
                   list.map((category) => (
                     <TableRow key={category.id}>
-                      <TableCell className="font-medium">{category.name}</TableCell>
+                      <TableCell className="font-medium">
+                        {category.name}
+                      </TableCell>
                       <TableCell>
-                        <Badge variant={category.active ? "success" : "outline"}>
+                        <Badge
+                          variant={category.active ? "success" : "outline"}
+                        >
                           {category.active ? "Activa" : "Inactiva"}
                         </Badge>
                       </TableCell>
@@ -235,14 +258,20 @@ function Categorias() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!editing} onOpenChange={(value) => !value && setEditing(null)}>
+      <Dialog
+        open={!!editing}
+        onOpenChange={(value) => !value && setEditing(null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Editar categoría</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
             <Label>Nombre</Label>
-            <Input value={editName} onChange={(event) => setEditName(event.target.value)} />
+            <Input
+              value={editName}
+              onChange={(event) => setEditName(event.target.value)}
+            />
           </div>
           <DialogFooter>
             <Button

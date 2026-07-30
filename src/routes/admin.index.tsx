@@ -110,8 +110,12 @@ function AdminDashboard() {
       });
   }, []);
 
-  const byPlan = stats?.byPlan.length ? stats.byPlan : [{ name: "Sin datos", value: 0 }];
-  const byStatus = stats?.byStatus.length ? stats.byStatus : [{ name: "Sin datos", value: 0 }];
+  const byPlan = stats?.byPlan.length
+    ? stats.byPlan
+    : [{ name: "Sin datos", value: 0 }];
+  const byStatus = stats?.byStatus.length
+    ? stats.byStatus
+    : [{ name: "Sin datos", value: 0 }];
   const growth = stats?.growth ?? [];
 
   return (
@@ -123,12 +127,20 @@ function AdminDashboard() {
         description="Métricas globales del SaaS."
       />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <Kpi icon={Building2} label="Empresas" value={stats?.totalCompanies ?? 0} />
+        <Kpi
+          icon={Building2}
+          label="Empresas"
+          value={stats?.totalCompanies ?? 0}
+        />
         <Kpi icon={CheckCircle2} label="Activas" value={stats?.active ?? 0} />
         <Kpi icon={Clock} label="En prueba" value={stats?.trial ?? 0} />
         <Kpi icon={XCircle} label="Vencidas" value={stats?.expired ?? 0} />
         <Kpi icon={Users} label="Usuarios" value={stats?.users ?? 0} />
-        <Kpi icon={DollarSign} label="MRR" value={formatMoney(stats?.mrr ?? 0)} />
+        <Kpi
+          icon={DollarSign}
+          label="MRR"
+          value={formatMoney(stats?.mrr ?? 0)}
+        />
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
@@ -176,7 +188,10 @@ function AdminDashboard() {
                 <Tooltip {...TOOLTIP_PROPS} />
                 <Bar dataKey="value" radius={[8, 8, 0, 0]} maxBarSize={56}>
                   {byPlan.map((_, i) => (
-                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                    <Cell
+                      key={i}
+                      fill={CHART_COLORS[i % CHART_COLORS.length]}
+                    />
                   ))}
                 </Bar>
               </BarChart>
@@ -242,7 +257,9 @@ function AdminDashboard() {
                 ) : (
                   companies.slice(0, 6).map((company) => (
                     <TableRow key={company.id}>
-                      <TableCell className="font-medium">{company.name}</TableCell>
+                      <TableCell className="font-medium">
+                        {company.name}
+                      </TableCell>
                       <TableCell>{company.planName}</TableCell>
                       <TableCell>{company.usersCount}</TableCell>
                       <TableCell>

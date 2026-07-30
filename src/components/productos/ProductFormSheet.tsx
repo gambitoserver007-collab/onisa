@@ -12,7 +12,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { LogoUploader } from "@/components/settings/LogoUploader";
 import { useCompanyCatalog } from "@/hooks/useCompanyCatalog";
 import { useDemoSession } from "@/hooks/useDemoSession";
@@ -35,7 +41,11 @@ import {
   type Unit,
 } from "@/services/appData";
 import type { Product } from "@/types";
-import { VariantEditor, type AttrDef, type VariantRow } from "@/components/productos/VariantEditor";
+import {
+  VariantEditor,
+  type AttrDef,
+  type VariantRow,
+} from "@/components/productos/VariantEditor";
 
 // Valor centinela del desplegable de categoría para "crear una nueva ahí mismo".
 const NEW_CATEGORY = "__new_category__";
@@ -100,7 +110,9 @@ export function ProductFormSheet({
   const barcodeRef = useRef<HTMLInputElement>(null);
   // Stock por punto de venta (multi-local).
   const [locations, setLocations] = useState<Location[]>([]);
-  const [locStock, setLocStock] = useState<Record<string, { checked: boolean; stock: string }>>({});
+  const [locStock, setLocStock] = useState<
+    Record<string, { checked: boolean; stock: string }>
+  >({});
   const [locStockLoading, setLocStockLoading] = useState(false);
   // Variantes (talla, color…): solo para perfiles que las usan (ej. Ropa).
   const [hasVariants, setHasVariants] = useState(false);
@@ -143,7 +155,11 @@ export function ProductFormSheet({
   // Generate a barcode that does not collide with any product already loaded.
   const generateUniqueBarcode = () => {
     let code = generateBarcode();
-    for (let attempt = 0; attempt < 25 && existingBarcodes.has(code); attempt += 1) {
+    for (
+      let attempt = 0;
+      attempt < 25 && existingBarcodes.has(code);
+      attempt += 1
+    ) {
       code = generateBarcode();
     }
     setBarcode(code);
@@ -158,7 +174,9 @@ export function ProductFormSheet({
     setSupplierId(defaultSupplierId ?? NONE_SUPPLIER);
     setCost("");
     setPrice("");
-    setUnit(units.find((u) => u.name === "Unidad")?.name ?? units[0]?.name ?? "");
+    setUnit(
+      units.find((u) => u.name === "Unidad")?.name ?? units[0]?.name ?? "",
+    );
     setUnitMode("select");
     setImageUrl(null);
     setPriceIncludesTax(true);
@@ -179,14 +197,18 @@ export function ProductFormSheet({
       setCost(String(product.cost));
       setPrice(String(product.price));
       setUnit(product.unit);
-      setUnitMode(units.some((u) => u.name === product.unit) ? "select" : "custom");
+      setUnitMode(
+        units.some((u) => u.name === product.unit) ? "select" : "custom",
+      );
       setImageUrl(product.image ?? null);
       setPriceIncludesTax(product.priceIncludesTax ?? true);
       // Carga el stock por local que ya tiene el producto.
       setLocStockLoading(true);
       initLocStock(null);
       void fetchProductLocations(product.id)
-        .then((rows) => initLocStock(new Map(rows.map((row) => [row.locationId, row.stock]))))
+        .then((rows) =>
+          initLocStock(new Map(rows.map((row) => [row.locationId, row.stock]))),
+        )
         .catch(() => toast.error("No se pudo cargar el stock por sucursal."))
         .finally(() => setLocStockLoading(false));
       // Variantes existentes del producto.
@@ -211,11 +233,14 @@ export function ProductFormSheet({
                 locStock: locStockMap,
               });
             }
-            const names = product.variantAttributes ?? Object.keys(vs[0]?.attributes ?? {});
+            const names =
+              product.variantAttributes ?? Object.keys(vs[0]?.attributes ?? {});
             setAttrDefs(
               names.map((nm) => ({
                 name: nm,
-                values: Array.from(new Set(vs.map((v) => v.attributes[nm]).filter(Boolean))),
+                values: Array.from(
+                  new Set(vs.map((v) => v.attributes[nm]).filter(Boolean)),
+                ),
               })),
             );
             setVariants(rows);
@@ -238,7 +263,12 @@ export function ProductFormSheet({
   const toggleVariants = (value: boolean) => {
     setHasVariants(value);
     if (value && attrDefs.length === 0) {
-      setAttrDefs(profile.suggestedAttributes.map((nameAttr) => ({ name: nameAttr, values: [] })));
+      setAttrDefs(
+        profile.suggestedAttributes.map((nameAttr) => ({
+          name: nameAttr,
+          values: [],
+        })),
+      );
     }
   };
 
@@ -251,12 +281,17 @@ export function ProductFormSheet({
 
     const locationsInput = locations
       .filter((loc) => locStock[loc.id]?.checked)
-      .map((loc) => ({ locationId: loc.id, stock: Number(locStock[loc.id]?.stock) || 0 }));
+      .map((loc) => ({
+        locationId: loc.id,
+        stock: Number(locStock[loc.id]?.stock) || 0,
+      }));
     if (!hasVariants && locations.length > 0 && locationsInput.length === 0) {
       toast.error("Asigna el producto a al menos una sucursal.");
       return;
     }
-    const validVariants = variants.filter((v) => Object.keys(v.attributes).length > 0);
+    const validVariants = variants.filter(
+      (v) => Object.keys(v.attributes).length > 0,
+    );
     if (hasVariants && validVariants.length === 0) {
       toast.error(
         "Genera al menos una variante (define atributos y pulsa “Generar combinaciones”).",
@@ -267,7 +302,12 @@ export function ProductFormSheet({
     // Precio y costo no pueden ser negativos (producto base ni variantes).
     const numPrice = Number(price);
     const numCost = Number(cost);
-    if (!Number.isFinite(numPrice) || numPrice < 0 || !Number.isFinite(numCost) || numCost < 0) {
+    if (
+      !Number.isFinite(numPrice) ||
+      numPrice < 0 ||
+      !Number.isFinite(numCost) ||
+      numCost < 0
+    ) {
       toast.error("El precio y el costo no pueden ser negativos.");
       return;
     }
@@ -279,7 +319,9 @@ export function ProductFormSheet({
         return !Number.isFinite(p) || p < 0 || !Number.isFinite(c) || c < 0;
       })
     ) {
-      toast.error("El precio y el costo de las variantes no pueden ser negativos.");
+      toast.error(
+        "El precio y el costo de las variantes no pueden ser negativos.",
+      );
       return;
     }
 
@@ -288,10 +330,13 @@ export function ProductFormSheet({
     try {
       // Si eligió "Crear nueva categoría", la crea primero y usa su id.
       let resolvedCategoryId =
-        categoryId === "none" || categoryId === NEW_CATEGORY ? undefined : categoryId || undefined;
+        categoryId === "none" || categoryId === NEW_CATEGORY
+          ? undefined
+          : categoryId || undefined;
       if (categoryId === NEW_CATEGORY) {
         const cleanCategory = newCategory.trim();
-        if (!cleanCategory) throw new Error("Escribe el nombre de la nueva categoría.");
+        if (!cleanCategory)
+          throw new Error("Escribe el nombre de la nueva categoría.");
         resolvedCategoryId = await createCategory(session, cleanCategory);
       }
 
@@ -320,7 +365,11 @@ export function ProductFormSheet({
         unit,
         priceIncludesTax,
         imageUrl,
-        locations: hasVariants ? undefined : locations.length > 0 ? locationsInput : undefined,
+        locations: hasVariants
+          ? undefined
+          : locations.length > 0
+            ? locationsInput
+            : undefined,
       };
 
       let productId = editingId;
@@ -336,7 +385,9 @@ export function ProductFormSheet({
 
       // Guarda las variantes (si el producto las maneja).
       if (hasVariants && productId) {
-        const attributeNames = attrDefs.map((def) => def.name.trim()).filter(Boolean);
+        const attributeNames = attrDefs
+          .map((def) => def.name.trim())
+          .filter(Boolean);
         const variantInputs = validVariants.map((v) => ({
           id: v.id,
           attributes: v.attributes,
@@ -344,10 +395,21 @@ export function ProductFormSheet({
           priceOverride: v.price.trim() ? Number(v.price) : null,
           costOverride: v.cost.trim() ? Number(v.cost) : null,
           locations: locations
-            .filter((loc) => v.locStock[loc.id] !== undefined && v.locStock[loc.id] !== "")
-            .map((loc) => ({ locationId: loc.id, stock: Number(v.locStock[loc.id]) || 0 })),
+            .filter(
+              (loc) =>
+                v.locStock[loc.id] !== undefined && v.locStock[loc.id] !== "",
+            )
+            .map((loc) => ({
+              locationId: loc.id,
+              stock: Number(v.locStock[loc.id]) || 0,
+            })),
         }));
-        await syncProductVariants(session, productId, attributeNames, variantInputs);
+        await syncProductVariants(
+          session,
+          productId,
+          attributeNames,
+          variantInputs,
+        );
       } else if (editingId && productId) {
         // Producto sin variantes (incluida la conversión de con→sin variantes):
         // limpia variantes previas y resetea has_variants/variant_attributes.
@@ -376,7 +438,9 @@ export function ProductFormSheet({
     >
       <SheetContent className="flex w-full flex-col sm:max-w-lg">
         <SheetHeader>
-          <SheetTitle>{editingId ? "Editar producto" : "Nuevo producto"}</SheetTitle>
+          <SheetTitle>
+            {editingId ? "Editar producto" : "Nuevo producto"}
+          </SheetTitle>
         </SheetHeader>
         <div className="flex-1 space-y-3 overflow-y-auto p-4">
           <p className="text-xs font-bold uppercase tracking-wider text-primary">
@@ -453,7 +517,9 @@ export function ProductFormSheet({
                     {category.name}
                   </SelectItem>
                 ))}
-                <SelectItem value={NEW_CATEGORY}>+ Crear nueva categoría</SelectItem>
+                <SelectItem value={NEW_CATEGORY}>
+                  + Crear nueva categoría
+                </SelectItem>
               </SelectContent>
             </Select>
             {categoryId === NEW_CATEGORY && (
@@ -467,7 +533,11 @@ export function ProductFormSheet({
           </div>
           <div className="space-y-1">
             <Label>Proveedor</Label>
-            <Select value={supplierId} onValueChange={setSupplierId} disabled={lockSupplier}>
+            <Select
+              value={supplierId}
+              onValueChange={setSupplierId}
+              disabled={lockSupplier}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Sin proveedor" />
               </SelectTrigger>
@@ -481,7 +551,8 @@ export function ProductFormSheet({
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              A quién le compras este producto. Aparecerá en las compras de ese proveedor.
+              A quién le compras este producto. Aparecerá en las compras de ese
+              proveedor.
             </p>
           </div>
           <p className="border-t pt-3 text-xs font-bold uppercase tracking-wider text-primary">
@@ -510,7 +581,9 @@ export function ProductFormSheet({
                 value={price}
                 onChange={(event) => setPrice(event.target.value)}
               />
-              <p className="text-xs text-muted-foreground">Lo que le cobras al cliente.</p>
+              <p className="text-xs text-muted-foreground">
+                Lo que le cobras al cliente.
+              </p>
             </div>
           </div>
           <div className="flex items-center justify-between rounded-lg border p-3">
@@ -520,7 +593,10 @@ export function ProductFormSheet({
                 Actívalo si el precio ya trae el impuesto adentro.
               </p>
             </div>
-            <Switch checked={priceIncludesTax} onCheckedChange={setPriceIncludesTax} />
+            <Switch
+              checked={priceIncludesTax}
+              onCheckedChange={setPriceIncludesTax}
+            />
           </div>
           <p className="border-t pt-3 text-xs font-bold uppercase tracking-wider text-primary">
             Inventario
@@ -547,7 +623,9 @@ export function ProductFormSheet({
                     {option.name}
                   </SelectItem>
                 ))}
-                <SelectItem value="__custom__">+ Crear nueva etiqueta</SelectItem>
+                <SelectItem value="__custom__">
+                  + Crear nueva etiqueta
+                </SelectItem>
               </SelectContent>
             </Select>
             {unitMode === "custom" && (
@@ -566,7 +644,8 @@ export function ProductFormSheet({
               <div className="pr-3">
                 <Label>Este producto maneja variantes</Label>
                 <p className="text-xs text-muted-foreground">
-                  Talla, color, etc. Cada combinación tiene su propio stock y código.
+                  Talla, color, etc. Cada combinación tiene su propio stock y
+                  código.
                 </p>
               </div>
               <Switch checked={hasVariants} onCheckedChange={toggleVariants} />
@@ -605,11 +684,16 @@ export function ProductFormSheet({
                         onCheckedChange={(checked) =>
                           setLocStock((current) => ({
                             ...current,
-                            [loc.id]: { checked, stock: current[loc.id]?.stock ?? "" },
+                            [loc.id]: {
+                              checked,
+                              stock: current[loc.id]?.stock ?? "",
+                            },
                           }))
                         }
                       />
-                      <span className="w-28 shrink-0 truncate text-sm">{loc.name}</span>
+                      <span className="w-28 shrink-0 truncate text-sm">
+                        {loc.name}
+                      </span>
                       <Input
                         type="number"
                         min="0"
@@ -621,7 +705,10 @@ export function ProductFormSheet({
                         onChange={(event) =>
                           setLocStock((current) => ({
                             ...current,
-                            [loc.id]: { checked: true, stock: event.target.value },
+                            [loc.id]: {
+                              checked: true,
+                              stock: event.target.value,
+                            },
                           }))
                         }
                       />
@@ -637,7 +724,11 @@ export function ProductFormSheet({
         </div>
         <SheetFooter>
           <Button variant="brand" disabled={isSaving} onClick={handleSave}>
-            {isSaving ? "Guardando..." : editingId ? "Guardar cambios" : "Guardar"}
+            {isSaving
+              ? "Guardando..."
+              : editingId
+                ? "Guardar cambios"
+                : "Guardar"}
           </Button>
         </SheetFooter>
       </SheetContent>

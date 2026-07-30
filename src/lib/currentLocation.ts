@@ -54,7 +54,11 @@ export function setCurrentLocationId(id: string) {
 // desactivar una sucursal) sin recargar la página.
 let lastLoadArgs: {
   companyId: string;
-  options?: { preferredId?: string | null; allowAll?: boolean; allowedIds?: string[] };
+  options?: {
+    preferredId?: string | null;
+    allowAll?: boolean;
+    allowedIds?: string[];
+  };
 } | null = null;
 
 export async function refreshLocations() {
@@ -64,7 +68,11 @@ export async function refreshLocations() {
 
 export async function loadLocationsForCompany(
   companyId: string,
-  options?: { preferredId?: string | null; allowAll?: boolean; allowedIds?: string[] },
+  options?: {
+    preferredId?: string | null;
+    allowAll?: boolean;
+    allowedIds?: string[];
+  },
 ) {
   lastLoadArgs = { companyId, options };
   const preferredId = options?.preferredId ?? null;
@@ -74,7 +82,9 @@ export async function loadLocationsForCompany(
   // Restringe a las sucursales asignadas (vacío = todas). Si el filtro dejara la
   // lista vacía (p. ej. asignado a una sucursal inactiva), se cae a todas para
   // no bloquear al usuario.
-  const filtered = allowedIds.length ? all.filter((loc) => allowedIds.includes(loc.id)) : all;
+  const filtered = allowedIds.length
+    ? all.filter((loc) => allowedIds.includes(loc.id))
+    : all;
   const list = filtered.length ? filtered : all;
   locations = list;
   const existsConcrete = (id: string | null | undefined): id is string =>

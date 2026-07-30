@@ -11,7 +11,10 @@ import {
   X,
 } from "lucide-react";
 import type { CartItem, Customer, DocumentType, Sale } from "@/types";
-import { PAYMENT_METHOD_KIND_LABELS, type PaymentMethodDefinition } from "@/data/paymentMethods";
+import {
+  PAYMENT_METHOD_KIND_LABELS,
+  type PaymentMethodDefinition,
+} from "@/data/paymentMethods";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,7 +42,13 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { getProductVisual } from "@/lib/productVisuals";
 import { cn } from "@/lib/utils";
 
@@ -115,7 +124,8 @@ function SaleCartContent({
       ? cart.filter((item) => {
           const q = itemFilter.trim().toLowerCase();
           return (
-            item.name.toLowerCase().includes(q) || (item.barcode ?? "").toLowerCase().includes(q)
+            item.name.toLowerCase().includes(q) ||
+            (item.barcode ?? "").toLowerCase().includes(q)
           );
         })
       : cart;
@@ -174,7 +184,9 @@ function SaleCartContent({
               <span className="flex min-w-0 items-center gap-2">
                 <UserRound className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <span className="flex min-w-0 flex-col leading-tight">
-                  <span className="truncate text-sm">{selectedCustomer.name}</span>
+                  <span className="truncate text-sm">
+                    {selectedCustomer.name}
+                  </span>
                   {selectedCustomer.doc && selectedCustomer.doc !== "-" && (
                     <span className="truncate text-xs text-muted-foreground">
                       {selectedCustomer.doc}
@@ -236,7 +248,9 @@ function SaleCartContent({
             <Label className="text-xs text-muted-foreground">Comprobante</Label>
             <Select
               value={docType}
-              onValueChange={(value) => onDocTypeChange(value as SaleDocumentType)}
+              onValueChange={(value) =>
+                onDocTypeChange(value as SaleDocumentType)
+              }
             >
               <SelectTrigger className="h-11 rounded-xl">
                 <SelectValue />
@@ -294,7 +308,9 @@ function SaleCartContent({
             <span className="grid h-12 w-12 place-items-center rounded-2xl bg-card text-2xl shadow-card">
               🛒
             </span>
-            <p className="text-sm text-muted-foreground">Agrega productos para empezar.</p>
+            <p className="text-sm text-muted-foreground">
+              Agrega productos para empezar.
+            </p>
           </div>
         )}
         {cart.length > 0 && visibleCart.length === 0 && (
@@ -304,7 +320,9 @@ function SaleCartContent({
         )}
         {visibleCart.map((item) => {
           const visual = getProductVisual({ name: item.name, category: "" });
-          const lineId = item.variantId ? `${item.productId}::${item.variantId}` : item.productId;
+          const lineId = item.variantId
+            ? `${item.productId}::${item.variantId}`
+            : item.productId;
           return (
             <div
               key={lineId}
@@ -328,12 +346,17 @@ function SaleCartContent({
                 </span>
               )}
               <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold leading-tight">{item.name}</p>
+                <p className="truncate font-semibold leading-tight">
+                  {item.name}
+                </p>
                 {item.variantLabel && (
-                  <p className="truncate text-xs font-medium text-primary">{item.variantLabel}</p>
+                  <p className="truncate text-xs font-medium text-primary">
+                    {item.variantLabel}
+                  </p>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  {formatMoney(item.price)} · {formatMoney(item.price * item.qty)}
+                  {formatMoney(item.price)} ·{" "}
+                  {formatMoney(item.price * item.qty)}
                 </p>
               </div>
               <div className="flex items-center gap-1 rounded-full bg-muted p-0.5">
@@ -348,7 +371,9 @@ function SaleCartContent({
                     <Minus className="h-3.5 w-3.5" />
                   )}
                 </button>
-                <span className="w-6 text-center text-sm font-bold tabular-nums">{item.qty}</span>
+                <span className="w-6 text-center text-sm font-bold tabular-nums">
+                  {item.qty}
+                </span>
                 <button
                   type="button"
                   onClick={() => onIncrement(lineId)}
@@ -365,15 +390,21 @@ function SaleCartContent({
       <div className="shrink-0 space-y-2.5 rounded-2xl bg-muted/50 p-3.5 text-sm">
         <div className="flex justify-between text-muted-foreground">
           <span>Subtotal</span>
-          <span className="font-medium text-foreground">{formatMoney(subtotal)}</span>
+          <span className="font-medium text-foreground">
+            {formatMoney(subtotal)}
+          </span>
         </div>
         <div className="flex justify-between text-muted-foreground">
           <span>{settings.taxName}</span>
-          <span className="font-medium text-foreground">{formatMoney(igv)}</span>
+          <span className="font-medium text-foreground">
+            {formatMoney(igv)}
+          </span>
         </div>
         <div className="flex items-center justify-between border-t border-border/60 pt-2.5">
           <span className="font-semibold">Total</span>
-          <span className="text-2xl font-black text-gradient">{formatMoney(total)}</span>
+          <span className="text-2xl font-black text-gradient">
+            {formatMoney(total)}
+          </span>
         </div>
       </div>
 
@@ -411,11 +442,17 @@ function SaleCartContent({
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <Label>Documento</Label>
-                <Input value={ncDoc} onChange={(event) => setNcDoc(event.target.value)} />
+                <Input
+                  value={ncDoc}
+                  onChange={(event) => setNcDoc(event.target.value)}
+                />
               </div>
               <div className="space-y-1">
                 <Label>Teléfono</Label>
-                <Input value={ncPhone} onChange={(event) => setNcPhone(event.target.value)} />
+                <Input
+                  value={ncPhone}
+                  onChange={(event) => setNcPhone(event.target.value)}
+                />
               </div>
             </div>
             <div className="space-y-1">
@@ -442,7 +479,10 @@ function SaleCartContent({
   );
 }
 
-export function SaleCart({ className, ...props }: SaleCartProps & { className?: string }) {
+export function SaleCart({
+  className,
+  ...props
+}: SaleCartProps & { className?: string }) {
   return (
     <Card className={cn("flex flex-col overflow-hidden", className)}>
       <CardContent className="flex min-h-0 flex-1 flex-col p-4">
@@ -461,11 +501,19 @@ export function MobileSaleCart(props: SaleCartProps) {
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-card/95 p-3 pb-safe shadow-soft backdrop-blur-xl lg:hidden">
         <div className="mx-auto flex max-w-md items-center gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-xs text-muted-foreground">Carrito · {itemCount} ítems</p>
-            <p className="truncate text-xl font-black">{formatMoney(props.total)}</p>
+            <p className="text-xs text-muted-foreground">
+              Carrito · {itemCount} ítems
+            </p>
+            <p className="truncate text-xl font-black">
+              {formatMoney(props.total)}
+            </p>
           </div>
           <SheetTrigger asChild>
-            <Button variant="brand" className="h-12 shrink-0" disabled={props.cart.length === 0}>
+            <Button
+              variant="brand"
+              className="h-12 shrink-0"
+              disabled={props.cart.length === 0}
+            >
               <ShoppingCart className="h-4 w-4" />
               Ver carrito
             </Button>

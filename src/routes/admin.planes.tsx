@@ -84,7 +84,9 @@ function Planes() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<PlanForm>(EMPTY_FORM);
   const [isSaving, setIsSaving] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<SubscriptionPlan | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SubscriptionPlan | null>(
+    null,
+  );
   const [isDeleting, setIsDeleting] = useState(false);
 
   const load = async () => {
@@ -193,8 +195,8 @@ function Planes() {
       />
 
       <FallbackNotice show={usingFallback}>
-        Mostrando planes de ejemplo: no se pudo leer la tabla de planes (revisa permisos/RLS en
-        Supabase). Los cambios no se guardarán hasta resolverlo.
+        Mostrando planes de ejemplo: no se pudo leer la tabla de planes (revisa
+        permisos/RLS en Supabase). Los cambios no se guardarán hasta resolverlo.
       </FallbackNotice>
 
       {isLoading ? (
@@ -252,7 +254,9 @@ function Planes() {
                   </CardTitle>
                   <p className="text-3xl font-black">
                     {formatMoney(plan.price)}
-                    <span className="text-sm font-normal text-muted-foreground">/mes</span>
+                    <span className="text-sm font-normal text-muted-foreground">
+                      /mes
+                    </span>
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
@@ -294,7 +298,9 @@ function Planes() {
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingId ? "Editar plan" : "Nuevo plan"}</DialogTitle>
+            <DialogTitle>
+              {editingId ? "Editar plan" : "Nuevo plan"}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
@@ -322,7 +328,9 @@ function Planes() {
                   type="number"
                   min="0"
                   value={form.productLimit}
-                  onChange={(event) => setField("productLimit", event.target.value)}
+                  onChange={(event) =>
+                    setField("productLimit", event.target.value)
+                  }
                 />
               </div>
               <div className="space-y-1">
@@ -331,7 +339,9 @@ function Planes() {
                   type="number"
                   min="0"
                   value={form.userLimit}
-                  onChange={(event) => setField("userLimit", event.target.value)}
+                  onChange={(event) =>
+                    setField("userLimit", event.target.value)
+                  }
                 />
               </div>
               <div className="space-y-1">
@@ -340,27 +350,40 @@ function Planes() {
                   type="number"
                   min="0"
                   value={form.salesLimit}
-                  onChange={(event) => setField("salesLimit", event.target.value)}
+                  onChange={(event) =>
+                    setField("salesLimit", event.target.value)
+                  }
                 />
               </div>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="brand" disabled={isSaving || !form.name.trim()} onClick={handleSave}>
-              {isSaving ? "Guardando..." : editingId ? "Guardar cambios" : "Crear plan"}
+            <Button
+              variant="brand"
+              disabled={isSaving || !form.name.trim()}
+              onClick={handleSave}
+            >
+              {isSaving
+                ? "Guardando..."
+                : editingId
+                  ? "Guardar cambios"
+                  : "Crear plan"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Delete confirmation */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={(value) => !value && setDeleteTarget(null)}>
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(value) => !value && setDeleteTarget(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar plan?</AlertDialogTitle>
             <AlertDialogDescription>
-              Se archivará el plan <strong>{deleteTarget?.name}</strong>. Las empresas que ya lo
-              tengan asignado no se ven afectadas.
+              Se archivará el plan <strong>{deleteTarget?.name}</strong>. Las
+              empresas que ya lo tengan asignado no se ven afectadas.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -12,8 +12,8 @@ export function DemoBanner() {
         <Info className="h-4 w-4" />
       </span>
       <span>
-        Estás en <strong className="font-semibold">Modo de Prueba</strong> (solo lectura). Algunas
-        acciones están deshabilitadas.
+        Estás en <strong className="font-semibold">Modo de Prueba</strong> (solo
+        lectura). Algunas acciones están deshabilitadas.
       </span>
     </div>
   );

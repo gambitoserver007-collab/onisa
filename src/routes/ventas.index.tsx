@@ -2,7 +2,11 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Download, FileSpreadsheet, Plus, Receipt } from "lucide-react";
 import { toast } from "sonner";
-import { exportSalesToExcel, filterSalesByDate, printReceipts } from "@/lib/salesExport";
+import {
+  exportSalesToExcel,
+  filterSalesByDate,
+  printReceipts,
+} from "@/lib/salesExport";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { FallbackNotice } from "@/components/layout/FallbackNotice";
@@ -39,7 +43,9 @@ function VentasPage() {
   const { activeMethods } = usePaymentMethods(settings.countryCode);
   const { currentLocationId } = useCurrentLocation();
   const { sales, error, source, isLoading } = useSales(
-    currentLocationId === ALL_LOCATIONS ? undefined : (currentLocationId ?? undefined),
+    currentLocationId === ALL_LOCATIONS
+      ? undefined
+      : (currentLocationId ?? undefined),
   );
   const [method, setMethod] = useState("all");
   const [from, setFrom] = useState("");
@@ -47,7 +53,10 @@ function VentasPage() {
   const methodOptions = useMemo(
     () =>
       Array.from(
-        new Set([...activeMethods.map((item) => item.label), ...sales.map((sale) => sale.method)]),
+        new Set([
+          ...activeMethods.map((item) => item.label),
+          ...sales.map((sale) => sale.method),
+        ]),
       ),
     [activeMethods, sales],
   );
@@ -123,12 +132,18 @@ function VentasPage() {
               </SelectContent>
             </Select>
             <div className="flex gap-2 sm:ml-auto">
-              <Button variant="outline" onClick={handleExcel} disabled={filtered.length === 0}>
+              <Button
+                variant="outline"
+                onClick={handleExcel}
+                disabled={filtered.length === 0}
+              >
                 <FileSpreadsheet className="mr-1 h-4 w-4" /> Exportar Excel
               </Button>
               <Button
                 variant="outline"
-                onClick={() => printReceipts(filtered, exportSettings, formatMoney)}
+                onClick={() =>
+                  printReceipts(filtered, exportSettings, formatMoney)
+                }
                 disabled={filtered.length === 0}
               >
                 <Download className="mr-1 h-4 w-4" /> Descargar recibos
@@ -151,7 +166,10 @@ function VentasPage() {
               <TableBody>
                 {isLoading && (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={7}
+                      className="py-8 text-center text-muted-foreground"
+                    >
                       Cargando ventas...
                     </TableCell>
                   </TableRow>
@@ -191,7 +209,9 @@ function VentasPage() {
                             variant="ghost"
                             size="icon"
                             aria-label={`Descargar recibo ${sale.id}`}
-                            onClick={() => printReceipts([sale], exportSettings, formatMoney)}
+                            onClick={() =>
+                              printReceipts([sale], exportSettings, formatMoney)
+                            }
                           >
                             <Download className="h-4 w-4" />
                           </Button>

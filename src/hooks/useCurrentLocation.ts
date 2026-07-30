@@ -15,7 +15,11 @@ import { fetchAssignedLocationIds } from "@/services/appData";
 // tiendas"; a cashier stays pinned to their assigned (or first) store.
 export function useCurrentLocation() {
   const { session, isReady } = useDemoSession();
-  const state = useSyncExternalStore(subscribeLocation, getLocationState, getLocationState);
+  const state = useSyncExternalStore(
+    subscribeLocation,
+    getLocationState,
+    getLocationState,
+  );
   const allowAll = session?.role === "admin" || session?.role === "finanzas";
 
   useEffect(() => {
@@ -36,12 +40,20 @@ export function useCurrentLocation() {
     return () => {
       active = false;
     };
-  }, [isReady, session?.companyId, session?.userId, session?.locationId, allowAll]);
+  }, [
+    isReady,
+    session?.companyId,
+    session?.userId,
+    session?.locationId,
+    allowAll,
+  ]);
 
   const isAllLocations = state.currentId === ALL_LOCATIONS;
   const currentLocation = isAllLocations
     ? null
-    : (state.locations.find((loc) => loc.id === state.currentId) ?? state.locations[0] ?? null);
+    : (state.locations.find((loc) => loc.id === state.currentId) ??
+      state.locations[0] ??
+      null);
 
   return {
     locations: state.locations,

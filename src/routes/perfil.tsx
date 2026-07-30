@@ -37,7 +37,9 @@ function Perfil() {
     try {
       const company = await updateCompanyLogo(session, dataUrl);
       saveBusinessSettings(mapCompanyToBusinessSettings(company));
-      toast.success(dataUrl ? "Logo de la tienda actualizado." : "Logo quitado.");
+      toast.success(
+        dataUrl ? "Logo de la tienda actualizado." : "Logo quitado.",
+      );
     } catch (error) {
       toast.error(getErrorMessage(error, "No se pudo actualizar el logo."));
     }

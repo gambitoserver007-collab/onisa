@@ -30,10 +30,16 @@ import { useDemoSession } from "@/hooks/useDemoSession";
 import { ALL_LOCATIONS } from "@/lib/currentLocation";
 import { blockDemoAction } from "@/lib/demoMode";
 import { variantLabel } from "@/components/productos/VariantEditor";
-import { createPurchase, fetchProductVariants, getErrorMessage } from "@/services/appData";
+import {
+  createPurchase,
+  fetchProductVariants,
+  getErrorMessage,
+} from "@/services/appData";
 import type { ProductVariant } from "@/types";
 
-export const Route = createFileRoute("/compras/nueva")({ component: NuevaCompra });
+export const Route = createFileRoute("/compras/nueva")({
+  component: NuevaCompra,
+});
 
 const NO_SUPPLIER = "__none__";
 
@@ -55,13 +61,22 @@ function NuevaCompra() {
   const [rows, setRows] = useState<Row[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const { currentLocationId } = useCurrentLocation();
-  const [variantsByProduct, setVariantsByProduct] = useState<Record<string, ProductVariant[]>>({});
+  const [variantsByProduct, setVariantsByProduct] = useState<
+    Record<string, ProductVariant[]>
+  >({});
   const selectedSupplier = suppliers.find((s) => s.id === supplierId) ?? null;
 
   // Seed a first line once the catalog is available.
   useEffect(() => {
     if (!isLoading && products.length && rows.length === 0) {
-      setRows([{ productId: products[0].id, variantId: null, qty: 1, cost: products[0].cost }]);
+      setRows([
+        {
+          productId: products[0].id,
+          variantId: null,
+          qty: 1,
+          cost: products[0].cost,
+        },
+      ]);
     }
   }, [isLoading, products, rows.length]);
 
@@ -71,7 +86,9 @@ function NuevaCompra() {
       const product = products.find((p) => p.id === row.productId);
       if (product?.hasVariants && !variantsByProduct[product.id]) {
         void fetchProductVariants(product.id)
-          .then((vs) => setVariantsByProduct((prev) => ({ ...prev, [product.id]: vs })))
+          .then((vs) =>
+            setVariantsByProduct((prev) => ({ ...prev, [product.id]: vs })),
+          )
           .catch(() => undefined);
       }
     });
@@ -83,7 +100,12 @@ function NuevaCompra() {
     if (!products.length) return;
     setRows((current) => [
       ...current,
-      { productId: products[0].id, variantId: null, qty: 1, cost: products[0].cost },
+      {
+        productId: products[0].id,
+        variantId: null,
+        qty: 1,
+        cost: products[0].cost,
+      },
     ]);
   };
 
@@ -102,7 +124,9 @@ function NuevaCompra() {
       return product?.hasVariants && !row.variantId;
     });
     if (missingVariant) {
-      toast.error("Elige la variante (talla/color) en los productos que la usan.");
+      toast.error(
+        "Elige la variante (talla/color) en los productos que la usan.",
+      );
       return;
     }
     const items = rows.map((row) => ({
@@ -122,7 +146,9 @@ function NuevaCompra() {
           it.unitCost < 0,
       )
     ) {
-      toast.error("Revisa las líneas: la cantidad debe ser entero ≥ 1 y el costo un número ≥ 0.");
+      toast.error(
+        "Revisa las líneas: la cantidad debe ser entero ≥ 1 y el costo un número ≥ 0.",
+      );
       return;
     }
     setIsSaving(true);
@@ -131,7 +157,8 @@ function NuevaCompra() {
         supplierId,
         documentNumber: document,
         date: date ? new Date(date).toISOString() : undefined,
-        locationId: currentLocationId === ALL_LOCATIONS ? null : currentLocationId,
+        locationId:
+          currentLocationId === ALL_LOCATIONS ? null : currentLocationId,
         items,
       });
       toast.success("Compra registrada y stock actualizado.");
@@ -161,7 +188,10 @@ function NuevaCompra() {
                 description="Crea tu primer producto en la sección Productos para poder registrar una compra."
               />
               <div className="flex justify-center">
-                <Button variant="brand" onClick={() => navigate({ to: "/productos" })}>
+                <Button
+                  variant="brand"
+                  onClick={() => navigate({ to: "/productos" })}
+                >
                   <Plus className="mr-1 h-4 w-4" /> Nuevo producto
                 </Button>
               </div>
@@ -194,7 +224,11 @@ function NuevaCompra() {
                   value={document}
                   onChange={(event) => setDocument(event.target.value)}
                 />
-                <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+                <Input
+                  type="date"
+                  value={date}
+                  onChange={(event) => setDate(event.target.value)}
+                />
               </div>
 
               <div className="overflow-x-auto">
@@ -204,7 +238,9 @@ function NuevaCompra() {
                       <TableHead>Producto</TableHead>
                       <TableHead className="w-24">Cantidad</TableHead>
                       <TableHead className="w-28">Costo</TableHead>
-                      <TableHead className="w-28 text-right">Subtotal</TableHead>
+                      <TableHead className="w-28 text-right">
+                        Subtotal
+                      </TableHead>
                       <TableHead></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -242,7 +278,9 @@ function NuevaCompra() {
                             </SelectContent>
                           </Select>
                           {(() => {
-                            const product = products.find((p) => p.id === row.productId);
+                            const product = products.find(
+                              (p) => p.id === row.productId,
+                            );
                             if (!product?.hasVariants) return null;
                             const vs = variantsByProduct[product.id] ?? [];
                             return (
@@ -250,7 +288,9 @@ function NuevaCompra() {
                                 value={row.variantId ?? ""}
                                 onValueChange={(vid) =>
                                   setRows((rs) =>
-                                    rs.map((x, i) => (i === idx ? { ...x, variantId: vid } : x)),
+                                    rs.map((x, i) =>
+                                      i === idx ? { ...x, variantId: vid } : x,
+                                    ),
                                   )
                                 }
                               >
@@ -259,7 +299,10 @@ function NuevaCompra() {
                                 </SelectTrigger>
                                 <SelectContent>
                                   {vs.map((variant) => (
-                                    <SelectItem key={variant.id} value={variant.id}>
+                                    <SelectItem
+                                      key={variant.id}
+                                      value={variant.id}
+                                    >
                                       {variantLabel(variant.attributes)}
                                     </SelectItem>
                                   ))}
@@ -279,7 +322,12 @@ function NuevaCompra() {
                               setRows((rs) =>
                                 rs.map((x, i) =>
                                   i === idx
-                                    ? { ...x, qty: Number.isFinite(n) ? Math.max(0, n) : 0 }
+                                    ? {
+                                        ...x,
+                                        qty: Number.isFinite(n)
+                                          ? Math.max(0, n)
+                                          : 0,
+                                      }
                                     : x,
                                 ),
                               );
@@ -297,7 +345,12 @@ function NuevaCompra() {
                               setRows((rs) =>
                                 rs.map((x, i) =>
                                   i === idx
-                                    ? { ...x, cost: Number.isFinite(n) ? Math.max(0, n) : 0 }
+                                    ? {
+                                        ...x,
+                                        cost: Number.isFinite(n)
+                                          ? Math.max(0, n)
+                                          : 0,
+                                      }
                                     : x,
                                 ),
                               );
@@ -311,7 +364,9 @@ function NuevaCompra() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            onClick={() => setRows((rs) => rs.filter((_, i) => i !== idx))}
+                            onClick={() =>
+                              setRows((rs) => rs.filter((_, i) => i !== idx))
+                            }
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -326,21 +381,28 @@ function NuevaCompra() {
                 <Button variant="outline" onClick={addRow}>
                   <Plus className="mr-1 h-4 w-4" /> Agregar producto
                 </Button>
-                <Button variant="outline" onClick={() => navigate({ to: "/productos" })}>
+                <Button
+                  variant="outline"
+                  onClick={() => navigate({ to: "/productos" })}
+                >
                   <Plus className="mr-1 h-4 w-4" /> Nuevo producto
                 </Button>
               </div>
 
               <div className="flex items-center justify-between border-t pt-3">
                 <div>
-                  <p className="text-xs text-muted-foreground">Total de la compra</p>
+                  <p className="text-xs text-muted-foreground">
+                    Total de la compra
+                  </p>
                   <span className="text-gradient text-2xl font-black tabular-nums">
                     {formatMoney(total)}
                   </span>
                 </div>
                 <Button
                   variant="brand"
-                  disabled={isSaving || rows.length === 0 || supplierId === NO_SUPPLIER}
+                  disabled={
+                    isSaving || rows.length === 0 || supplierId === NO_SUPPLIER
+                  }
                   onClick={handleSave}
                 >
                   {isSaving ? "Guardando..." : "Guardar compra"}

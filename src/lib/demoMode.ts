@@ -3,7 +3,8 @@ import { isDemoEmail } from "@/data/demoCredentials";
 import type { DemoSession } from "@/types";
 import { getSession } from "./demoAuth";
 
-export const DEMO_BLOCKED_MESSAGE = "Esta acción está deshabilitada en el Modo de Prueba.";
+export const DEMO_BLOCKED_MESSAGE =
+  "Esta acción está deshabilitada en el Modo de Prueba.";
 
 export function isDemoSession(session?: DemoSession | null) {
   return Boolean(session?.isDemo || session?.demoMode === "read_only");
@@ -24,7 +25,9 @@ export function getDemoMode() {
   };
 }
 
-export function canRunSensitiveAction(session: DemoSession | null = getSession()) {
+export function canRunSensitiveAction(
+  session: DemoSession | null = getSession(),
+) {
   return !isDemoSession(session);
 }
 

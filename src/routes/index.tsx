@@ -9,7 +9,8 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       {
-        title: "Onisa — El sistema para vender, controlar y hacer crecer tu tienda",
+        title:
+          "Onisa — El sistema para vender, controlar y hacer crecer tu tienda",
       },
       {
         name: "description",
@@ -42,7 +43,9 @@ function Index() {
           <Store className="h-8 w-8" />
         </span>
         <div className="animate-fade-up">
-          <p className="text-lg font-black tracking-tight text-foreground">Onisa</p>
+          <p className="text-lg font-black tracking-tight text-foreground">
+            Onisa
+          </p>
           <p className="text-sm text-muted-foreground">Cargando…</p>
         </div>
       </div>

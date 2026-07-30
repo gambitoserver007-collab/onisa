@@ -74,7 +74,9 @@ function Promos() {
     try {
       setPromos(await fetchPromotions(session?.companyId));
     } catch (error) {
-      toast.error(getErrorMessage(error, "No se pudieron cargar las promociones."));
+      toast.error(
+        getErrorMessage(error, "No se pudieron cargar las promociones."),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -150,7 +152,9 @@ function Promos() {
       return;
     }
     setPromos((current) =>
-      current.map((item) => (item.id === promo.id ? { ...item, active } : item)),
+      current.map((item) =>
+        item.id === promo.id ? { ...item, active } : item,
+      ),
     );
     try {
       await setPromotionActive(promo.id, active);
@@ -196,7 +200,9 @@ function Promos() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editing ? "Editar promoción" : "Nueva promoción"}</DialogTitle>
+            <DialogTitle>
+              {editing ? "Editar promoción" : "Nueva promoción"}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
@@ -210,7 +216,10 @@ function Promos() {
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <Label>Tipo</Label>
-                <Select value={type} onValueChange={(v) => setType(v as PromotionType)}>
+                <Select
+                  value={type}
+                  onValueChange={(v) => setType(v as PromotionType)}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -258,7 +267,11 @@ function Promos() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="brand" disabled={isSaving || !name.trim()} onClick={handleSave}>
+            <Button
+              variant="brand"
+              disabled={isSaving || !name.trim()}
+              onClick={handleSave}
+            >
               {isSaving ? "Guardando..." : "Guardar"}
             </Button>
           </DialogFooter>
@@ -282,7 +295,10 @@ function Promos() {
               <TableBody>
                 {isLoading && (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={7}
+                      className="py-8 text-center text-muted-foreground"
+                    >
                       Cargando promociones...
                     </TableCell>
                   </TableRow>
@@ -301,16 +317,24 @@ function Promos() {
                 {!isLoading &&
                   promos.map((promo) => (
                     <TableRow key={promo.id}>
-                      <TableCell className="font-medium">{promo.name}</TableCell>
-                      <TableCell>{TYPE_LABELS[promo.type] ?? promo.type}</TableCell>
+                      <TableCell className="font-medium">
+                        {promo.name}
+                      </TableCell>
+                      <TableCell>
+                        {TYPE_LABELS[promo.type] ?? promo.type}
+                      </TableCell>
                       <TableCell>{valueOf(promo)}</TableCell>
-                      <TableCell>{promo.startsAt?.slice(0, 10) ?? "-"}</TableCell>
+                      <TableCell>
+                        {promo.startsAt?.slice(0, 10) ?? "-"}
+                      </TableCell>
                       <TableCell>{promo.endsAt?.slice(0, 10) ?? "-"}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Switch
                             checked={promo.active}
-                            onCheckedChange={(checked) => handleToggle(promo, checked)}
+                            onCheckedChange={(checked) =>
+                              handleToggle(promo, checked)
+                            }
                           />
                           <Badge variant={promo.active ? "success" : "warm"}>
                             {promo.active ? "Activa" : "Pausada"}
@@ -318,7 +342,11 @@ function Promos() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button size="icon" variant="ghost" onClick={() => openEdit(promo)}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => openEdit(promo)}
+                        >
                           <Pencil className="h-4 w-4" />
                         </Button>
                         <Button

@@ -1,4 +1,13 @@
-import type { Product, Category, Supplier, Customer, Sale, Purchase, Plan, Company } from "@/types";
+import type {
+  Product,
+  Category,
+  Supplier,
+  Customer,
+  Sale,
+  Purchase,
+  Plan,
+  Company,
+} from "@/types";
 
 export const categories: Category[] = [
   { id: "c1", name: "Abarrotes", active: true },
@@ -208,8 +217,18 @@ export const products: Product[] = [
 ];
 
 export const suppliers: Supplier[] = [
-  { id: "s1", name: "Distribuidora Andina", ruc: "20512345678", phone: "987654321" },
-  { id: "s2", name: "Alimentos del Sur", ruc: "20598765432", phone: "987111222" },
+  {
+    id: "s1",
+    name: "Distribuidora Andina",
+    ruc: "20512345678",
+    phone: "987654321",
+  },
+  {
+    id: "s2",
+    name: "Alimentos del Sur",
+    ruc: "20598765432",
+    phone: "987111222",
+  },
   { id: "s3", name: "Bebidas Perú", ruc: "20587654321", phone: "987333444" },
 ];
 
@@ -271,7 +290,13 @@ export const purchases: Purchase[] = [
     doc: "F001-1023",
     total: 1250.5,
   },
-  { id: "C-0002", date: "2025-06-12", supplier: "Bebidas Perú", doc: "F001-0584", total: 890.0 },
+  {
+    id: "C-0002",
+    date: "2025-06-12",
+    supplier: "Bebidas Perú",
+    doc: "F001-0584",
+    total: 890.0,
+  },
   {
     id: "C-0003",
     date: "2025-06-14",
@@ -282,9 +307,33 @@ export const purchases: Purchase[] = [
 ];
 
 export const plans: Plan[] = [
-  { id: "pl1", name: "Prueba", price: 0, products: 50, users: 1, sales: 100, active: 12 },
-  { id: "pl2", name: "Básico", price: 17, products: 300, users: 3, sales: 1000, active: 45 },
-  { id: "pl3", name: "Pro", price: 37, products: 3000, users: 10, sales: 4000, active: 23 },
+  {
+    id: "pl1",
+    name: "Prueba",
+    price: 0,
+    products: 50,
+    users: 1,
+    sales: 100,
+    active: 12,
+  },
+  {
+    id: "pl2",
+    name: "Básico",
+    price: 17,
+    products: 300,
+    users: 3,
+    sales: 1000,
+    active: 45,
+  },
+  {
+    id: "pl3",
+    name: "Pro",
+    price: 37,
+    products: 3000,
+    users: 10,
+    sales: 4000,
+    active: 23,
+  },
 ];
 
 export const companies: Company[] = [

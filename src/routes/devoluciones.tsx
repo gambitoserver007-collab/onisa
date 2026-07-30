@@ -24,7 +24,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Command,
   CommandEmpty,
@@ -52,7 +56,9 @@ import {
 } from "@/services/appData";
 import type { Sale } from "@/types";
 
-export const Route = createFileRoute("/devoluciones")({ component: Devoluciones });
+export const Route = createFileRoute("/devoluciones")({
+  component: Devoluciones,
+});
 
 const NO_SALE = "__none__";
 
@@ -74,7 +80,8 @@ function Devoluciones() {
   const { customers } = useCompanyCatalog();
   // Documento/cédula por id de cliente, para buscar la venta por cédula.
   const docByCustomerId = new Map(customers.map((c) => [c.id, c.doc]));
-  const selectedSale = sales.find((s) => (s.databaseId ?? s.id) === saleId) ?? null;
+  const selectedSale =
+    sales.find((s) => (s.databaseId ?? s.id) === saleId) ?? null;
 
   const reload = useCallback(async () => {
     setIsLoading(true);
@@ -86,7 +93,9 @@ function Devoluciones() {
       setReturns(returnsData);
       setSales(salesData);
     } catch (error) {
-      toast.error(getErrorMessage(error, "No se pudieron cargar las devoluciones."));
+      toast.error(
+        getErrorMessage(error, "No se pudieron cargar las devoluciones."),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -109,7 +118,11 @@ function Devoluciones() {
         setSaleItems(items);
         setItemQtys({});
       })
-      .catch((err) => toast.error(getErrorMessage(err, "No se pudieron cargar los renglones.")))
+      .catch((err) =>
+        toast.error(
+          getErrorMessage(err, "No se pudieron cargar los renglones."),
+        ),
+      )
       .finally(() => setLoadingItems(false));
   }, [saleId]);
 
@@ -151,7 +164,10 @@ function Devoluciones() {
           unitPrice: item.unitPrice,
         };
       })
-      .filter((it): it is NonNullable<typeof it> => it !== null && Boolean(it.productId));
+      .filter(
+        (it): it is NonNullable<typeof it> =>
+          it !== null && Boolean(it.productId),
+      );
     if (overError) {
       toast.error(overError);
       return;
@@ -176,7 +192,9 @@ function Devoluciones() {
       setOpen(false);
       await reload();
     } catch (error) {
-      toast.error(getErrorMessage(error, "No se pudo registrar la devolución."));
+      toast.error(
+        getErrorMessage(error, "No se pudo registrar la devolución."),
+      );
     } finally {
       setIsSaving(false);
     }
@@ -203,7 +221,10 @@ function Devoluciones() {
               <div className="space-y-3">
                 <div className="space-y-1">
                   <Label>Venta</Label>
-                  <Popover open={salePickerOpen} onOpenChange={setSalePickerOpen}>
+                  <Popover
+                    open={salePickerOpen}
+                    onOpenChange={setSalePickerOpen}
+                  >
                     <PopoverTrigger asChild>
                       <Button
                         type="button"
@@ -219,7 +240,10 @@ function Devoluciones() {
                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                    <PopoverContent
+                      className="w-[--radix-popover-trigger-width] p-0"
+                      align="start"
+                    >
                       <Command>
                         <CommandInput placeholder="Buscar por venta, cliente o cédula..." />
                         <CommandList>
@@ -261,15 +285,24 @@ function Devoluciones() {
                           <TableRow>
                             <TableHead>Producto</TableHead>
                             <TableHead className="text-right">Precio</TableHead>
-                            <TableHead className="text-right">Vendidos</TableHead>
-                            <TableHead className="text-right">Máx. a devolver</TableHead>
-                            <TableHead className="w-28 text-right">Devolver (uds.)</TableHead>
+                            <TableHead className="text-right">
+                              Vendidos
+                            </TableHead>
+                            <TableHead className="text-right">
+                              Máx. a devolver
+                            </TableHead>
+                            <TableHead className="w-28 text-right">
+                              Devolver (uds.)
+                            </TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {loadingItems && (
                             <TableRow>
-                              <TableCell colSpan={5} className="text-center text-muted-foreground">
+                              <TableCell
+                                colSpan={5}
+                                className="text-center text-muted-foreground"
+                              >
                                 Cargando renglones...
                               </TableCell>
                             </TableRow>
@@ -280,7 +313,9 @@ function Devoluciones() {
                               return (
                                 <TableRow key={item.id}>
                                   <TableCell>
-                                    <div className="font-medium">{item.productName}</div>
+                                    <div className="font-medium">
+                                      {item.productName}
+                                    </div>
                                     {item.variantLabel && (
                                       <div className="text-xs text-muted-foreground">
                                         {item.variantLabel}
@@ -290,8 +325,12 @@ function Devoluciones() {
                                   <TableCell className="text-right">
                                     {formatMoney(item.unitPrice)}
                                   </TableCell>
-                                  <TableCell className="text-right">{item.qty}</TableCell>
-                                  <TableCell className="text-right">{max}</TableCell>
+                                  <TableCell className="text-right">
+                                    {item.qty}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    {max}
+                                  </TableCell>
                                   <TableCell className="text-right">
                                     <Input
                                       type="number"
@@ -313,7 +352,10 @@ function Devoluciones() {
                                               : n > max
                                                 ? String(max)
                                                 : v;
-                                        setItemQtys((prev) => ({ ...prev, [item.id]: clamped }));
+                                        setItemQtys((prev) => ({
+                                          ...prev,
+                                          [item.id]: clamped,
+                                        }));
                                       }}
                                       placeholder="0"
                                     />
@@ -326,7 +368,9 @@ function Devoluciones() {
                     </div>
                     <div className="pt-1 text-right text-sm text-muted-foreground">
                       Recibes de vuelta{" "}
-                      <span className="font-semibold text-foreground">{computedUnits}</span>{" "}
+                      <span className="font-semibold text-foreground">
+                        {computedUnits}
+                      </span>{" "}
                       unidad(es) · Reembolsas{" "}
                       <span className="font-semibold text-foreground">
                         {formatMoney(computedTotal)}
@@ -383,7 +427,10 @@ function Devoluciones() {
               <TableBody>
                 {isLoading && (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={7}
+                      className="py-8 text-center text-muted-foreground"
+                    >
                       Cargando devoluciones...
                     </TableCell>
                   </TableRow>
@@ -404,10 +451,16 @@ function Devoluciones() {
                     <TableRow key={item.id}>
                       <TableCell className="font-mono">{item.number}</TableCell>
                       <TableCell>{item.date}</TableCell>
-                      <TableCell className="font-mono">{item.saleNumber}</TableCell>
+                      <TableCell className="font-mono">
+                        {item.saleNumber}
+                      </TableCell>
                       <TableCell>{item.reason}</TableCell>
-                      <TableCell className="text-sm">{item.itemsLabel}</TableCell>
-                      <TableCell className="text-right">{formatMoney(item.total)}</TableCell>
+                      <TableCell className="text-sm">
+                        {item.itemsLabel}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatMoney(item.total)}
+                      </TableCell>
                       <TableCell>
                         <Badge variant="success">Procesada</Badge>
                       </TableCell>

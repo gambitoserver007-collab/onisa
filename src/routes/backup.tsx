@@ -95,7 +95,11 @@ function Backup() {
         title="Respaldo"
         description="Descarga un respaldo completo de los datos de tu tienda."
         actions={
-          <Button variant="brand" disabled={isGenerating} onClick={handleGenerate}>
+          <Button
+            variant="brand"
+            disabled={isGenerating}
+            onClick={handleGenerate}
+          >
             <Database className="mr-1 h-4 w-4" />
             {isGenerating ? "Generando..." : "Generar backup"}
           </Button>
@@ -133,7 +137,9 @@ function Backup() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => downloadJson(`${backup.id}.json`, backup.json)}
+                        onClick={() =>
+                          downloadJson(`${backup.id}.json`, backup.json)
+                        }
                       >
                         <Download className="mr-1 h-3 w-3" /> Descargar
                       </Button>
@@ -142,7 +148,9 @@ function Backup() {
                         variant="ghost"
                         className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                         onClick={() =>
-                          setBackups((current) => current.filter((item) => item.id !== backup.id))
+                          setBackups((current) =>
+                            current.filter((item) => item.id !== backup.id),
+                          )
                         }
                       >
                         <Trash2 className="mr-1 h-3 w-3" /> Eliminar

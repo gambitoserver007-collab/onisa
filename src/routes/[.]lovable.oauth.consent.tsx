@@ -18,19 +18,22 @@ type OAuthNs = {
 };
 function getOAuthNs(): OAuthNs {
   const anyAuth = supabase.auth as unknown as { oauth?: OAuthNs };
-  if (!anyAuth.oauth) throw new Error("supabase.auth.oauth no está disponible.");
+  if (!anyAuth.oauth)
+    throw new Error("supabase.auth.oauth no está disponible.");
   return anyAuth.oauth;
 }
 
 function safeRelative(next: string | undefined): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//")) return "/dashboard";
+  if (!next || !next.startsWith("/") || next.startsWith("//"))
+    return "/dashboard";
   return next;
 }
 
 export const Route = createFileRoute("/.lovable/oauth/consent")({
   ssr: false,
   validateSearch: (s: Record<string, unknown>) => ({
-    authorization_id: typeof s.authorization_id === "string" ? s.authorization_id : "",
+    authorization_id:
+      typeof s.authorization_id === "string" ? s.authorization_id : "",
   }),
   beforeLoad: async ({ search, location }) => {
     if (!search.authorization_id) throw new Error("Falta authorization_id");
@@ -41,8 +44,11 @@ export const Route = createFileRoute("/.lovable/oauth/consent")({
     }
   },
   loader: async ({ location }) => {
-    const authorizationId = new URLSearchParams(location.search).get("authorization_id")!;
-    const { data, error } = await getOAuthNs().getAuthorizationDetails(authorizationId);
+    const authorizationId = new URLSearchParams(location.search).get(
+      "authorization_id",
+    )!;
+    const { data, error } =
+      await getOAuthNs().getAuthorizationDetails(authorizationId);
     if (error) throw error;
     const immediate = data?.redirect_url ?? data?.redirect_to;
     if (immediate && !data?.client) throw redirect({ href: immediate });
@@ -51,7 +57,9 @@ export const Route = createFileRoute("/.lovable/oauth/consent")({
   component: Consent,
   errorComponent: ({ error }) => (
     <main className="mx-auto max-w-md p-8 text-center">
-      <h1 className="text-xl font-semibold">No se pudo cargar la autorización</h1>
+      <h1 className="text-xl font-semibold">
+        No se pudo cargar la autorización
+      </h1>
       <p className="mt-2 text-sm text-muted-foreground">
         {String((error as Error)?.message ?? error)}
       </p>
@@ -82,7 +90,9 @@ function Consent() {
       const target = data?.redirect_url ?? data?.redirect_to;
       if (!target) {
         setBusy(false);
-        setError("El servidor de autorización no devolvió una URL de redirección.");
+        setError(
+          "El servidor de autorización no devolvió una URL de redirección.",
+        );
         return;
       }
       window.location.href = target;
@@ -96,11 +106,14 @@ function Consent() {
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 p-8">
       <h1 className="text-2xl font-bold">Conectar {clientName} a tu cuenta</h1>
       <p className="text-sm text-muted-foreground">
-        Al aprobar, {clientName} podrá usar Onisa como tú (mismo acceso a tus datos que tu
-        sesión actual).
+        Al aprobar, {clientName} podrá usar Onisa como tú (mismo acceso a tus
+        datos que tu sesión actual).
       </p>
       {error && (
-        <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+        <p
+          role="alert"
+          className="rounded-md bg-destructive/10 p-3 text-sm text-destructive"
+        >
           {error}
         </p>
       )}

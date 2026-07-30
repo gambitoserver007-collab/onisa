@@ -44,7 +44,9 @@ function AdminPaymentMethods() {
   const market = getMarketByCountryCode(countryCode);
   const { addCustom, adminCatalog, activeMethods, resetCountry, setAvailable } =
     usePaymentMethods(countryCode);
-  const availableCount = adminCatalog.filter((method) => method.available).length;
+  const availableCount = adminCatalog.filter(
+    (method) => method.available,
+  ).length;
 
   useEffect(() => {
     setCountryCode(settings.countryCode);
@@ -70,7 +72,9 @@ function AdminPaymentMethods() {
       const method = addCustom(customLabel, customKind);
       setCustomLabel("");
       setCustomKind("other");
-      toast.success(`${method.label} agregado al catálogo de ${market.countryName}.`);
+      toast.success(
+        `${method.label} agregado al catálogo de ${market.countryName}.`,
+      );
     } catch (error) {
       toast.error(getErrorMessage(error, "No se pudo agregar el método."));
     }
@@ -102,7 +106,10 @@ function AdminPaymentMethods() {
               <CardTitle className="text-base">País</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <CountrySelect value={countryCode} onValueChange={setCountryCode} />
+              <CountrySelect
+                value={countryCode}
+                onValueChange={setCountryCode}
+              />
               <div className="rounded-md border bg-muted/30 p-3 text-sm">
                 <p className="font-medium">{market.countryName}</p>
                 <p className="text-muted-foreground">
@@ -112,7 +119,9 @@ function AdminPaymentMethods() {
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="rounded-2xl border border-primary/15 bg-primary/5 p-3">
                   <p className="text-muted-foreground">Disponibles</p>
-                  <p className="text-xl font-black text-primary">{availableCount}</p>
+                  <p className="text-xl font-black text-primary">
+                    {availableCount}
+                  </p>
                 </div>
                 <div className="rounded-2xl border p-3">
                   <p className="text-muted-foreground">Activos tienda</p>
@@ -139,7 +148,9 @@ function AdminPaymentMethods() {
                 <Label>Tipo</Label>
                 <Select
                   value={customKind}
-                  onValueChange={(value) => setCustomKind(value as PaymentMethodKind)}
+                  onValueChange={(value) =>
+                    setCustomKind(value as PaymentMethodKind)
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -173,7 +184,9 @@ function AdminPaymentMethods() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Catálogo de {market.countryName}</CardTitle>
+            <CardTitle className="text-base">
+              Catálogo de {market.countryName}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid gap-2 xl:grid-cols-2">
@@ -194,18 +207,24 @@ function AdminPaymentMethods() {
                         {method.available && <Check className="h-3 w-3" />}
                         {method.available ? "Disponible" : "Oculto"}
                       </Badge>
-                      <Badge variant="outline">{method.isCustom ? "Personalizado" : "Base"}</Badge>
+                      <Badge variant="outline">
+                        {method.isCustom ? "Personalizado" : "Base"}
+                      </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {PAYMENT_METHOD_KIND_LABELS[method.kind]}
                     </p>
                     {method.description && (
-                      <p className="text-xs text-muted-foreground">{method.description}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {method.description}
+                      </p>
                     )}
                   </div>
                   <Switch
                     checked={method.available}
-                    onCheckedChange={(checked) => handleAvailabilityChange(method.id, checked)}
+                    onCheckedChange={(checked) =>
+                      handleAvailabilityChange(method.id, checked)
+                    }
                   />
                 </div>
               ))}

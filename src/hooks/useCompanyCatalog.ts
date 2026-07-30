@@ -23,7 +23,9 @@ const EMPTY_CATALOG: CompanyCatalog = {
 
 export function useCompanyCatalog() {
   const { isReady, session } = useDemoSession();
-  const sessionKey = session ? `${session.userId ?? session.email}:${session.companyId ?? ""}` : "";
+  const sessionKey = session
+    ? `${session.userId ?? session.email}:${session.companyId ?? ""}`
+    : "";
   const [state, setState] = useState<CatalogState>({
     ...EMPTY_CATALOG,
     error: null,
@@ -41,7 +43,12 @@ export function useCompanyCatalog() {
 
     try {
       const catalog = await fetchCompanyCatalog(session?.companyId);
-      setState({ ...catalog, error: null, isLoading: false, source: "supabase" });
+      setState({
+        ...catalog,
+        error: null,
+        isLoading: false,
+        source: "supabase",
+      });
     } catch (error) {
       // Only fall back to demo data for demo sessions; real accounts show their
       // own (empty) state plus the error so demo numbers never leak in.

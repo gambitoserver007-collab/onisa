@@ -1,6 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDownCircle, ArrowUpCircle, Banknote, Plus, Store, Wallet } from "lucide-react";
+import {
+  ArrowDownCircle,
+  ArrowUpCircle,
+  Banknote,
+  Plus,
+  Store,
+  Wallet,
+} from "lucide-react";
 import { toast } from "sonner";
 import { DemoGuardedButton } from "@/components/demo/DemoGuardedButton";
 import { AppShell } from "@/components/layout/AppShell";
@@ -76,7 +83,13 @@ const DEMO_MOVEMENTS: CashMovement[] = [
     amount: 200,
     movementAt: "2026-06-18T09:15:00Z",
   },
-  { id: "d2", type: "venta", concept: "V-0001", amount: 21.6, movementAt: "2026-06-18T10:42:00Z" },
+  {
+    id: "d2",
+    type: "venta",
+    concept: "V-0001",
+    amount: 21.6,
+    movementAt: "2026-06-18T10:42:00Z",
+  },
   {
     id: "d3",
     type: "egreso",
@@ -118,12 +131,17 @@ function Caja() {
   const { currentLocationId, locations } = useCurrentLocation();
   // La caja es de un local: el cajero usa el suyo; el admin, el local activo.
   // "Todas las tiendas" no aplica a la caja → exige elegir una sucursal.
-  const resolvedLocationId = currentLocationId === ALL_LOCATIONS ? null : currentLocationId;
+  const resolvedLocationId =
+    currentLocationId === ALL_LOCATIONS ? null : currentLocationId;
   const cajaLocationId =
-    role === "admin" ? resolvedLocationId : (session?.locationId ?? resolvedLocationId);
+    role === "admin"
+      ? resolvedLocationId
+      : (session?.locationId ?? resolvedLocationId);
   // No operar caja en una sucursal desactivada (ya no está en la lista de activas).
   const cajaLocationInactive =
-    !!cajaLocationId && locations.length > 0 && !locations.some((loc) => loc.id === cajaLocationId);
+    !!cajaLocationId &&
+    locations.length > 0 &&
+    !locations.some((loc) => loc.id === cajaLocationId);
   const { sales } = useSales(cajaLocationId ?? undefined);
   const companyId = session?.companyId;
 
@@ -136,7 +154,10 @@ function Caja() {
 
   // Nombre del cajero que abrió/cerró (con fallback al usuario actual).
   const nameOf = (id: string | null) =>
-    id ? (profileNames[id] ?? (id === session?.userId ? (session?.name ?? "—") : "—")) : "—";
+    id
+      ? (profileNames[id] ??
+        (id === session?.userId ? (session?.name ?? "—") : "—"))
+      : "—";
 
   const [openingAmount, setOpeningAmount] = useState("");
   const [busy, setBusy] = useState(false);
@@ -184,13 +205,22 @@ function Caja() {
     if (!openSession) return 0;
     const openedAt = openSession.openedAt;
     return sales
-      .filter((sale) => sale.method === "Efectivo" && (sale.createdAt ?? sale.date) >= openedAt)
+      .filter(
+        (sale) =>
+          sale.method === "Efectivo" &&
+          (sale.createdAt ?? sale.date) >= openedAt,
+      )
       .reduce((sum, sale) => sum + sale.total, 0);
   }, [sales, openSession]);
 
-  const ingresos = movements.filter((m) => m.amount > 0).reduce((s, m) => s + m.amount, 0);
-  const egresos = movements.filter((m) => m.amount < 0).reduce((s, m) => s + m.amount, 0); // negative
-  const expected = (openSession?.openingAmount ?? 0) + cashSales + ingresos + egresos;
+  const ingresos = movements
+    .filter((m) => m.amount > 0)
+    .reduce((s, m) => s + m.amount, 0);
+  const egresos = movements
+    .filter((m) => m.amount < 0)
+    .reduce((s, m) => s + m.amount, 0); // negative
+  const expected =
+    (openSession?.openingAmount ?? 0) + cashSales + ingresos + egresos;
 
   // In demo (or on read error) show a read-only preview so it never looks empty.
   const preview = isDemo || loadError;
@@ -230,7 +260,11 @@ function Caja() {
     if (!session) return;
     setBusy(true);
     try {
-      await openCashSession(session, Number(openingAmount) || 0, cajaLocationId ?? undefined);
+      await openCashSession(
+        session,
+        Number(openingAmount) || 0,
+        cajaLocationId ?? undefined,
+      );
       setOpeningAmount("");
       toast.success("Caja abierta.");
       await load();
@@ -260,7 +294,9 @@ function Caja() {
       toast.success("Movimiento registrado.");
       await load();
     } catch (error) {
-      toast.error(getErrorMessage(error, "No se pudo registrar el movimiento."));
+      toast.error(
+        getErrorMessage(error, "No se pudo registrar el movimiento."),
+      );
     } finally {
       setBusy(false);
     }
@@ -271,7 +307,12 @@ function Caja() {
     if (!session || !openSession) return;
     setBusy(true);
     try {
-      await closeCashSession(session, openSession.id, expected, Number(realAmount) || 0);
+      await closeCashSession(
+        session,
+        openSession.id,
+        expected,
+        Number(realAmount) || 0,
+      );
       setCloseDialog(false);
       setRealAmount("");
       toast.success("Caja cerrada.");
@@ -297,7 +338,8 @@ function Caja() {
             </div>
             <h2 className="mt-4 text-lg font-bold">Elige una sucursal</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Selecciona la sucursal en el menú de arriba para gestionar su caja.
+              Selecciona la sucursal en el menú de arriba para gestionar su
+              caja.
             </p>
           </div>
         </div>
@@ -315,8 +357,8 @@ function Caja() {
             </div>
             <h2 className="mt-4 text-lg font-bold">Sucursal no disponible</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Tu sucursal asignada está desactivada. Pide a un administrador que te asigne una
-              sucursal activa para gestionar la caja.
+              Tu sucursal asignada está desactivada. Pide a un administrador que
+              te asigne una sucursal activa para gestionar la caja.
             </p>
           </div>
         </div>
@@ -339,7 +381,8 @@ function Caja() {
       />
 
       <FallbackNotice show={loadError && !isDemo}>
-        No se pudo leer la caja (revisa permisos/RLS en Supabase). Mostrando un ejemplo.
+        No se pudo leer la caja (revisa permisos/RLS en Supabase). Mostrando un
+        ejemplo.
       </FallbackNotice>
 
       <div className="mb-4 grid gap-4 sm:grid-cols-3">
@@ -350,7 +393,9 @@ function Caja() {
             </span>
             <div>
               <p className="text-xs text-muted-foreground">Esperado en caja</p>
-              <p className="text-2xl font-black tabular-nums">{formatMoney(expectedView)}</p>
+              <p className="text-2xl font-black tabular-nums">
+                {formatMoney(expectedView)}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -360,8 +405,12 @@ function Caja() {
               <ArrowUpCircle className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-xs text-muted-foreground">Ventas en efectivo</p>
-              <p className="text-2xl font-black tabular-nums">{formatMoney(cashSalesView)}</p>
+              <p className="text-xs text-muted-foreground">
+                Ventas en efectivo
+              </p>
+              <p className="text-2xl font-black tabular-nums">
+                {formatMoney(cashSalesView)}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -372,7 +421,9 @@ function Caja() {
             </span>
             <div>
               <p className="text-xs text-muted-foreground">Egresos</p>
-              <p className="text-2xl font-black tabular-nums">{formatMoney(egresosView)}</p>
+              <p className="text-2xl font-black tabular-nums">
+                {formatMoney(egresosView)}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -389,13 +440,21 @@ function Caja() {
             {sessionView ? (
               <>
                 <div className="space-y-1.5 rounded-2xl border border-border/70 p-3 text-sm">
-                  <Row label="Apertura" value={formatMoney(sessionView.openingAmount)} />
-                  <Row label="Ventas efectivo" value={formatMoney(cashSalesView)} />
+                  <Row
+                    label="Apertura"
+                    value={formatMoney(sessionView.openingAmount)}
+                  />
+                  <Row
+                    label="Ventas efectivo"
+                    value={formatMoney(cashSalesView)}
+                  />
                   <Row label="Ingresos" value={formatMoney(ingresosView)} />
                   <Row label="Egresos" value={formatMoney(egresosView)} />
                   <div className="mt-1 flex justify-between border-t border-border/60 pt-2 font-bold">
                     <span>Esperado</span>
-                    <span className="tabular-nums">{formatMoney(expectedView)}</span>
+                    <span className="tabular-nums">
+                      {formatMoney(expectedView)}
+                    </span>
                   </div>
                 </div>
                 <p className="px-1 text-xs text-muted-foreground">
@@ -403,7 +462,8 @@ function Caja() {
                   <span className="font-medium text-foreground">
                     {nameOf(sessionView.openedBy)}
                   </span>{" "}
-                  · {fmtDate(sessionView.openedAt)} {fmtTime(sessionView.openedAt)}
+                  · {fmtDate(sessionView.openedAt)}{" "}
+                  {fmtTime(sessionView.openedAt)}
                 </p>
                 <DemoGuardedButton
                   variant="outline"
@@ -464,7 +524,10 @@ function Caja() {
                 <TableBody>
                   {isLoading && !preview && (
                     <TableRow>
-                      <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                      <TableCell
+                        colSpan={4}
+                        className="py-8 text-center text-muted-foreground"
+                      >
                         Cargando...
                       </TableCell>
                     </TableRow>
@@ -483,7 +546,9 @@ function Caja() {
                   {movementsView.map((movement) => (
                     <TableRow key={movement.id}>
                       <TableCell>{fmtTime(movement.movementAt)}</TableCell>
-                      <TableCell className="capitalize">{movement.type}</TableCell>
+                      <TableCell className="capitalize">
+                        {movement.type}
+                      </TableCell>
                       <TableCell>{movement.concept}</TableCell>
                       <TableCell
                         className={`text-right tabular-nums ${movement.amount < 0 ? "text-destructive" : ""}`}
@@ -532,12 +597,15 @@ function Caja() {
                     <TableCell>
                       <div className="space-y-0.5">
                         <div className="text-xs text-muted-foreground">
-                          <span className="text-foreground">Abrió:</span> {nameOf(closing.openedBy)}
+                          <span className="text-foreground">Abrió:</span>{" "}
+                          {nameOf(closing.openedBy)}
                           {" · "}
-                          {fmtDate(closing.openedAt)} {fmtTime(closing.openedAt)}
+                          {fmtDate(closing.openedAt)}{" "}
+                          {fmtTime(closing.openedAt)}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          <span className="text-foreground">Cerró:</span> {nameOf(closing.closedBy)}
+                          <span className="text-foreground">Cerró:</span>{" "}
+                          {nameOf(closing.closedBy)}
                           {" · "}
                           {closing.closedAt
                             ? `${fmtDate(closing.closedAt)} ${fmtTime(closing.closedAt)}`
@@ -555,7 +623,13 @@ function Caja() {
                       {formatMoney(closing.realAmount ?? 0)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Badge variant={(closing.difference ?? 0) < 0 ? "destructive" : "success"}>
+                      <Badge
+                        variant={
+                          (closing.difference ?? 0) < 0
+                            ? "destructive"
+                            : "success"
+                        }
+                      >
                         {formatMoney(closing.difference ?? 0)}
                       </Badge>
                     </TableCell>
@@ -576,7 +650,10 @@ function Caja() {
           <div className="space-y-3">
             <div className="space-y-1">
               <Label>Tipo</Label>
-              <Select value={movType} onValueChange={(v) => setMovType(v as "ingreso" | "egreso")}>
+              <Select
+                value={movType}
+                onValueChange={(v) => setMovType(v as "ingreso" | "egreso")}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -626,7 +703,9 @@ function Caja() {
           <div className="space-y-3">
             <div className="flex justify-between rounded-2xl bg-muted/50 p-3 text-sm">
               <span className="text-muted-foreground">Esperado en caja</span>
-              <span className="font-bold tabular-nums">{formatMoney(expected)}</span>
+              <span className="font-bold tabular-nums">
+                {formatMoney(expected)}
+              </span>
             </div>
             <div className="space-y-1">
               <Label>Efectivo real contado</Label>

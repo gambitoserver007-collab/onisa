@@ -8,7 +8,9 @@ import { DEFAULT_MARKET_CODE, SUPPORTED_MARKETS } from "@/data/markets";
  * otherwise it returns the default. Safe to call during SSR (returns default).
  */
 
-const SUPPORTED = new Set(SUPPORTED_MARKETS.map((market) => market.countryCode));
+const SUPPORTED = new Set(
+  SUPPORTED_MARKETS.map((market) => market.countryCode),
+);
 
 // IANA timezone → ISO country code, limited to the markets we support.
 const TZ_TO_COUNTRY: Record<string, string> = {
@@ -96,7 +98,8 @@ export function detectCountryCode(): string {
   try {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (tz) {
-      if (tz.startsWith("America/Argentina/") && SUPPORTED.has("AR")) return "AR";
+      if (tz.startsWith("America/Argentina/") && SUPPORTED.has("AR"))
+        return "AR";
       const byTz = TZ_TO_COUNTRY[tz];
       if (byTz && SUPPORTED.has(byTz)) return byTz;
     }

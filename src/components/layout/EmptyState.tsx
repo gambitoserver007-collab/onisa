@@ -21,7 +21,9 @@ export function EmptyState({
         {emoji}
       </span>
       <p className="text-sm font-semibold text-foreground">{title}</p>
-      {description && <p className="max-w-xs text-xs text-muted-foreground">{description}</p>}
+      {description && (
+        <p className="max-w-xs text-xs text-muted-foreground">{description}</p>
+      )}
       {action && <div className="mt-1">{action}</div>}
     </div>
   );

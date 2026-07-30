@@ -33,7 +33,9 @@ function VentaDetail() {
         {!isLoading && !sale && (
           <Card>
             <CardContent className="space-y-4 p-6 text-center">
-              <p className="text-sm text-muted-foreground">No se encontró esta venta.</p>
+              <p className="text-sm text-muted-foreground">
+                No se encontró esta venta.
+              </p>
               <Link to="/ventas">
                 <Button variant="outline">Volver</Button>
               </Link>
@@ -47,15 +49,23 @@ function VentaDetail() {
               className="animate-fade-up overflow-hidden rounded-2xl shadow-card"
             >
               <div className="bg-brand-gradient px-6 py-5 text-center text-primary-foreground">
-                <p className="text-lg font-black tracking-tight">{settings.businessName}</p>
+                <p className="text-lg font-black tracking-tight">
+                  {settings.businessName}
+                </p>
                 <p className="text-xs opacity-90">
                   {settings.fiscalIdLabel} {settings.sampleFiscalId}
                 </p>
                 <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-                  <Badge variant="soft" className="bg-white/20 text-primary-foreground">
+                  <Badge
+                    variant="soft"
+                    className="bg-white/20 text-primary-foreground"
+                  >
                     {sale.type}
                   </Badge>
-                  <Badge variant="soft" className="bg-white/20 text-primary-foreground">
+                  <Badge
+                    variant="soft"
+                    className="bg-white/20 text-primary-foreground"
+                  >
                     {sale.method}
                   </Badge>
                 </div>
@@ -68,11 +78,15 @@ function VentaDetail() {
                 <div className="rounded-xl bg-muted/50 p-3 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Cliente</span>
-                    <span className="font-medium text-foreground">{sale.customer}</span>
+                    <span className="font-medium text-foreground">
+                      {sale.customer}
+                    </span>
                   </div>
                   <div className="mt-1 flex justify-between">
                     <span className="text-muted-foreground">Método</span>
-                    <span className="font-medium text-foreground">{sale.method}</span>
+                    <span className="font-medium text-foreground">
+                      {sale.method}
+                    </span>
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -82,7 +96,10 @@ function VentaDetail() {
                       className="flex items-center justify-between gap-2 border-b border-dashed border-border/60 pb-2 last:border-0 last:pb-0"
                     >
                       <span className="text-foreground">
-                        <span className="font-semibold text-primary">{item.qty}×</span> {item.name}
+                        <span className="font-semibold text-primary">
+                          {item.qty}×
+                        </span>{" "}
+                        {item.name}
                         {item.variantLabel && (
                           <span className="block text-xs text-muted-foreground">
                             {item.variantLabel}
@@ -98,14 +115,20 @@ function VentaDetail() {
                 <div className="space-y-1 border-t pt-3 text-sm">
                   <div className="flex justify-between text-muted-foreground">
                     <span>Subtotal</span>
-                    <span className="tabular-nums">{formatMoney(sale.subtotal)}</span>
+                    <span className="tabular-nums">
+                      {formatMoney(sale.subtotal)}
+                    </span>
                   </div>
                   <div className="flex justify-between text-muted-foreground">
                     <span>{settings.taxName}</span>
-                    <span className="tabular-nums">{formatMoney(sale.igv)}</span>
+                    <span className="tabular-nums">
+                      {formatMoney(sale.igv)}
+                    </span>
                   </div>
                   <div className="mt-2 flex items-end justify-between border-t pt-3">
-                    <span className="text-sm font-semibold text-foreground">Total</span>
+                    <span className="text-sm font-semibold text-foreground">
+                      Total
+                    </span>
                     <span className="text-gradient text-2xl font-black tabular-nums">
                       {formatMoney(sale.total)}
                     </span>

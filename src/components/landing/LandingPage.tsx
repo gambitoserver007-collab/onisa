@@ -58,7 +58,8 @@ export function LandingPage() {
     // Enlaces internos → navegación SPA (con href como respaldo si el JS no corre).
     const onClick = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0) return;
-      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+        return;
       const anchor = (event.target as HTMLElement)?.closest("a");
       if (!anchor) return;
       const href = anchor.getAttribute("href");

@@ -43,7 +43,8 @@ export const Route = createFileRoute("/clientes")({ component: Clientes });
 const clean = (value: string) => (value === "-" ? "" : value);
 
 function Clientes() {
-  const { customers, error, source, isLoading, reload, session } = useCompanyCatalog();
+  const { customers, error, source, isLoading, reload, session } =
+    useCompanyCatalog();
   const { isDemo } = useDemoSession();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -58,7 +59,10 @@ function Clientes() {
   const editingIdRef = useRef<string | null>(null);
   const [addressLoading, setAddressLoading] = useState(false);
   const list = useMemo(
-    () => customers.filter((customer) => customer.name.toLowerCase().includes(query.toLowerCase())),
+    () =>
+      customers.filter((customer) =>
+        customer.name.toLowerCase().includes(query.toLowerCase()),
+      ),
     [customers, query],
   );
 
@@ -100,7 +104,12 @@ function Clientes() {
 
     try {
       if (editing) {
-        await updateCustomer(editing.id, { name, documentNumber, phone, address });
+        await updateCustomer(editing.id, {
+          name,
+          documentNumber,
+          phone,
+          address,
+        });
         toast.success("Cliente actualizado.");
       } else {
         await createCustomer(session, { name, documentNumber, phone, address });
@@ -121,7 +130,9 @@ function Clientes() {
       return;
     }
     if (
-      !window.confirm(`¿Eliminar al cliente "${customer.name}"? Esta acción no se puede deshacer.`)
+      !window.confirm(
+        `¿Eliminar al cliente "${customer.name}"? Esta acción no se puede deshacer.`,
+      )
     ) {
       return;
     }
@@ -150,12 +161,17 @@ function Clientes() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editing ? "Editar cliente" : "Nuevo cliente"}</DialogTitle>
+            <DialogTitle>
+              {editing ? "Editar cliente" : "Nuevo cliente"}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
               <Label>Nombre</Label>
-              <Input value={name} onChange={(event) => setName(event.target.value)} />
+              <Input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
             </div>
             <div className="space-y-1">
               <Label>Documento</Label>
@@ -166,7 +182,10 @@ function Clientes() {
             </div>
             <div className="space-y-1">
               <Label>Teléfono</Label>
-              <Input value={phone} onChange={(event) => setPhone(event.target.value)} />
+              <Input
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+              />
             </div>
             <div className="space-y-1">
               <Label>Dirección</Label>
@@ -212,7 +231,10 @@ function Clientes() {
               <TableBody>
                 {isLoading && (
                   <TableRow>
-                    <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={4}
+                      className="py-8 text-center text-muted-foreground"
+                    >
                       Cargando clientes...
                     </TableCell>
                   </TableRow>
@@ -231,11 +253,17 @@ function Clientes() {
                 {!isLoading &&
                   list.map((customer) => (
                     <TableRow key={customer.id}>
-                      <TableCell className="font-medium">{customer.name}</TableCell>
+                      <TableCell className="font-medium">
+                        {customer.name}
+                      </TableCell>
                       <TableCell>{customer.doc}</TableCell>
                       <TableCell>{customer.phone}</TableCell>
                       <TableCell className="text-right">
-                        <Button size="icon" variant="ghost" onClick={() => void openEdit(customer)}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => void openEdit(customer)}
+                        >
                           <Pencil className="h-4 w-4" />
                         </Button>
                         <Button

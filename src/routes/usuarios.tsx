@@ -72,17 +72,18 @@ const UNLIMITED = 1_000_000;
 const ROLE_LABELS = STORE_ROLE_LABELS;
 
 // Secciones agrupadas por bloque del panel, para el bloque de "Accesos".
-const SECTION_GROUPS = GRANTABLE_SECTIONS.reduce<{ group: string; items: typeof GRANTABLE_SECTIONS }[]>(
-  (acc, section) => {
-    const existing = acc.find((g) => g.group === section.group);
-    if (existing) existing.items.push(section);
-    else acc.push({ group: section.group, items: [section] });
-    return acc;
-  },
-  [],
-);
+const SECTION_GROUPS = GRANTABLE_SECTIONS.reduce<
+  { group: string; items: typeof GRANTABLE_SECTIONS }[]
+>((acc, section) => {
+  const existing = acc.find((g) => g.group === section.group);
+  if (existing) existing.items.push(section);
+  else acc.push({ group: section.group, items: [section] });
+  return acc;
+}, []);
 
-const defaultSectionsFor = (role: StoreRole) => [...ROLE_DEFAULT_SECTIONS[role]];
+const defaultSectionsFor = (role: StoreRole) => [
+  ...ROLE_DEFAULT_SECTIONS[role],
+];
 
 function Usuarios() {
   const { isDemo, session, isReady } = useDemoSession();
@@ -107,7 +108,9 @@ function Usuarios() {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<StoreRole>("user");
   const [locationIds, setLocationIds] = useState<string[]>([]);
-  const [sectionKeys, setSectionKeys] = useState<string[]>(defaultSectionsFor("user"));
+  const [sectionKeys, setSectionKeys] = useState<string[]>(
+    defaultSectionsFor("user"),
+  );
   const [saasPanel, setSaasPanel] = useState(false);
 
   // Al cambiar el rol, pre-marca los accesos por defecto de ese rol.
@@ -154,7 +157,8 @@ function Usuarios() {
 
   const userLimit = usage?.plan?.userLimit ?? 0;
   const activeCount = team.filter((t) => t.active).length;
-  const atLimit = userLimit > 0 && userLimit < UNLIMITED && activeCount >= userLimit;
+  const atLimit =
+    userLimit > 0 && userLimit < UNLIMITED && activeCount >= userLimit;
 
   useEffect(() => {
     if (!isReady) return;
@@ -294,7 +298,10 @@ function Usuarios() {
               <div className="space-y-3">
                 <div className="space-y-1">
                   <Label>Nombre</Label>
-                  <Input value={fullName} onChange={(event) => setFullName(event.target.value)} />
+                  <Input
+                    value={fullName}
+                    onChange={(event) => setFullName(event.target.value)}
+                  />
                 </div>
                 <div className="space-y-1">
                   <Label>Correo</Label>
@@ -315,7 +322,10 @@ function Usuarios() {
                 </div>
                 <div className="space-y-1">
                   <Label>Rol</Label>
-                  <Select value={role} onValueChange={(v) => handleRoleChange(v as StoreRole)}>
+                  <Select
+                    value={role}
+                    onValueChange={(v) => handleRoleChange(v as StoreRole)}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -323,7 +333,9 @@ function Usuarios() {
                       <SelectItem value="user">Cajero</SelectItem>
                       <SelectItem value="operador">Operador</SelectItem>
                       <SelectItem value="finanzas">Finanzas</SelectItem>
-                      <SelectItem value="admin">Administrador de tienda</SelectItem>
+                      <SelectItem value="admin">
+                        Administrador de tienda
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -355,7 +367,9 @@ function Usuarios() {
                 )}
                 <AccessChecklist
                   selected={sectionKeys}
-                  onToggle={(key) => setSectionKeys((prev) => toggleId(prev, key))}
+                  onToggle={(key) =>
+                    setSectionKeys((prev) => toggleId(prev, key))
+                  }
                   isAdmin={role === "admin"}
                   saasPanel={saasPanel}
                   onToggleSaas={setSaasPanel}
@@ -433,7 +447,9 @@ function Usuarios() {
                       </TableCell>
                       <TableCell className="text-right">
                         {isSelf ? (
-                          <span className="text-xs text-muted-foreground">Tú</span>
+                          <span className="text-xs text-muted-foreground">
+                            Tú
+                          </span>
                         ) : (
                           <div className="flex justify-end gap-1">
                             <Button
@@ -465,7 +481,10 @@ function Usuarios() {
       </Card>
 
       {/* Editar usuario */}
-      <Dialog open={!!editing} onOpenChange={(value) => !value && setEditing(null)}>
+      <Dialog
+        open={!!editing}
+        onOpenChange={(value) => !value && setEditing(null)}
+      >
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Editar usuario</DialogTitle>
@@ -473,11 +492,17 @@ function Usuarios() {
           <div className="space-y-3">
             <div className="space-y-1">
               <Label>Nombre</Label>
-              <Input value={editName} onChange={(event) => setEditName(event.target.value)} />
+              <Input
+                value={editName}
+                onChange={(event) => setEditName(event.target.value)}
+              />
             </div>
             <div className="space-y-1">
               <Label>Rol</Label>
-              <Select value={editRole} onValueChange={(v) => handleEditRoleChange(v as StoreRole)}>
+              <Select
+                value={editRole}
+                onValueChange={(v) => handleEditRoleChange(v as StoreRole)}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -517,7 +542,9 @@ function Usuarios() {
             )}
             <AccessChecklist
               selected={editSectionKeys}
-              onToggle={(key) => setEditSectionKeys((prev) => toggleId(prev, key))}
+              onToggle={(key) =>
+                setEditSectionKeys((prev) => toggleId(prev, key))
+              }
               isAdmin={editRole === "admin"}
               saasPanel={editSaasPanel}
               onToggleSaas={setEditSaasPanel}
@@ -554,13 +581,16 @@ function Usuarios() {
       </Dialog>
 
       {/* Eliminar usuario */}
-      <AlertDialog open={!!deleting} onOpenChange={(value) => !value && setDeleting(null)}>
+      <AlertDialog
+        open={!!deleting}
+        onOpenChange={(value) => !value && setDeleting(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar usuario</AlertDialogTitle>
             <AlertDialogDescription>
-              Se eliminará la cuenta de <strong>{deleting?.name}</strong>. Esta acción no se puede
-              deshacer.
+              Se eliminará la cuenta de <strong>{deleting?.name}</strong>. Esta
+              acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -629,11 +659,14 @@ function AccessChecklist({
           <span className="pr-3">
             <span className="block text-sm font-medium">Panel SaaS</span>
             <span className="block text-xs text-muted-foreground">
-              Acceso al panel de plataforma (todas las empresas). Solo para administradores de
-              confianza.
+              Acceso al panel de plataforma (todas las empresas). Solo para
+              administradores de confianza.
             </span>
           </span>
-          <Checkbox checked={saasPanel} onCheckedChange={(v) => onToggleSaas(!!v)} />
+          <Checkbox
+            checked={saasPanel}
+            onCheckedChange={(v) => onToggleSaas(!!v)}
+          />
         </label>
       )}
     </div>

@@ -55,7 +55,10 @@ function getCompany(profile?: ProfileWithCompany | null) {
 function parseDocumentTypes(raw: unknown): DocumentType[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const list = raw
-    .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === "object")
+    .filter(
+      (entry): entry is Record<string, unknown> =>
+        !!entry && typeof entry === "object",
+    )
     .map((entry) => ({
       name: String(entry.name ?? "").trim(),
       chargesIva: Boolean(entry.charges_iva),
@@ -64,25 +67,36 @@ function parseDocumentTypes(raw: unknown): DocumentType[] | undefined {
   return list.length ? list : undefined;
 }
 
-function createSessionFromUser(user: User, profile?: ProfileWithCompany | null): DemoSession {
+function createSessionFromUser(
+  user: User,
+  profile?: ProfileWithCompany | null,
+): DemoSession {
   const company = getCompany(profile);
   const metadata = user.user_metadata ?? {};
   const market = getMarketByCountryCode(
     company?.country_code ?? (metadata.country_code as string | undefined),
   );
   const role = profile?.role ?? "user";
-  const profileDemo = Boolean(profile?.is_demo || profile?.demo_mode === "read_only");
+  const profileDemo = Boolean(
+    profile?.is_demo || profile?.demo_mode === "read_only",
+  );
   const demoFallback = isDemoEmail(user.email);
   // `undefined` when the column isn't in the DB yet (keeps current SaaS access).
   const isSuperAdmin =
-    profile && Object.prototype.hasOwnProperty.call(profile, "is_platform_admin")
+    profile &&
+    Object.prototype.hasOwnProperty.call(profile, "is_platform_admin")
       ? Boolean((profile as { is_platform_admin?: boolean }).is_platform_admin)
       : undefined;
 
   return {
     userId: user.id,
-    companyId: profile?.company_id ?? company?.id ?? (metadata.company_id as string | undefined),
-    locationId: (profile as { location_id?: string | null } | null)?.location_id ?? undefined,
+    companyId:
+      profile?.company_id ??
+      company?.id ??
+      (metadata.company_id as string | undefined),
+    locationId:
+      (profile as { location_id?: string | null } | null)?.location_id ??
+      undefined,
     email: normalizeEmail(profile?.email ?? user.email ?? ""),
     role,
     name:
@@ -107,13 +121,18 @@ function createSessionFromUser(user: User, profile?: ProfileWithCompany | null):
         : market.taxRate,
     isDemo: profileDemo || demoFallback,
     demoMode: profile?.demo_mode ?? (demoFallback ? "read_only" : "none"),
-    demoAccountId: Object.values(DEMO_ACCOUNTS).find((account) => account.email === user.email)?.id,
+    demoAccountId: Object.values(DEMO_ACCOUNTS).find(
+      (account) => account.email === user.email,
+    )?.id,
     isSuperAdmin,
-    logoUrl: (company as { logo_url?: string | null } | null)?.logo_url ?? undefined,
+    logoUrl:
+      (company as { logo_url?: string | null } | null)?.logo_url ?? undefined,
     documentTypes: parseDocumentTypes(
       (company as { document_types?: unknown } | null)?.document_types,
     ),
-    businessType: (company as { business_type?: string | null } | null)?.business_type ?? undefined,
+    businessType:
+      (company as { business_type?: string | null } | null)?.business_type ??
+      undefined,
   };
 }
 
@@ -137,7 +156,10 @@ function saveDemoMarketOverride(countryCode: string) {
   }
 }
 
-function applyDemoMarketOverride(session: DemoSession, countryCode?: string | null): DemoSession {
+function applyDemoMarketOverride(
+  session: DemoSession,
+  countryCode?: string | null,
+): DemoSession {
   if (!session.isDemo) return session;
 
   const market = getMarketByCountryCode(
@@ -179,12 +201,16 @@ async function loadProfile(user: User) {
         attempt--; // retry immediately without consuming a propagation attempt
         continue;
       }
-      console.warn("[Supabase] No se pudo cargar profiles/companies.", error.message);
+      console.warn(
+        "[Supabase] No se pudo cargar profiles/companies.",
+        error.message,
+      );
       return null;
     }
 
     if (data) return data as unknown as ProfileWithCompany;
-    if (attempt < 2) await new Promise((resolve) => globalThis.setTimeout(resolve, 250));
+    if (attempt < 2)
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 250));
   }
 
   return null;
@@ -224,7 +250,9 @@ async function setSessionFromAuth(authSession: SupabaseSession | null) {
     return null;
   }
 
-  const session = applyDemoMarketOverride(createSessionFromUser(authSession.user, profile));
+  const session = applyDemoMarketOverride(
+    createSessionFromUser(authSession.user, profile),
+  );
   setCachedSession(session);
   return session;
 }
@@ -269,11 +297,13 @@ export function subscribeSession(listener: () => void) {
     if (event.key?.startsWith("sb-")) void initializeSession();
   };
 
-  if (typeof window !== "undefined") window.addEventListener("storage", onStorage);
+  if (typeof window !== "undefined")
+    window.addEventListener("storage", onStorage);
 
   return () => {
     listeners.delete(listener);
-    if (typeof window !== "undefined") window.removeEventListener("storage", onStorage);
+    if (typeof window !== "undefined")
+      window.removeEventListener("storage", onStorage);
 
     if (listeners.size === 0 && authSubscription) {
       authSubscription.unsubscribe();
@@ -283,7 +313,10 @@ export function subscribeSession(listener: () => void) {
   };
 }
 
-export async function login(email: string, password: string): Promise<DemoSession | null> {
+export async function login(
+  email: string,
+  password: string,
+): Promise<DemoSession | null> {
   const { data, error } = await supabase.auth.signInWithPassword({
     email: normalizeEmail(email),
     password,
@@ -297,12 +330,16 @@ export async function login(email: string, password: string): Promise<DemoSessio
   return setSessionFromAuth(data.session);
 }
 
-export async function loginAs(role: Role, countryCode?: string): Promise<DemoSession> {
+export async function loginAs(
+  role: Role,
+  countryCode?: string,
+): Promise<DemoSession> {
   const account = getDemoAccountByRole(role);
   if (countryCode) saveDemoMarketOverride(countryCode);
 
   const session = await login(account.email, account.password);
-  if (!session) throw new Error("No se pudo iniciar la cuenta de prueba en Supabase Auth.");
+  if (!session)
+    throw new Error("No se pudo iniciar la cuenta de prueba en Supabase Auth.");
 
   const demoSession = applyDemoMarketOverride(session, countryCode);
   setCachedSession(demoSession);

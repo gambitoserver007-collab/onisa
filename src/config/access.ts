@@ -5,4 +5,5 @@ export const PUBLIC_REGISTRATION_ENABLED =
 
 // Acceso demo (Super Admin de solo lectura) apagado por defecto.
 // Se puede encender con VITE_SHOW_DEMO_ACCESS="true" si se quiere una demo de ventas.
-export const SHOW_DEMO_ACCESS = import.meta.env.VITE_SHOW_DEMO_ACCESS === "true";
+export const SHOW_DEMO_ACCESS =
+  import.meta.env.VITE_SHOW_DEMO_ACCESS === "true";

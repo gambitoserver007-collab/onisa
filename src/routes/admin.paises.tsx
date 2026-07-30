@@ -59,7 +59,11 @@ function Paises() {
   const load = () =>
     fetchCountrySettings()
       .then(setCountries)
-      .catch((error) => toast.error(getErrorMessage(error, "No se pudieron cargar los países.")))
+      .catch((error) =>
+        toast.error(
+          getErrorMessage(error, "No se pudieron cargar los países."),
+        ),
+      )
       .finally(() => setIsLoading(false));
 
   useEffect(() => {
@@ -78,10 +82,14 @@ function Paises() {
     setDocs(country.documentTypes.map((doc) => ({ ...doc })));
   };
 
-  const addDoc = () => setDocs((prev) => [...prev, { name: "", chargesIva: true }]);
+  const addDoc = () =>
+    setDocs((prev) => [...prev, { name: "", chargesIva: true }]);
   const patchDoc = (index: number, patch: Partial<DocumentType>) =>
-    setDocs((prev) => prev.map((doc, i) => (i === index ? { ...doc, ...patch } : doc)));
-  const removeDoc = (index: number) => setDocs((prev) => prev.filter((_, i) => i !== index));
+    setDocs((prev) =>
+      prev.map((doc, i) => (i === index ? { ...doc, ...patch } : doc)),
+    );
+  const removeDoc = (index: number) =>
+    setDocs((prev) => prev.filter((_, i) => i !== index));
 
   const handleSave = async () => {
     if (!editing) return;
@@ -102,11 +110,15 @@ function Paises() {
         fiscalIdLabel,
         documentTypes: docs,
       });
-      toast.success("Configuración guardada. Se aplicó a todas las tiendas del país.");
+      toast.success(
+        "Configuración guardada. Se aplicó a todas las tiendas del país.",
+      );
       setEditing(null);
       await load();
     } catch (error) {
-      toast.error(getErrorMessage(error, "No se pudo guardar la configuración."));
+      toast.error(
+        getErrorMessage(error, "No se pudo guardar la configuración."),
+      );
     } finally {
       setIsSaving(false);
     }
@@ -122,13 +134,16 @@ function Paises() {
       />
       <Alert className="mb-4">
         <Info className="h-4 w-4" />
-        <AlertTitle>Los "comprobantes" son etiquetas internas, no facturación electrónica</AlertTitle>
+        <AlertTitle>
+          Los "comprobantes" son etiquetas internas, no facturación electrónica
+        </AlertTitle>
         <AlertDescription>
-          Los tipos de comprobante que configuras aquí (Boleta, Factura, Ticket, etc.) son solo
-          etiquetas para tus propios registros de venta: no generan folio fiscal, no se timbran ni
-          se envían a ninguna autoridad (SAT, DIAN, SUNAT u otra). Si tu tienda o tus clientes
-          necesitan facturación electrónica certificada, van a necesitar un proveedor especializado
-          aparte — esto no lo reemplaza.
+          Los tipos de comprobante que configuras aquí (Boleta, Factura, Ticket,
+          etc.) son solo etiquetas para tus propios registros de venta: no
+          generan folio fiscal, no se timbran ni se envían a ninguna autoridad
+          (SAT, DIAN, SUNAT u otra). Si tu tienda o tus clientes necesitan
+          facturación electrónica certificada, van a necesitar un proveedor
+          especializado aparte — esto no lo reemplaza.
         </AlertDescription>
       </Alert>
       <Card>
@@ -148,7 +163,10 @@ function Paises() {
               <TableBody>
                 {isLoading && (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={6}
+                      className="py-8 text-center text-muted-foreground"
+                    >
                       Cargando países...
                     </TableCell>
                   </TableRow>
@@ -180,7 +198,10 @@ function Paises() {
                       <TableCell className="max-w-[280px]">
                         <div className="flex flex-wrap gap-1">
                           {country.documentTypes.map((doc) => (
-                            <Badge key={doc.name} variant={doc.chargesIva ? "success" : "outline"}>
+                            <Badge
+                              key={doc.name}
+                              variant={doc.chargesIva ? "success" : "outline"}
+                            >
                               {doc.name}
                               {doc.chargesIva ? "" : " · sin IVA"}
                             </Badge>
@@ -205,10 +226,15 @@ function Paises() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!editing} onOpenChange={(value) => !value && setEditing(null)}>
+      <Dialog
+        open={!!editing}
+        onOpenChange={(value) => !value && setEditing(null)}
+      >
         <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editing ? countryName(editing.countryCode) : ""}</DialogTitle>
+            <DialogTitle>
+              {editing ? countryName(editing.countryCode) : ""}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
@@ -225,7 +251,10 @@ function Paises() {
               </div>
               <div className="space-y-1">
                 <Label>Nombre del impuesto</Label>
-                <Input value={taxName} onChange={(event) => setTaxName(event.target.value)} />
+                <Input
+                  value={taxName}
+                  onChange={(event) => setTaxName(event.target.value)}
+                />
               </div>
             </div>
             <div className="space-y-1">
@@ -238,26 +267,42 @@ function Paises() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>Comprobantes</Label>
-                <Button type="button" size="sm" variant="outline" onClick={addDoc}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={addDoc}
+                >
                   <Plus className="mr-1 h-3 w-3" /> Agregar
                 </Button>
               </div>
               {docs.length === 0 && (
-                <p className="text-xs text-muted-foreground">Agrega al menos un comprobante.</p>
+                <p className="text-xs text-muted-foreground">
+                  Agrega al menos un comprobante.
+                </p>
               )}
               {docs.map((doc, index) => (
-                <div key={index} className="flex items-center gap-2 rounded-lg border p-2">
+                <div
+                  key={index}
+                  className="flex items-center gap-2 rounded-lg border p-2"
+                >
                   <Input
                     className="flex-1"
                     placeholder="Ej. Factura"
                     value={doc.name}
-                    onChange={(event) => patchDoc(index, { name: event.target.value })}
+                    onChange={(event) =>
+                      patchDoc(index, { name: event.target.value })
+                    }
                   />
                   <div className="flex items-center gap-1.5">
-                    <span className="text-xs text-muted-foreground">Cobra IVA</span>
+                    <span className="text-xs text-muted-foreground">
+                      Cobra IVA
+                    </span>
                     <Switch
                       checked={doc.chargesIva}
-                      onCheckedChange={(checked) => patchDoc(index, { chargesIva: checked })}
+                      onCheckedChange={(checked) =>
+                        patchDoc(index, { chargesIva: checked })
+                      }
                     />
                   </div>
                   <Button

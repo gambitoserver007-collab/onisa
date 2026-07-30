@@ -60,13 +60,19 @@ const CATEGORY_VISUAL: Record<string, ProductVisual> = {
   Lácteos: { emoji: "🥛", gradient: "from-sky-50 to-blue-100" },
   Bebidas: { emoji: "🥤", gradient: "from-cyan-50 to-teal-100" },
   Limpieza: { emoji: "🧼", gradient: "from-teal-50 to-emerald-100" },
-  "Cuidado Personal": { emoji: "🧴", gradient: "from-violet-50 to-fuchsia-100" },
+  "Cuidado Personal": {
+    emoji: "🧴",
+    gradient: "from-violet-50 to-fuchsia-100",
+  },
   "Frutas y Verduras": { emoji: "🥦", gradient: "from-lime-50 to-green-100" },
   Snacks: { emoji: "🍪", gradient: "from-orange-50 to-amber-100" },
   Panadería: { emoji: "🥖", gradient: "from-yellow-50 to-amber-100" },
 };
 
-const DEFAULT_VISUAL: ProductVisual = { emoji: "🛍️", gradient: "from-slate-50 to-slate-100" };
+const DEFAULT_VISUAL: ProductVisual = {
+  emoji: "🛍️",
+  gradient: "from-slate-50 to-slate-100",
+};
 
 /**
  * Real product photos keyed by barcode (stable across data sources — works
@@ -96,7 +102,9 @@ const PRODUCT_IMAGES: Record<string, string> = {
   "7750001000196": "/img/products/p19.png", // Pan Francés
 };
 
-export function getProductVisual(product: Pick<Product, "name" | "category">): ProductVisual {
+export function getProductVisual(
+  product: Pick<Product, "name" | "category">,
+): ProductVisual {
   const categoryVisual = CATEGORY_VISUAL[product.category] ?? DEFAULT_VISUAL;
   const name = product.name.toLowerCase();
   const byName = NAME_EMOJI.find((entry) => name.includes(entry.match));
@@ -107,7 +115,9 @@ export function getProductVisual(product: Pick<Product, "name" | "category">): P
 }
 
 /** Real photo URL when available, else null (callers render the branded tile). */
-export function getProductImage(product: Pick<Product, "image" | "barcode">): string | null {
+export function getProductImage(
+  product: Pick<Product, "image" | "barcode">,
+): string | null {
   if (product.image?.trim()) return product.image;
   return PRODUCT_IMAGES[product.barcode] ?? null;
 }

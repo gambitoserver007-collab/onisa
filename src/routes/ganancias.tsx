@@ -28,7 +28,11 @@ import {
 } from "@/components/ui/table";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useDemoSession } from "@/hooks/useDemoSession";
-import { fetchProfitReport, type ProfitReport, getErrorMessage } from "@/services/appData";
+import {
+  fetchProfitReport,
+  type ProfitReport,
+  getErrorMessage,
+} from "@/services/appData";
 
 export const Route = createFileRoute("/ganancias")({ component: Ganancias });
 
@@ -76,10 +80,16 @@ function Ganancias() {
       session?.companyId,
       from || undefined,
       to || undefined,
-      currentLocationId === ALL_LOCATIONS ? undefined : (currentLocationId ?? undefined),
+      currentLocationId === ALL_LOCATIONS
+        ? undefined
+        : (currentLocationId ?? undefined),
     )
       .then(setReport)
-      .catch((error) => toast.error(getErrorMessage(error, "No se pudieron cargar las ganancias.")))
+      .catch((error) =>
+        toast.error(
+          getErrorMessage(error, "No se pudieron cargar las ganancias."),
+        ),
+      )
       .finally(() => setIsLoading(false));
   }, [isReady, session?.companyId, from, to, currentLocationId]);
 
@@ -99,7 +109,9 @@ function Ganancias() {
       row.profit.toFixed(2),
     ]);
     const csv = [header, ...body]
-      .map((line) => line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .map((line) =>
+        line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","),
+      )
       .join("\n");
     // Prepend a UTF-8 BOM (U+FEFF) so Excel reads the accents correctly.
     const blob = new Blob([String.fromCharCode(0xfeff) + csv], {
@@ -141,7 +153,11 @@ function Ganancias() {
 
       <div id="ganancias-print">
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Kpi icon={DollarSign} label="Ingresos" value={formatMoney(report?.totalRevenue ?? 0)} />
+          <Kpi
+            icon={DollarSign}
+            label="Ingresos"
+            value={formatMoney(report?.totalRevenue ?? 0)}
+          />
           <Kpi
             icon={Coins}
             label="Costo"
@@ -154,7 +170,11 @@ function Ganancias() {
             value={formatMoney(report?.totalProfit ?? 0)}
             tone="bg-primary/10 text-primary"
           />
-          <Kpi icon={Percent} label="Margen" value={`${(report?.marginPct ?? 0).toFixed(1)}%`} />
+          <Kpi
+            icon={Percent}
+            label="Margen"
+            value={`${(report?.marginPct ?? 0).toFixed(1)}%`}
+          />
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
           Ganancia = Ingreso neto (sin IVA) − Costo. No descuenta devoluciones.
@@ -176,7 +196,10 @@ function Ganancias() {
                 <TableBody>
                   {isLoading && (
                     <TableRow>
-                      <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                      <TableCell
+                        colSpan={5}
+                        className="py-8 text-center text-muted-foreground"
+                      >
                         Cargando ganancias...
                       </TableCell>
                     </TableRow>
@@ -195,10 +218,16 @@ function Ganancias() {
                   {!isLoading &&
                     rows.map((row) => (
                       <TableRow key={row.productName}>
-                        <TableCell className="font-medium">{row.productName}</TableCell>
+                        <TableCell className="font-medium">
+                          {row.productName}
+                        </TableCell>
                         <TableCell className="text-right">{row.qty}</TableCell>
-                        <TableCell className="text-right">{formatMoney(row.revenue)}</TableCell>
-                        <TableCell className="text-right">{formatMoney(row.cost)}</TableCell>
+                        <TableCell className="text-right">
+                          {formatMoney(row.revenue)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatMoney(row.cost)}
+                        </TableCell>
                         <TableCell className="text-right font-semibold text-primary">
                           {formatMoney(row.profit)}
                         </TableCell>

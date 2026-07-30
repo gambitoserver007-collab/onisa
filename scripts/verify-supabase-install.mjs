@@ -10,7 +10,9 @@ if (missing.length > 0) {
 
 const supabaseUrl = process.env.SUPABASE_URL.trim();
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY.trim();
-const ownerEmail = (process.env.OWNER_EMAIL || "owner@tiendaagil.test").trim().toLowerCase();
+const ownerEmail = (process.env.OWNER_EMAIL || "owner@tiendaagil.test")
+  .trim()
+  .toLowerCase();
 
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: {
@@ -93,13 +95,19 @@ async function verifyPlans() {
   }
 
   if (data.length !== expectedPlanIds.length) {
-    fail("base subscription plans", `expected ${expectedPlanIds.length}, found ${data.length}`);
+    fail(
+      "base subscription plans",
+      `expected ${expectedPlanIds.length}, found ${data.length}`,
+    );
     return;
   }
 
   const hasDemoPlan = data.some((plan) => plan.is_demo_data);
   if (hasDemoPlan) {
-    fail("base subscription plans", "base plans must not be marked as demo data");
+    fail(
+      "base subscription plans",
+      "base plans must not be marked as demo data",
+    );
     return;
   }
 
@@ -109,7 +117,9 @@ async function verifyPlans() {
 async function verifyOwnerProfile() {
   const { data, error } = await supabase
     .from("profiles")
-    .select("email,role,is_demo,demo_mode,is_active,company_id,is_platform_admin")
+    .select(
+      "email,role,is_demo,demo_mode,is_active,company_id,is_platform_admin",
+    )
     .ilike("email", ownerEmail)
     .maybeSingle();
 

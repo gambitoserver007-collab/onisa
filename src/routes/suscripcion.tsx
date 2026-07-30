@@ -20,13 +20,20 @@ import {
   getErrorMessage,
 } from "@/services/appData";
 
-export const Route = createFileRoute("/suscripcion")({ component: Suscripcion });
+export const Route = createFileRoute("/suscripcion")({
+  component: Suscripcion,
+});
 
 const UNLIMITED = 1_000_000;
 
-const formatLimit = (limit: number) => (limit >= UNLIMITED ? "Ilimitado" : limit.toLocaleString());
+const formatLimit = (limit: number) =>
+  limit >= UNLIMITED ? "Ilimitado" : limit.toLocaleString();
 const pct = (value: number, limit: number) =>
-  limit >= UNLIMITED || limit <= 0 ? (value > 0 ? 8 : 0) : Math.min(100, (value / limit) * 100);
+  limit >= UNLIMITED || limit <= 0
+    ? value > 0
+      ? 8
+      : 0
+    : Math.min(100, (value / limit) * 100);
 
 function Suscripcion() {
   const { formatMoney } = useBusinessSettings();
@@ -88,9 +95,17 @@ function Suscripcion() {
   const subStatus = ((status?: string) => {
     switch (status) {
       case "active":
-        return { label: "Suscripción activa", badge: "Activa", variant: "success" as const };
+        return {
+          label: "Suscripción activa",
+          badge: "Activa",
+          variant: "success" as const,
+        };
       case "expired":
-        return { label: "Suscripción vencida", badge: "Vencida", variant: "destructive" as const };
+        return {
+          label: "Suscripción vencida",
+          badge: "Vencida",
+          variant: "destructive" as const,
+        };
       case "suspended":
         return {
           label: "Suscripción suspendida",
@@ -105,7 +120,11 @@ function Suscripcion() {
           variant: "destructive" as const,
         };
       default:
-        return { label: "Periodo de prueba", badge: "Prueba", variant: "warm" as const };
+        return {
+          label: "Periodo de prueba",
+          badge: "Prueba",
+          variant: "warm" as const,
+        };
     }
   })(usage?.status);
 
@@ -180,13 +199,15 @@ function Suscripcion() {
                 </CardTitle>
                 <p className="text-3xl font-black tracking-tight">
                   {formatMoney(plan.price)}
-                  <span className="text-sm font-normal text-muted-foreground">/mes</span>
+                  <span className="text-sm font-normal text-muted-foreground">
+                    /mes
+                  </span>
                 </p>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 <p className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-primary" /> {formatLimit(plan.productLimit)}{" "}
-                  productos
+                  <Check className="h-4 w-4 text-primary" />{" "}
+                  {formatLimit(plan.productLimit)} productos
                 </p>
                 <p className="flex items-center gap-2">
                   <Check className="h-4 w-4 text-primary" />{" "}
@@ -195,8 +216,8 @@ function Suscripcion() {
                     : `${plan.userLimit} ${plan.userLimit === 1 ? "usuario" : "usuarios"}`}
                 </p>
                 <p className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-primary" /> {formatLimit(plan.salesLimit)}{" "}
-                  ventas/mes
+                  <Check className="h-4 w-4 text-primary" />{" "}
+                  {formatLimit(plan.salesLimit)} ventas/mes
                 </p>
                 <Button
                   className="mt-3 w-full"

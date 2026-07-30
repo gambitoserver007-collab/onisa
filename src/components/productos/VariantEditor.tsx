@@ -38,7 +38,9 @@ export function buildVariantCombos(defs: AttrDef[]): Record<string, string>[] {
   const clean = defs
     .map((d) => ({
       name: d.name.trim(),
-      values: Array.from(new Set(d.values.map((v) => v.trim()).filter(Boolean))),
+      values: Array.from(
+        new Set(d.values.map((v) => v.trim()).filter(Boolean)),
+      ),
     }))
     .filter((d) => {
       if (!d.name || d.values.length === 0) return false;
@@ -79,29 +81,46 @@ export function VariantEditor({
   generateBarcode,
 }: VariantEditorProps) {
   const setAttr = (index: number, patch: Partial<AttrDef>) =>
-    onAttrDefsChange(attrDefs.map((d, i) => (i === index ? { ...d, ...patch } : d)));
-  const addAttr = () => onAttrDefsChange([...attrDefs, { name: "", values: [] }]);
-  const removeAttr = (index: number) => onAttrDefsChange(attrDefs.filter((_, i) => i !== index));
+    onAttrDefsChange(
+      attrDefs.map((d, i) => (i === index ? { ...d, ...patch } : d)),
+    );
+  const addAttr = () =>
+    onAttrDefsChange([...attrDefs, { name: "", values: [] }]);
+  const removeAttr = (index: number) =>
+    onAttrDefsChange(attrDefs.filter((_, i) => i !== index));
 
   // Genera la matriz preservando código/precio/stock de las combinaciones que ya existían.
   const regenerate = () => {
     const byLabel = new Map(variants.map((v) => [v.label, v]));
-    const next: VariantRow[] = buildVariantCombos(attrDefs).map((attributes) => {
-      const label = variantLabel(attributes);
-      const existing = byLabel.get(label);
-      return existing
-        ? { ...existing, attributes, label }
-        : { attributes, label, barcode: "", price: "", cost: "", locStock: {} };
-    });
+    const next: VariantRow[] = buildVariantCombos(attrDefs).map(
+      (attributes) => {
+        const label = variantLabel(attributes);
+        const existing = byLabel.get(label);
+        return existing
+          ? { ...existing, attributes, label }
+          : {
+              attributes,
+              label,
+              barcode: "",
+              price: "",
+              cost: "",
+              locStock: {},
+            };
+      },
+    );
     onVariantsChange(next);
   };
 
   const setVariant = (index: number, patch: Partial<VariantRow>) =>
-    onVariantsChange(variants.map((v, i) => (i === index ? { ...v, ...patch } : v)));
+    onVariantsChange(
+      variants.map((v, i) => (i === index ? { ...v, ...patch } : v)),
+    );
   const setVariantStock = (index: number, locationId: string, value: string) =>
     onVariantsChange(
       variants.map((v, i) =>
-        i === index ? { ...v, locStock: { ...v.locStock, [locationId]: value } } : v,
+        i === index
+          ? { ...v, locStock: { ...v.locStock, [locationId]: value } }
+          : v,
       ),
     );
 
@@ -110,7 +129,8 @@ export function VariantEditor({
       <div>
         <Label>Atributos de la variante</Label>
         <p className="text-xs text-muted-foreground">
-          Define las dimensiones (ej. Talla, Color) y sus valores separados por coma.
+          Define las dimensiones (ej. Talla, Color) y sus valores separados por
+          coma.
         </p>
       </div>
 
@@ -130,7 +150,9 @@ export function VariantEditor({
               // Texto crudo separado por coma; el trim/filtrado/dedupe se hace al
               // generar combinaciones (buildVariantCombos). Normalizar en cada tecla
               // rompía el tipeo (no se podían escribir varios valores).
-              setAttr(i, { values: event.target.value.split(",").map((s) => s.trim()) })
+              setAttr(i, {
+                values: event.target.value.split(",").map((s) => s.trim()),
+              })
             }
           />
           <Button
@@ -169,7 +191,9 @@ export function VariantEditor({
                   className="flex-1"
                   placeholder="Código de barras"
                   value={variant.barcode}
-                  onChange={(event) => setVariant(i, { barcode: event.target.value })}
+                  onChange={(event) =>
+                    setVariant(i, { barcode: event.target.value })
+                  }
                 />
                 <Button
                   type="button"
@@ -187,7 +211,9 @@ export function VariantEditor({
                   className="w-24 shrink-0"
                   placeholder="Precio"
                   value={variant.price}
-                  onChange={(event) => setVariant(i, { price: event.target.value })}
+                  onChange={(event) =>
+                    setVariant(i, { price: event.target.value })
+                  }
                 />
                 <Input
                   type="number"
@@ -196,14 +222,18 @@ export function VariantEditor({
                   className="w-24 shrink-0"
                   placeholder="Costo"
                   value={variant.cost}
-                  onChange={(event) => setVariant(i, { cost: event.target.value })}
+                  onChange={(event) =>
+                    setVariant(i, { cost: event.target.value })
+                  }
                 />
               </div>
               {locations.length > 0 && (
                 <div className="flex flex-wrap gap-3">
                   {locations.map((loc) => (
                     <div key={loc.id} className="flex items-center gap-1">
-                      <span className="text-xs text-muted-foreground">{loc.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {loc.name}
+                      </span>
                       <Input
                         type="number"
                         min="0"
@@ -211,7 +241,9 @@ export function VariantEditor({
                         className="w-16"
                         placeholder="—"
                         value={variant.locStock[loc.id] ?? ""}
-                        onChange={(event) => setVariantStock(i, loc.id, event.target.value)}
+                        onChange={(event) =>
+                          setVariantStock(i, loc.id, event.target.value)
+                        }
                       />
                     </div>
                   ))}

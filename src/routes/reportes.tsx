@@ -72,10 +72,15 @@ function Reportes() {
   const { currentLocationId } = useCurrentLocation();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const range = useMemo(() => ({ from: from || undefined, to: to || undefined }), [from, to]);
+  const range = useMemo(
+    () => ({ from: from || undefined, to: to || undefined }),
+    [from, to],
+  );
   const hasRange = Boolean(from || to);
   const { data, error, source } = useDashboardData(
-    currentLocationId === ALL_LOCATIONS ? undefined : (currentLocationId ?? undefined),
+    currentLocationId === ALL_LOCATIONS
+      ? undefined
+      : (currentLocationId ?? undefined),
     range,
   );
   const lowStock = data.lowStockProducts;
@@ -136,7 +141,10 @@ function Reportes() {
             <DemoGuardedButton variant="brand" onAllowedClick={exportCSV}>
               <Download className="mr-1 h-4 w-4" /> Exportar
             </DemoGuardedButton>
-            <DemoGuardedButton variant="outline" onAllowedClick={() => window.print()}>
+            <DemoGuardedButton
+              variant="outline"
+              onAllowedClick={() => window.print()}
+            >
               <Printer className="mr-1 h-4 w-4" /> Imprimir
             </DemoGuardedButton>
           </div>
@@ -163,7 +171,11 @@ function Reportes() {
         />
         <Kpi label="Productos" value={data.productsCount} icon={Boxes} />
         <Kpi label="Clientes" value={data.customersCount} icon={Users} />
-        <Kpi label="Stock bajo" value={data.lowStockCount} icon={AlertTriangle} />
+        <Kpi
+          label="Stock bajo"
+          value={data.lowStockCount}
+          icon={AlertTriangle}
+        />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -184,7 +196,10 @@ function Reportes() {
                 <Tooltip {...TOOLTIP_PROPS} />
                 <Bar dataKey="value" radius={[8, 8, 0, 0]} maxBarSize={56}>
                   {salesByCategory.map((_, index) => (
-                    <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                    <Cell
+                      key={index}
+                      fill={CHART_COLORS[index % CHART_COLORS.length]}
+                    />
                   ))}
                 </Bar>
               </BarChart>
@@ -213,7 +228,10 @@ function Reportes() {
                   paddingAngle={2}
                 >
                   {salesByMethod.map((_, index) => (
-                    <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                    <Cell
+                      key={index}
+                      fill={CHART_COLORS[index % CHART_COLORS.length]}
+                    />
                   ))}
                 </Pie>
               </PieChart>
@@ -235,7 +253,12 @@ function Reportes() {
                 <XAxis dataKey="day" {...AXIS_PROPS} />
                 <YAxis {...AXIS_PROPS} />
                 <Tooltip {...TOOLTIP_PROPS} />
-                <Bar dataKey="total" fill="#22B86B" radius={[8, 8, 0, 0]} maxBarSize={48} />
+                <Bar
+                  dataKey="total"
+                  fill="#22B86B"
+                  radius={[8, 8, 0, 0]}
+                  maxBarSize={48}
+                />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -247,7 +270,10 @@ function Reportes() {
           <CardContent>
             <ul className="space-y-1 text-sm">
               {lowStock.map((product) => (
-                <li key={product.id} className="flex justify-between border-b py-1 last:border-0">
+                <li
+                  key={product.id}
+                  className="flex justify-between border-b py-1 last:border-0"
+                >
                   <span>{product.name}</span>
                   <span className="font-medium">{product.stock}</span>
                 </li>

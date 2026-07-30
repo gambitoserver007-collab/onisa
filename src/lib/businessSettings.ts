@@ -53,11 +53,15 @@ export function createBusinessSettingsFromMarket(
 }
 
 export function getDefaultBusinessSettings() {
-  cachedDefaultSettings ??= createBusinessSettingsFromMarket(getMarketByCountryCode());
+  cachedDefaultSettings ??= createBusinessSettingsFromMarket(
+    getMarketByCountryCode(),
+  );
   return cachedDefaultSettings;
 }
 
-function normalizeBusinessSettings(settings?: Partial<BusinessSettings> | null) {
+function normalizeBusinessSettings(
+  settings?: Partial<BusinessSettings> | null,
+) {
   const market = getMarketByCountryCode(settings?.countryCode);
   const base = createBusinessSettingsFromMarket(
     market,

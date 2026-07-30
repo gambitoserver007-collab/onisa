@@ -1,4 +1,7 @@
-import { getBusinessProfile, type BusinessProfile } from "@/lib/businessProfiles";
+import {
+  getBusinessProfile,
+  type BusinessProfile,
+} from "@/lib/businessProfiles";
 import { useBusinessSettings } from "./useBusinessSettings";
 
 // Perfil de negocio activo (rubro) + capacidades derivadas. Lee de los ajustes de

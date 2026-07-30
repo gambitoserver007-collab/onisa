@@ -1,5 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Store } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
@@ -37,7 +44,10 @@ type PaymentMethod = Sale["method"];
 // carrito no debe generar una venta duplicada.
 function cartSignature(items: CartItem[]) {
   return items
-    .map((item) => `${item.productId}:${item.variantId ?? ""}:${item.qty}:${item.price}`)
+    .map(
+      (item) =>
+        `${item.productId}:${item.variantId ?? ""}:${item.qty}:${item.price}`,
+    )
     .sort()
     .join("|");
 }
@@ -46,7 +56,8 @@ function POS() {
   const navigate = useNavigate();
   const { formatMoney, settings } = useBusinessSettings();
   const { isDemo, session, role } = useDemoSession();
-  const { products, customers, error, source, isLoading, reload } = useCompanyCatalog();
+  const { products, customers, error, source, isLoading, reload } =
+    useCompanyCatalog();
   const { activeMethods } = usePaymentMethods(settings.countryCode);
   const { currentLocationId, locations } = useCurrentLocation();
   const [query, setQuery] = useState("");
@@ -56,20 +67,27 @@ function POS() {
   const [docType, setDocType] = useState<SaleDocumentType>("");
   const [method, setMethod] = useState<PaymentMethod>("Efectivo");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
-  const [success, setSuccess] = useState<{ amount: number; id: string } | null>(null);
+  const [success, setSuccess] = useState<{ amount: number; id: string } | null>(
+    null,
+  );
   // Clave de idempotencia del cobro en curso: se mantiene igual mientras el
   // carrito no cambie, para que un reintento tras un error de red reutilice
   // la misma venta en vez de duplicarla (ver create_sale, p_client_request_id).
-  const pendingSaleRef = useRef<{ key: string; signature: string } | null>(null);
+  const pendingSaleRef = useRef<{ key: string; signature: string } | null>(
+    null,
+  );
   // Stock del punto de venta activo: Map product_id -> stock (null = sin cargar).
-  const [locationStock, setLocationStock] = useState<Map<string, number> | null>(null);
+  const [locationStock, setLocationStock] = useState<Map<
+    string,
+    number
+  > | null>(null);
   // Stock de variantes en la sucursal: por producto (para el catálogo) y por variante.
-  const [variantStockByProduct, setVariantStockByProduct] = useState<Map<string, number>>(
-    new Map(),
-  );
-  const [variantStockByVariant, setVariantStockByVariant] = useState<Map<string, number>>(
-    new Map(),
-  );
+  const [variantStockByProduct, setVariantStockByProduct] = useState<
+    Map<string, number>
+  >(new Map());
+  const [variantStockByVariant, setVariantStockByVariant] = useState<
+    Map<string, number>
+  >(new Map());
   // Índice de códigos de barras de variantes → {product, variant}, para escanear variantes.
   const [variantBarcodeIndex, setVariantBarcodeIndex] = useState<
     Map<string, { product: Product; variant: ProductVariant }>
@@ -81,13 +99,18 @@ function POS() {
 
   // El cajero vende en su local asignado; el admin usa el local activo del
   // selector. "Todas las tiendas" no aplica al vender → exige elegir una.
-  const resolvedLocationId = currentLocationId === ALL_LOCATIONS ? null : currentLocationId;
+  const resolvedLocationId =
+    currentLocationId === ALL_LOCATIONS ? null : currentLocationId;
   const posLocationId =
-    role === "admin" ? resolvedLocationId : (session?.locationId ?? resolvedLocationId);
+    role === "admin"
+      ? resolvedLocationId
+      : (session?.locationId ?? resolvedLocationId);
   // Si la sucursal asignada/activa fue desactivada (ya no está en la lista de activas),
   // no se puede vender ahí. Durante la carga (lista vacía) no se bloquea.
   const posLocationInactive =
-    !!posLocationId && locations.length > 0 && !locations.some((loc) => loc.id === posLocationId);
+    !!posLocationId &&
+    locations.length > 0 &&
+    !locations.some((loc) => loc.id === posLocationId);
 
   const reloadLocationStock = useCallback(async () => {
     if (!posLocationId) {
@@ -127,7 +150,10 @@ function POS() {
       ),
     ).then((results) => {
       if (!active) return;
-      const idx = new Map<string, { product: Product; variant: ProductVariant }>();
+      const idx = new Map<
+        string,
+        { product: Product; variant: ProductVariant }
+      >();
       for (const { p, vs } of results) {
         for (const v of vs) {
           if (v.barcode) idx.set(v.barcode.trim(), { product: p, variant: v });
@@ -156,7 +182,9 @@ function POS() {
 
   useEffect(() => {
     if (!activeMethods.length) return;
-    if (!activeMethods.some((paymentMethod) => paymentMethod.label === method)) {
+    if (
+      !activeMethods.some((paymentMethod) => paymentMethod.label === method)
+    ) {
       setMethod(activeMethods[0].label);
     }
   }, [activeMethods, method]);
@@ -172,7 +200,9 @@ function POS() {
     if (!locationStock) return products;
     return products
       .filter((product) =>
-        product.hasVariants ? variantStockByProduct.has(product.id) : locationStock.has(product.id),
+        product.hasVariants
+          ? variantStockByProduct.has(product.id)
+          : locationStock.has(product.id),
       )
       .map((product) => ({
         ...product,
@@ -195,7 +225,8 @@ function POS() {
     () =>
       locatedProducts.filter(
         (product) =>
-          (deferredCategory === "all" || product.category === deferredCategory) &&
+          (deferredCategory === "all" ||
+            product.category === deferredCategory) &&
           (product.name.toLowerCase().includes(deferredQuery.toLowerCase()) ||
             product.barcode.includes(deferredQuery)),
       ),
@@ -203,7 +234,10 @@ function POS() {
   );
 
   const categories = useMemo(
-    () => Array.from(new Set(locatedProducts.map((product) => product.category))).sort(),
+    () =>
+      Array.from(
+        new Set(locatedProducts.map((product) => product.category)),
+      ).sort(),
     [locatedProducts],
   );
 
@@ -232,10 +266,12 @@ function POS() {
       toast.error("No hay más stock de esta variante.");
       return;
     }
-    const price = variant.priceOverride != null ? variant.priceOverride : product.price;
+    const price =
+      variant.priceOverride != null ? variant.priceOverride : product.price;
     setCart((currentCart) => {
       const item = currentCart.find(
-        (entry) => entry.productId === product.id && entry.variantId === variant.id,
+        (entry) =>
+          entry.productId === product.id && entry.variantId === variant.id,
       );
       if (item) {
         if (item.qty >= stock) return currentCart; // tope de stock (evita sobrepasar)
@@ -260,7 +296,9 @@ function POS() {
         },
       ];
     });
-    toast.success(`${product.name} (${variant.label}) agregado al carrito`, { duration: 1500 });
+    toast.success(`${product.name} (${variant.label}) agregado al carrito`, {
+      duration: 1500,
+    });
     setPendingProduct(null);
   };
 
@@ -274,7 +312,9 @@ function POS() {
       return;
     }
 
-    const existingItem = cart.find((item) => item.productId === product.id && !item.variantId);
+    const existingItem = cart.find(
+      (item) => item.productId === product.id && !item.variantId,
+    );
     if (existingItem && existingItem.qty >= product.stock) {
       toast.error("No hay más stock disponible para este producto.");
       return;
@@ -285,7 +325,9 @@ function POS() {
       if (item) {
         if (item.qty >= product.stock) return currentCart; // tope de stock (evita sobrepasar)
         return currentCart.map((entry) =>
-          entry.productId === product.id ? { ...entry, qty: entry.qty + 1 } : entry,
+          entry.productId === product.id
+            ? { ...entry, qty: entry.qty + 1 }
+            : entry,
         );
       }
       return [
@@ -310,7 +352,9 @@ function POS() {
   const handleScan = (rawCode: string) => {
     const code = rawCode.trim();
     if (!code) return;
-    const exact = locatedProducts.find((product) => product.barcode && product.barcode === code);
+    const exact = locatedProducts.find(
+      (product) => product.barcode && product.barcode === code,
+    );
     if (exact) {
       addProduct(exact);
       setQuery("");
@@ -362,13 +406,19 @@ function POS() {
   const decrement = (lineId: string) => {
     setCart((currentCart) =>
       currentCart.flatMap((item) =>
-        lineKey(item) === lineId ? (item.qty <= 1 ? [] : [{ ...item, qty: item.qty - 1 }]) : [item],
+        lineKey(item) === lineId
+          ? item.qty <= 1
+            ? []
+            : [{ ...item, qty: item.qty - 1 }]
+          : [item],
       ),
     );
   };
 
   const remove = (lineId: string) => {
-    setCart((currentCart) => currentCart.filter((item) => lineKey(item) !== lineId));
+    setCart((currentCart) =>
+      currentCart.filter((item) => lineKey(item) !== lineId),
+    );
   };
 
   const handleCreateCustomer = async (input: {
@@ -395,7 +445,8 @@ function POS() {
   // IVA line-by-line: respects whether the comprobante charges IVA and whether
   // each product price already includes it. Mirrors the create_sale RPC.
   const { total, subtotal, igv } = useMemo(() => {
-    const charges = documentTypes.find((d) => d.name === docType)?.chargesIva ?? true;
+    const charges =
+      documentTypes.find((d) => d.name === docType)?.chargesIva ?? true;
     const rate = settings.taxRate;
     let runningTotal = 0;
     let runningTax = 0;
@@ -520,8 +571,8 @@ function POS() {
             </div>
             <h2 className="mt-4 text-lg font-bold">Sucursal no disponible</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Tu sucursal asignada está desactivada. Pide a un administrador que te asigne una
-              sucursal activa para poder vender.
+              Tu sucursal asignada está desactivada. Pide a un administrador que
+              te asigne una sucursal activa para poder vender.
             </p>
           </div>
         </div>
@@ -565,7 +616,11 @@ function POS() {
       <SuccessOverlay
         open={!!success}
         title="¡Venta registrada!"
-        subtitle={success ? `Cobro de ${formatMoney(success.amount)} completado` : undefined}
+        subtitle={
+          success
+            ? `Cobro de ${formatMoney(success.amount)} completado`
+            : undefined
+        }
       />
     </AppShell>
   );

@@ -22,7 +22,12 @@ export const STORE_ROLE_LABELS: Record<StoreRole, string> = {
 };
 
 export function normalizeStoreRole(role?: string | null): StoreRole {
-  if (role === "admin" || role === "finanzas" || role === "user" || role === "operador")
+  if (
+    role === "admin" ||
+    role === "finanzas" ||
+    role === "user" ||
+    role === "operador"
+  )
     return role;
   return "user"; // privilegio mínimo por defecto
 }

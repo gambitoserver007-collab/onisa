@@ -7,7 +7,11 @@ interface DemoGuardedButtonProps extends ButtonProps {
   onAllowedClick?: (event: MouseEvent<HTMLButtonElement>) => void;
 }
 
-export function DemoGuardedButton({ onAllowedClick, onClick, ...props }: DemoGuardedButtonProps) {
+export function DemoGuardedButton({
+  onAllowedClick,
+  onClick,
+  ...props
+}: DemoGuardedButtonProps) {
   const { isDemo } = useDemoSession();
 
   return (

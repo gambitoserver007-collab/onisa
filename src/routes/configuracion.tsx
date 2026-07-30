@@ -27,7 +27,10 @@ import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { blockDemoAction } from "@/lib/demoMode";
 import { initializeSession } from "@/lib/demoAuth";
 import { saveBusinessSettings } from "@/lib/businessSettings";
-import { getAllBusinessProfiles, DEFAULT_BUSINESS_TYPE } from "@/lib/businessProfiles";
+import {
+  getAllBusinessProfiles,
+  DEFAULT_BUSINESS_TYPE,
+} from "@/lib/businessProfiles";
 import {
   fetchCompanyProfile,
   mapCompanyToBusinessSettings,
@@ -35,7 +38,9 @@ import {
   getErrorMessage,
 } from "@/services/appData";
 
-export const Route = createFileRoute("/configuracion")({ component: Configuracion });
+export const Route = createFileRoute("/configuracion")({
+  component: Configuracion,
+});
 
 function Configuracion() {
   const { settings } = useBusinessSettings();
@@ -45,11 +50,14 @@ function Configuracion() {
   const [fiscalId, setFiscalId] = useState("");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState(session?.phone ?? "");
-  const [businessType, setBusinessType] = useState(settings.businessType ?? DEFAULT_BUSINESS_TYPE);
+  const [businessType, setBusinessType] = useState(
+    settings.businessType ?? DEFAULT_BUSINESS_TYPE,
+  );
   const [customPaymentMethod, setCustomPaymentMethod] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const selectedMarket = getMarketByCountryCode(countryCode);
-  const { activeMethods, addCustom, catalog, setStoreActive } = usePaymentMethods(countryCode);
+  const { activeMethods, addCustom, catalog, setStoreActive } =
+    usePaymentMethods(countryCode);
   const activePaymentMethodIds = useMemo(
     () => new Set(activeMethods.map((method) => method.id)),
     [activeMethods],
@@ -103,7 +111,9 @@ function Configuracion() {
       await initializeSession();
       toast.success("Datos del negocio guardados.");
     } catch (error) {
-      toast.error(getErrorMessage(error, "No se pudo guardar la configuración."));
+      toast.error(
+        getErrorMessage(error, "No se pudo guardar la configuración."),
+      );
     } finally {
       setIsSaving(false);
     }
@@ -162,24 +172,25 @@ function Configuracion() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Array.from(new Set(getAllBusinessProfiles().map((p) => p.group))).map(
-                    (group) => (
-                      <SelectGroup key={group}>
-                        <SelectLabel>{group}</SelectLabel>
-                        {getAllBusinessProfiles()
-                          .filter((p) => p.group === group)
-                          .map((profile) => (
-                            <SelectItem key={profile.id} value={profile.id}>
-                              {profile.label}
-                            </SelectItem>
-                          ))}
-                      </SelectGroup>
-                    ),
-                  )}
+                  {Array.from(
+                    new Set(getAllBusinessProfiles().map((p) => p.group)),
+                  ).map((group) => (
+                    <SelectGroup key={group}>
+                      <SelectLabel>{group}</SelectLabel>
+                      {getAllBusinessProfiles()
+                        .filter((p) => p.group === group)
+                        .map((profile) => (
+                          <SelectItem key={profile.id} value={profile.id}>
+                            {profile.label}
+                          </SelectItem>
+                        ))}
+                    </SelectGroup>
+                  ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Elige tu rubro. Los del grupo “Con variantes” activan tallas/colores en el editor.
+                Elige tu rubro. Los del grupo “Con variantes” activan
+                tallas/colores en el editor.
               </p>
             </div>
             <div className="space-y-1">
@@ -210,9 +221,16 @@ function Configuracion() {
             </div>
             <div className="space-y-1">
               <Label>Teléfono</Label>
-              <Input value={phone} onChange={(event) => setPhone(event.target.value)} />
+              <Input
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+              />
             </div>
-            <DemoGuardedButton variant="brand" disabled={isSaving} onAllowedClick={handleSave}>
+            <DemoGuardedButton
+              variant="brand"
+              disabled={isSaving}
+              onAllowedClick={handleSave}
+            >
               {isSaving ? "Guardando..." : "Guardar cambios"}
             </DemoGuardedButton>
           </CardContent>
@@ -257,7 +275,9 @@ function Configuracion() {
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <CardTitle className="text-base">Métodos de cobro de la tienda</CardTitle>
+                <CardTitle className="text-base">
+                  Métodos de cobro de la tienda
+                </CardTitle>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Elige qué métodos verá el cajero en el punto de venta.
                 </p>
@@ -273,17 +293,23 @@ function Configuracion() {
                   className="flex items-start justify-between gap-3 rounded-md border p-3"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{method.label}</p>
+                    <p className="truncate text-sm font-medium">
+                      {method.label}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       {PAYMENT_METHOD_KIND_LABELS[method.kind]}
                     </p>
                     {method.description && (
-                      <p className="mt-1 text-xs text-muted-foreground">{method.description}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {method.description}
+                      </p>
                     )}
                   </div>
                   <Switch
                     checked={activePaymentMethodIds.has(method.id)}
-                    onCheckedChange={(checked) => handlePaymentMethodToggle(method.id, checked)}
+                    onCheckedChange={(checked) =>
+                      handlePaymentMethodToggle(method.id, checked)
+                    }
                   />
                 </div>
               ))}

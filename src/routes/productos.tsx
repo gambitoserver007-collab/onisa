@@ -40,11 +40,14 @@ import { cn } from "@/lib/utils";
 import { deleteProduct, getErrorMessage } from "@/services/appData";
 import type { Product } from "@/types";
 
-export const Route = createFileRoute("/productos")({ component: ProductosPage });
+export const Route = createFileRoute("/productos")({
+  component: ProductosPage,
+});
 
 function ProductosPage() {
   const { formatMoney } = useBusinessSettings();
-  const { products, suppliers, error, source, isLoading, reload, session } = useCompanyCatalog();
+  const { products, suppliers, error, source, isLoading, reload, session } =
+    useCompanyCatalog();
   const { isDemo } = useDemoSession();
   const canManage = canManageCatalog(session?.role);
   const [query, setQuery] = useState("");
@@ -146,7 +149,10 @@ function ProductosPage() {
               <TableBody>
                 {isLoading && (
                   <TableRow>
-                    <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={8}
+                      className="py-8 text-center text-muted-foreground"
+                    >
                       Cargando productos...
                     </TableCell>
                   </TableRow>
@@ -187,7 +193,9 @@ function ProductosPage() {
                                 visual.emoji
                               )}
                             </span>
-                            <span className="font-semibold">{product.name}</span>
+                            <span className="font-semibold">
+                              {product.name}
+                            </span>
                           </div>
                         </TableCell>
                         <TableCell>{product.category}</TableCell>
@@ -195,11 +203,17 @@ function ProductosPage() {
                           {product.supplierId ? (
                             (supplierName.get(product.supplierId) ?? "—")
                           ) : (
-                            <span className="text-muted-foreground">Sin proveedor</span>
+                            <span className="text-muted-foreground">
+                              Sin proveedor
+                            </span>
                           )}
                         </TableCell>
-                        <TableCell className="font-mono text-xs">{product.barcode}</TableCell>
-                        <TableCell className="text-right">{formatMoney(product.cost)}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {product.barcode}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatMoney(product.cost)}
+                        </TableCell>
                         <TableCell className="text-right font-semibold">
                           {formatMoney(product.price)}
                         </TableCell>
@@ -238,7 +252,9 @@ function ProductosPage() {
                               </DemoGuardedButton>
                             </>
                           ) : (
-                            <span className="text-xs text-muted-foreground">Solo lectura</span>
+                            <span className="text-xs text-muted-foreground">
+                              Solo lectura
+                            </span>
                           )}
                         </TableCell>
                       </TableRow>
@@ -259,13 +275,16 @@ function ProductosPage() {
       />
 
       {/* Delete confirmation */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={(value) => !value && setDeleteTarget(null)}>
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(value) => !value && setDeleteTarget(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar producto?</AlertDialogTitle>
             <AlertDialogDescription>
-              Se quitará <strong>{deleteTarget?.name}</strong> del catálogo. Podrás recuperarlo
-              desde la base de datos si lo necesitas.
+              Se quitará <strong>{deleteTarget?.name}</strong> del catálogo.
+              Podrás recuperarlo desde la base de datos si lo necesitas.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

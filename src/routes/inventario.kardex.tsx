@@ -43,7 +43,9 @@ import {
   type StockMovementRow,
 } from "@/services/appData";
 
-export const Route = createFileRoute("/inventario/kardex")({ component: Kardex });
+export const Route = createFileRoute("/inventario/kardex")({
+  component: Kardex,
+});
 
 const tipoLabel: Record<string, string> = {
   in: "Entrada",
@@ -70,7 +72,8 @@ const labelFor = (type: string) => tipoLabel[type] ?? type;
 function Kardex() {
   const { products, session } = useCompanyCatalog();
   const { isDemo } = useDemoSession();
-  const { currentLocationId, currentLocation, isAllLocations } = useCurrentLocation();
+  const { currentLocationId, currentLocation, isAllLocations } =
+    useCurrentLocation();
   const companyId = session?.companyId;
 
   const [movs, setMovs] = useState<StockMovementRow[]>([]);
@@ -96,7 +99,9 @@ function Kardex() {
         ),
       );
     } catch (error) {
-      toast.error(getErrorMessage(error, "No se pudieron cargar los movimientos."));
+      toast.error(
+        getErrorMessage(error, "No se pudieron cargar los movimientos."),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -107,13 +112,17 @@ function Kardex() {
   }, [reloadMovs]);
 
   // Tipos presentes (para el filtro) según lo que realmente haya en los datos.
-  const types = useMemo(() => Array.from(new Set(movs.map((m) => m.movementType))), [movs]);
+  const types = useMemo(
+    () => Array.from(new Set(movs.map((m) => m.movementType))),
+    [movs],
+  );
 
   const list = useMemo(
     () =>
       movs.filter(
         (m) =>
-          (tipo === "all" || m.movementType === tipo) && (prod === "all" || m.productId === prod),
+          (tipo === "all" || m.movementType === tipo) &&
+          (prod === "all" || m.productId === prod),
       ),
     [movs, tipo, prod],
   );
@@ -125,7 +134,9 @@ function Kardex() {
     }
     if (!session) return;
     if (isAllLocations || !currentLocationId) {
-      toast.error("Elige una sucursal específica (arriba) para registrar un ajuste.");
+      toast.error(
+        "Elige una sucursal específica (arriba) para registrar un ajuste.",
+      );
       return;
     }
     setASaving(true);
@@ -172,7 +183,9 @@ function Kardex() {
             <p className="text-xs text-muted-foreground">
               Sucursal:{" "}
               <span className="font-medium text-foreground">
-                {isAllLocations ? "Todas — elige una arriba" : (currentLocation?.name ?? "—")}
+                {isAllLocations
+                  ? "Todas — elige una arriba"
+                  : (currentLocation?.name ?? "—")}
               </span>
             </p>
             <div className="space-y-1">
@@ -192,7 +205,8 @@ function Kardex() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Los productos con variantes (talla/color) se ajustan desde su edición, no aquí.
+                Los productos con variantes (talla/color) se ajustan desde su
+                edición, no aquí.
               </p>
             </div>
             <div className="space-y-1">
@@ -270,7 +284,10 @@ function Kardex() {
               <TableBody>
                 {isLoading && (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={6}
+                      className="py-8 text-center text-muted-foreground"
+                    >
                       Cargando movimientos...
                     </TableCell>
                   </TableRow>
@@ -295,12 +312,16 @@ function Kardex() {
                           {m.createdAt.slice(11, 16)}
                         </span>
                       </TableCell>
-                      <TableCell className="font-medium">{m.productName}</TableCell>
+                      <TableCell className="font-medium">
+                        {m.productName}
+                      </TableCell>
                       <TableCell className="text-muted-foreground">
                         {m.locationName ?? "—"}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={tipoVariant[m.movementType] ?? "outline"}>
+                        <Badge
+                          variant={tipoVariant[m.movementType] ?? "outline"}
+                        >
                           {labelFor(m.movementType)}
                         </Badge>
                       </TableCell>
@@ -311,7 +332,9 @@ function Kardex() {
                       >
                         {m.qty > 0 ? `+${m.qty}` : m.qty}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{m.notes ?? "—"}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {m.notes ?? "—"}
+                      </TableCell>
                     </TableRow>
                   ))}
               </TableBody>

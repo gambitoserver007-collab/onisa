@@ -3,7 +3,11 @@ import type { DocumentType } from "@/types";
 export interface Market {
   countryCode: string;
   countryName: string;
-  region: "Sudamérica" | "Centroamérica y México" | "Caribe" | "Hispanohablantes fuera de América";
+  region:
+    | "Sudamérica"
+    | "Centroamérica y México"
+    | "Caribe"
+    | "Hispanohablantes fuera de América";
   locale: string;
   currencyCode: string;
   currencyName: string;
@@ -501,13 +505,17 @@ export const MARKET_REGIONS: Market["region"][] = [
 export function getMarketByCountryCode(countryCode?: string | null) {
   return (
     SUPPORTED_MARKETS.find((market) => market.countryCode === countryCode) ??
-    SUPPORTED_MARKETS.find((market) => market.countryCode === DEFAULT_MARKET_CODE)!
+    SUPPORTED_MARKETS.find(
+      (market) => market.countryCode === DEFAULT_MARKET_CODE,
+    )!
   );
 }
 
 export function formatCurrencyAmount(
   value: number,
-  market: Pick<Market, "locale" | "currencyCode"> = getMarketByCountryCode(DEFAULT_MARKET_CODE),
+  market: Pick<Market, "locale" | "currencyCode"> = getMarketByCountryCode(
+    DEFAULT_MARKET_CODE,
+  ),
 ) {
   try {
     return new Intl.NumberFormat(market.locale, {

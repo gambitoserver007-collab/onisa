@@ -3,7 +3,13 @@ import { useEffect, useState } from "react";
 import { Store } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PUBLIC_REGISTRATION_ENABLED } from "@/config/access";
@@ -47,10 +53,12 @@ function RegisterPage() {
               </span>
               <span className="font-black">{platformName}</span>
             </div>
-            <CardTitle className="text-2xl font-black">Registro público deshabilitado</CardTitle>
+            <CardTitle className="text-2xl font-black">
+              Registro público deshabilitado
+            </CardTitle>
             <CardDescription>
-              El registro publico no esta disponible. Usa los accesos de prueba o solicita acceso al
-              administrador del sistema.
+              El registro publico no esta disponible. Usa los accesos de prueba
+              o solicita acceso al administrador del sistema.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 p-7 pt-0">
@@ -77,7 +85,9 @@ function RegisterPage() {
 
       if (!result.ok) {
         if (result.error === "invalid-input") {
-          toast.error("Completa la empresa, el correo y una contraseña de al menos 6 caracteres.");
+          toast.error(
+            "Completa la empresa, el correo y una contraseña de al menos 6 caracteres.",
+          );
           return;
         }
 
@@ -95,7 +105,9 @@ function RegisterPage() {
         return;
       }
 
-      toast.success("Cuenta creada. Completa los datos de tu negocio para empezar.");
+      toast.success(
+        "Cuenta creada. Completa los datos de tu negocio para empezar.",
+      );
       navigate({ to: "/configuracion" });
     } finally {
       setIsSubmitting(false);
@@ -110,7 +122,9 @@ function RegisterPage() {
             <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/15 text-white">
               <Store className="h-6 w-6" />
             </div>
-            <span className="text-lg font-black text-white">{platformName}</span>
+            <span className="text-lg font-black text-white">
+              {platformName}
+            </span>
           </div>
 
           <div>
@@ -121,8 +135,8 @@ function RegisterPage() {
               Empieza a vender en minutos.
             </h1>
             <p className="mt-4 max-w-md text-sm leading-6 text-white/70">
-              Registra tu empresa, elige tu país y accede a puntos de venta, inventario, caja y
-              reportes desde el primer día.
+              Registra tu empresa, elige tu país y accede a puntos de venta,
+              inventario, caja y reportes desde el primer día.
             </p>
           </div>
 
@@ -154,9 +168,12 @@ function RegisterPage() {
             </div>
             <Card className="border-0 bg-card shadow-xl shadow-emerald-950/10">
               <CardHeader className="space-y-2 p-7 pb-4">
-                <CardTitle className="text-2xl font-black">Crear cuenta</CardTitle>
+                <CardTitle className="text-2xl font-black">
+                  Crear cuenta
+                </CardTitle>
                 <CardDescription>
-                  Empieza con lo básico. Luego completas los datos de tu negocio.
+                  Empieza con lo básico. Luego completas los datos de tu
+                  negocio.
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-7 pt-0">
@@ -205,7 +222,10 @@ function RegisterPage() {
                   </Button>
                   <p className="text-center text-xs text-muted-foreground">
                     ¿Ya tienes cuenta?{" "}
-                    <Link to="/login" className="font-medium text-primary hover:underline">
+                    <Link
+                      to="/login"
+                      className="font-medium text-primary hover:underline"
+                    >
                       Inicia sesión
                     </Link>
                   </p>

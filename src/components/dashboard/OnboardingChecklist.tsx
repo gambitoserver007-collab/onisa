@@ -41,7 +41,10 @@ export function OnboardingChecklist({
     let active = true;
     void fetchCompanyProfile(companyId)
       .then((profile) => {
-        if (active) setHasBusinessInfo(Boolean(profile.fiscalId?.trim() || profile.address?.trim()));
+        if (active)
+          setHasBusinessInfo(
+            Boolean(profile.fiscalId?.trim() || profile.address?.trim()),
+          );
       })
       .catch(() => undefined);
     return () => {
@@ -129,14 +132,24 @@ export function OnboardingChecklist({
             >
               <span
                 className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl ${
-                  step.done ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                  step.done
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground"
                 }`}
               >
-                {step.done ? <Check className="h-4 w-4" /> : <step.icon className="h-4 w-4" />}
+                {step.done ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <step.icon className="h-4 w-4" />
+                )}
               </span>
               <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">{step.label}</span>
-                <span className="block text-xs text-muted-foreground">{step.hint}</span>
+                <span className="block truncate text-sm font-medium">
+                  {step.label}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  {step.hint}
+                </span>
               </span>
             </Link>
           ))}

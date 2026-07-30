@@ -114,7 +114,13 @@ export function LogoUploader({
         </div>
         <p className="text-xs text-muted-foreground">{hint}</p>
       </div>
-      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFile}
+      />
     </div>
   );
 }

@@ -24,7 +24,8 @@ function requiresSingleLocation(pathname: string) {
 // En POS/Caja siempre se exige una tienda concreta.
 export function LocationSwitcher() {
   const { role } = useDemoSession();
-  const { locations, currentLocationId, setCurrentLocationId } = useCurrentLocation();
+  const { locations, currentLocationId, setCurrentLocationId } =
+    useCurrentLocation();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const canViewAllStores = role === "admin" || role === "finanzas";
   if (locations.length === 0) return null;
@@ -37,7 +38,8 @@ export function LocationSwitcher() {
   const isAll = currentLocationId === ALL_LOCATIONS;
   // On single-store pages, never show "Todas"; if it's currently selected, leave
   // the trigger empty so the user is forced to choose a concrete store.
-  const value = singleOnly && isAll ? undefined : (currentLocationId ?? undefined);
+  const value =
+    singleOnly && isAll ? undefined : (currentLocationId ?? undefined);
 
   return (
     <Select value={value} onValueChange={setCurrentLocationId}>
@@ -49,7 +51,9 @@ export function LocationSwitcher() {
         <SelectValue placeholder={singleOnly ? "Elige sucursal" : "Sucursal"} />
       </SelectTrigger>
       <SelectContent>
-        {!singleOnly && <SelectItem value={ALL_LOCATIONS}>Todas las tiendas</SelectItem>}
+        {!singleOnly && (
+          <SelectItem value={ALL_LOCATIONS}>Todas las tiendas</SelectItem>
+        )}
         {locations.map((location) => (
           <SelectItem key={location.id} value={location.id}>
             {location.name}

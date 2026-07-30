@@ -55,7 +55,9 @@ import {
   getErrorMessage,
 } from "@/services/appData";
 
-export const Route = createFileRoute("/admin/empresas")({ component: Empresas });
+export const Route = createFileRoute("/admin/empresas")({
+  component: Empresas,
+});
 
 const NO_PLAN = "__none__";
 
@@ -100,7 +102,11 @@ function Empresas() {
   const loadCompanies = () =>
     fetchAdminCompanies()
       .then(setCompanies)
-      .catch((error) => toast.error(getErrorMessage(error, "No se pudieron cargar las empresas.")))
+      .catch((error) =>
+        toast.error(
+          getErrorMessage(error, "No se pudieron cargar las empresas."),
+        ),
+      )
       .finally(() => setIsLoading(false));
 
   useEffect(() => {
@@ -111,7 +117,10 @@ function Empresas() {
   }, []);
 
   const list = useMemo(
-    () => companies.filter((company) => company.name.toLowerCase().includes(query.toLowerCase())),
+    () =>
+      companies.filter((company) =>
+        company.name.toLowerCase().includes(query.toLowerCase()),
+      ),
     [companies, query],
   );
 
@@ -237,16 +246,24 @@ function Empresas() {
       >
         <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editing ? "Editar empresa" : "Nueva empresa"}</DialogTitle>
+            <DialogTitle>
+              {editing ? "Editar empresa" : "Nueva empresa"}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
               <Label>Nombre de la tienda</Label>
-              <Input value={name} onChange={(event) => setName(event.target.value)} />
+              <Input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
             </div>
             <div className="space-y-1">
               <Label>ID fiscal (opcional)</Label>
-              <Input value={fiscalId} onChange={(event) => setFiscalId(event.target.value)} />
+              <Input
+                value={fiscalId}
+                onChange={(event) => setFiscalId(event.target.value)}
+              />
             </div>
             <div className="space-y-1">
               <Label>Dirección (opcional)</Label>
@@ -305,10 +322,12 @@ function Empresas() {
 
             {!editing && (
               <div className="rounded-lg border p-3">
-                <p className="text-sm font-semibold">Administrador inicial (opcional)</p>
+                <p className="text-sm font-semibold">
+                  Administrador inicial (opcional)
+                </p>
                 <p className="mb-3 text-xs text-muted-foreground">
-                  Crea el primer acceso de la tienda. Si lo dejas vacío, la tienda se crea sin
-                  usuarios y podrás agregarlos después.
+                  Crea el primer acceso de la tienda. Si lo dejas vacío, la
+                  tienda se crea sin usuarios y podrás agregarlos después.
                 </p>
                 <div className="space-y-3">
                   <div className="space-y-1">
@@ -340,8 +359,16 @@ function Empresas() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="brand" disabled={isSaving || !name.trim()} onClick={handleSave}>
-              {isSaving ? "Guardando..." : editing ? "Guardar cambios" : "Crear empresa"}
+            <Button
+              variant="brand"
+              disabled={isSaving || !name.trim()}
+              onClick={handleSave}
+            >
+              {isSaving
+                ? "Guardando..."
+                : editing
+                  ? "Guardar cambios"
+                  : "Crear empresa"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -371,7 +398,10 @@ function Empresas() {
               <TableBody>
                 {isLoading && (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={7}
+                      className="py-8 text-center text-muted-foreground"
+                    >
                       Cargando empresas...
                     </TableCell>
                   </TableRow>
@@ -402,7 +432,9 @@ function Empresas() {
                         <Badge variant="outline">{company.planName}</Badge>
                       </TableCell>
                       <TableCell>{company.usersCount}</TableCell>
-                      <TableCell>{company.expiresAt?.slice(0, 10) ?? "—"}</TableCell>
+                      <TableCell>
+                        {company.expiresAt?.slice(0, 10) ?? "—"}
+                      </TableCell>
                       <TableCell>
                         <Badge variant={statusVariant(company.status)}>
                           {STATUS_LABELS[company.status] ?? company.status}
@@ -443,13 +475,16 @@ function Empresas() {
         </CardContent>
       </Card>
 
-      <AlertDialog open={!!deleting} onOpenChange={(value) => !value && setDeleting(null)}>
+      <AlertDialog
+        open={!!deleting}
+        onOpenChange={(value) => !value && setDeleting(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar empresa</AlertDialogTitle>
             <AlertDialogDescription>
-              Se eliminará <strong>{deleting?.name}</strong> y se desactivarán sus usuarios. Esta
-              acción no se puede deshacer desde el panel.
+              Se eliminará <strong>{deleting?.name}</strong> y se desactivarán
+              sus usuarios. Esta acción no se puede deshacer desde el panel.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

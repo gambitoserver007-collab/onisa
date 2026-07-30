@@ -10,8 +10,14 @@ export interface SalesExportSettings {
 
 // Filtra ventas por rango de fechas. `from`/`to` son "YYYY-MM-DD"; como las fechas
 // de venta también vienen en ese formato ISO, basta comparar como texto.
-export function filterSalesByDate(sales: Sale[], from: string, to: string): Sale[] {
-  return sales.filter((sale) => (!from || sale.date >= from) && (!to || sale.date <= to));
+export function filterSalesByDate(
+  sales: Sale[],
+  from: string,
+  to: string,
+): Sale[] {
+  return sales.filter(
+    (sale) => (!from || sale.date >= from) && (!to || sale.date <= to),
+  );
 }
 
 function round2(value: number): number {
@@ -47,9 +53,13 @@ export async function exportSalesToExcel(
 
   const ws = XLSX.utils.json_to_sheet(rows);
   const totalGeneral = round2(sales.reduce((sum, sale) => sum + sale.total, 0));
-  XLSX.utils.sheet_add_aoa(ws, [[], ["TOTAL GENERAL", "", "", "", "", "", "", totalGeneral]], {
-    origin: -1,
-  });
+  XLSX.utils.sheet_add_aoa(
+    ws,
+    [[], ["TOTAL GENERAL", "", "", "", "", "", "", totalGeneral]],
+    {
+      origin: -1,
+    },
+  );
   ws["!cols"] = [
     { wch: 22 },
     { wch: 12 },
@@ -70,7 +80,9 @@ function escapeHtml(value: string): string {
   return String(value).replace(
     /[&<>"']/g,
     (char) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] as string,
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        char
+      ] as string,
   );
 }
 
@@ -118,7 +130,10 @@ export function printReceipts(
 ): void {
   if (!sales.length) return;
   const body = sales.map((sale) => receiptHtml(sale, settings, money)).join("");
-  const title = sales.length === 1 ? `Recibo ${sales[0].id}` : `Recibos ${settings.businessName}`;
+  const title =
+    sales.length === 1
+      ? `Recibo ${sales[0].id}`
+      : `Recibos ${settings.businessName}`;
   const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
 <style>
   *{font-family:ui-sans-serif,system-ui,Arial,sans-serif;box-sizing:border-box;}

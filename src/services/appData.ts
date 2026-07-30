@@ -44,7 +44,13 @@ export interface DashboardData {
   customersCount: number;
   lowStockCount: number;
   lowStockProducts: { id: string; name: string; stock: number; unit: string }[];
-  recentSales: { id: string; date: string; customer: string; method: string; total: number }[];
+  recentSales: {
+    id: string;
+    date: string;
+    customer: string;
+    method: string;
+    total: number;
+  }[];
   salesLast7Days: { day: string; total: number }[];
   salesByCategory: { name: string; value: number }[];
   salesByMethod: { name: string; value: number }[];
@@ -183,7 +189,9 @@ function normalizeDate(value: string) {
   return localDateKey(value);
 }
 
-function mapCategory(row: Pick<CategoryRow, "id" | "name" | "active">): Category {
+function mapCategory(
+  row: Pick<CategoryRow, "id" | "name" | "active">,
+): Category {
   return {
     id: row.id,
     name: row.name,
@@ -191,7 +199,10 @@ function mapCategory(row: Pick<CategoryRow, "id" | "name" | "active">): Category
   };
 }
 
-function mapProduct(row: ProductRow, categoryById: Map<string, string>): Product {
+function mapProduct(
+  row: ProductRow,
+  categoryById: Map<string, string>,
+): Product {
   return {
     id: row.id,
     categoryId: row.category_id ?? undefined,
@@ -206,10 +217,14 @@ function mapProduct(row: ProductRow, categoryById: Map<string, string>): Product
     stock: toNumber(row.stock),
     unit: row.unit,
     image: (row as { image_url?: string | null }).image_url ?? undefined,
-    priceIncludesTax: (row as { price_includes_tax?: boolean | null }).price_includes_tax ?? true,
-    hasVariants: (row as { has_variants?: boolean | null }).has_variants ?? false,
+    priceIncludesTax:
+      (row as { price_includes_tax?: boolean | null }).price_includes_tax ??
+      true,
+    hasVariants:
+      (row as { has_variants?: boolean | null }).has_variants ?? false,
     variantAttributes:
-      (row as { variant_attributes?: string[] | null }).variant_attributes ?? undefined,
+      (row as { variant_attributes?: string[] | null }).variant_attributes ??
+      undefined,
   };
 }
 
@@ -246,7 +261,8 @@ function mapSale(row: SaleRow, items: SaleItemRow[]): Sale {
       name: item.product_name,
       qty: toNumber(item.qty, 1),
       price: toNumber(item.unit_price),
-      variantLabel: (item as { variant_label?: string | null }).variant_label ?? undefined,
+      variantLabel:
+        (item as { variant_label?: string | null }).variant_label ?? undefined,
     })),
     subtotal: toNumber(row.subtotal),
     igv: toNumber(row.tax),
@@ -272,7 +288,9 @@ function isSafeUserMessage(message: string): boolean {
   if (!message) return false;
   if (message.length > 240) return false;
   // Hide anything that looks like a Postgres/PostgREST error.
-  if (/\b(relation|column|schema|constraint|operator|policy|rls)\b/i.test(message)) {
+  if (
+    /\b(relation|column|schema|constraint|operator|policy|rls)\b/i.test(message)
+  ) {
     return false;
   }
   // Raw Postgres "function name(args) ..." leaks (e.g. "function does not exist").
@@ -280,11 +298,15 @@ function isSafeUserMessage(message: string): boolean {
   // usa "Edge Function" en mensajes legítimos (ver createCompany) y ese texto no
   // debe tratarse como si fuera un error crudo de Postgres.
   if (/\bfunction\s+\S+\([^)]*\)/i.test(message)) return false;
-  if (/(SQLSTATE|pg_|duplicate key value|violates)/i.test(message)) return false;
+  if (/(SQLSTATE|pg_|duplicate key value|violates)/i.test(message))
+    return false;
   return SAFE_USER_MESSAGE_RE.test(message);
 }
 
-export function getErrorMessage(error: unknown, fallback = "No se pudo completar la operación.") {
+export function getErrorMessage(
+  error: unknown,
+  fallback = "No se pudo completar la operación.",
+) {
   let raw = "";
   if (error instanceof Error) raw = error.message;
   else if (typeof error === "object" && error && "message" in error) {
@@ -311,11 +333,14 @@ export function getErrorMessage(error: unknown, fallback = "No se pudo completar
 }
 
 function requireCompanyId(session: DemoSession) {
-  if (!session.companyId) throw new Error("La sesión no tiene empresa asociada.");
+  if (!session.companyId)
+    throw new Error("La sesión no tiene empresa asociada.");
   return session.companyId;
 }
 
-export async function fetchCompanyCatalog(companyId?: string): Promise<CompanyCatalog> {
+export async function fetchCompanyCatalog(
+  companyId?: string,
+): Promise<CompanyCatalog> {
   const categoriesQuery = supabase
     .from("categories")
     .select("id, name, active")
@@ -340,12 +365,25 @@ export async function fetchCompanyCatalog(companyId?: string): Promise<CompanyCa
     )
     .is("deleted_at", null);
 
-  const [categoriesResult, productsResult, customersResult, suppliersResult] = await Promise.all([
-    (companyId ? categoriesQuery.eq("company_id", companyId) : categoriesQuery).order("name"),
-    (companyId ? productsQuery.eq("company_id", companyId) : productsQuery).order("name"),
-    (companyId ? customersQuery.eq("company_id", companyId) : customersQuery).order("name"),
-    (companyId ? suppliersQuery.eq("company_id", companyId) : suppliersQuery).order("name"),
-  ]);
+  const [categoriesResult, productsResult, customersResult, suppliersResult] =
+    await Promise.all([
+      (companyId
+        ? categoriesQuery.eq("company_id", companyId)
+        : categoriesQuery
+      ).order("name"),
+      (companyId
+        ? productsQuery.eq("company_id", companyId)
+        : productsQuery
+      ).order("name"),
+      (companyId
+        ? customersQuery.eq("company_id", companyId)
+        : customersQuery
+      ).order("name"),
+      (companyId
+        ? suppliersQuery.eq("company_id", companyId)
+        : suppliersQuery
+      ).order("name"),
+    ]);
 
   const error =
     categoriesResult.error ||
@@ -355,19 +393,24 @@ export async function fetchCompanyCatalog(companyId?: string): Promise<CompanyCa
   if (error) throw error;
 
   const categories = (categoriesResult.data ?? []).map(mapCategory);
-  const categoryById = new Map(categories.map((category) => [category.id, category.name]));
+  const categoryById = new Map(
+    categories.map((category) => [category.id, category.name]),
+  );
 
   return {
     categories,
-    products: ((productsResult.data ?? []) as unknown as ProductRow[]).map((row) =>
-      mapProduct(row, categoryById),
+    products: ((productsResult.data ?? []) as unknown as ProductRow[]).map(
+      (row) => mapProduct(row, categoryById),
     ),
     customers: ((customersResult.data ?? []) as CustomerRow[]).map(mapCustomer),
     suppliers: ((suppliersResult.data ?? []) as SupplierRow[]).map(mapSupplier),
   };
 }
 
-export async function fetchSales(companyId?: string, locationId?: string): Promise<Sale[]> {
+export async function fetchSales(
+  companyId?: string,
+  locationId?: string,
+): Promise<Sale[]> {
   let salesQuery = supabase
     .from("sales")
     .select(
@@ -376,9 +419,12 @@ export async function fetchSales(companyId?: string, locationId?: string): Promi
     .is("deleted_at", null);
   if (companyId) salesQuery = salesQuery.eq("company_id", companyId);
   if (locationId) salesQuery = salesQuery.eq("location_id", locationId);
-  const { data: salesRows, error: salesError } = await salesQuery.order("sale_date", {
-    ascending: false,
-  });
+  const { data: salesRows, error: salesError } = await salesQuery.order(
+    "sale_date",
+    {
+      ascending: false,
+    },
+  );
 
   if (salesError) throw salesError;
   if (!salesRows?.length) return [];
@@ -394,7 +440,9 @@ export async function fetchSales(companyId?: string, locationId?: string): Promi
   if (itemsError) throw itemsError;
 
   const itemsBySale = groupSaleItemsBySale((itemRows ?? []) as SaleItemRow[]);
-  return (salesRows as SaleRow[]).map((sale) => mapSale(sale, itemsBySale.get(sale.id) ?? []));
+  return (salesRows as SaleRow[]).map((sale) =>
+    mapSale(sale, itemsBySale.get(sale.id) ?? []),
+  );
 }
 
 /**
@@ -405,14 +453,24 @@ export async function fetchRecentSales(
   companyId?: string,
   locationId?: string,
   limit = 4,
-): Promise<{ id: string; date: string; customer: string; method: string; total: number }[]> {
+): Promise<
+  {
+    id: string;
+    date: string;
+    customer: string;
+    method: string;
+    total: number;
+  }[]
+> {
   let q = supabase
     .from("sales")
     .select("id, customer_name, payment_method, sale_date, total")
     .is("deleted_at", null);
   if (companyId) q = q.eq("company_id", companyId);
   if (locationId) q = q.eq("location_id", locationId);
-  const { data, error } = await q.order("sale_date", { ascending: false }).limit(limit);
+  const { data, error } = await q
+    .order("sale_date", { ascending: false })
+    .limit(limit);
   if (error) throw error;
   return (data ?? []).map((row) => ({
     id: row.id as string,
@@ -448,8 +506,15 @@ export async function fetchSalesAggregates(
   const toParam = (to ?? null) as unknown as string;
 
   const [totalsRes, byDayRes, byCatRes, byMethodRes] = await Promise.all([
-    supabase.rpc("dashboard_sales_totals", { p_location_id: locParam, p_tz: tzParam }),
-    supabase.rpc("sales_by_day", { p_location_id: locParam, p_tz: tzParam, p_days: 7 }),
+    supabase.rpc("dashboard_sales_totals", {
+      p_location_id: locParam,
+      p_tz: tzParam,
+    }),
+    supabase.rpc("sales_by_day", {
+      p_location_id: locParam,
+      p_tz: tzParam,
+      p_days: 7,
+    }),
     supabase.rpc("sales_by_category", {
       p_location_id: locParam,
       p_tz: tzParam,
@@ -485,33 +550,40 @@ export async function fetchSalesAggregates(
     totalToday: Number(totals.total_today) || 0,
     salesTodayCount: Number(totals.count_today) || 0,
     totalMonth: Number(totals.total_month) || 0,
-    salesLast7Days: ((byDayRes.data ?? []) as { day: string; total: number | string }[]).map(
-      (row) => ({
-        day: new Date(`${row.day}T00:00:00`).toLocaleDateString("es", {
-          weekday: "short",
-          day: "2-digit",
-        }),
-        total: Number(row.total) || 0,
+    salesLast7Days: (
+      (byDayRes.data ?? []) as { day: string; total: number | string }[]
+    ).map((row) => ({
+      day: new Date(`${row.day}T00:00:00`).toLocaleDateString("es", {
+        weekday: "short",
+        day: "2-digit",
       }),
-    ),
-    salesByCategory: ((byCatRes.data ?? []) as { category: string; total: number | string }[]).map(
-      (row) => ({
-        name: row.category ?? "Sin categoría",
-        value: Number(row.total) || 0,
-      }),
-    ),
-    salesByMethod: ((byMethodRes.data ?? []) as { method: string; total: number | string }[]).map(
-      (row) => ({
-        name: row.method ?? "Otro",
-        value: Number(row.total) || 0,
-      }),
-    ),
+      total: Number(row.total) || 0,
+    })),
+    salesByCategory: (
+      (byCatRes.data ?? []) as { category: string; total: number | string }[]
+    ).map((row) => ({
+      name: row.category ?? "Sin categoría",
+      value: Number(row.total) || 0,
+    })),
+    salesByMethod: (
+      (byMethodRes.data ?? []) as { method: string; total: number | string }[]
+    ).map((row) => ({
+      name: row.method ?? "Otro",
+      value: Number(row.total) || 0,
+    })),
   };
 }
 
-export async function fetchSaleById(publicId: string, companyId?: string): Promise<Sale | null> {
+export async function fetchSaleById(
+  publicId: string,
+  companyId?: string,
+): Promise<Sale | null> {
   const sales = await fetchSales(companyId);
-  return sales.find((sale) => sale.id === publicId || sale.databaseId === publicId) ?? null;
+  return (
+    sales.find(
+      (sale) => sale.id === publicId || sale.databaseId === publicId,
+    ) ?? null
+  );
 }
 
 export async function createSaleFromCart({
@@ -618,9 +690,15 @@ export async function fetchUnits(companyId?: string): Promise<Unit[]> {
     .select("id, name, active")
     .is("deleted_at", null)
     .order("name");
-  const { data, error } = await (companyId ? query.eq("company_id", companyId) : query);
+  const { data, error } = await (companyId
+    ? query.eq("company_id", companyId)
+    : query);
   if (error) throw error;
-  return (data ?? []).map((row) => ({ id: row.id, name: row.name, active: row.active }));
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    active: row.active,
+  }));
 }
 
 export async function createUnit(session: DemoSession, name: string) {
@@ -644,7 +722,10 @@ export async function updateUnit(
   const cleanName = name.trim();
   if (!cleanName) throw new Error("Ingresa el nombre de la etiqueta.");
   const companyId = requireCompanyId(session);
-  const { error } = await supabase.from("units").update({ name: cleanName }).eq("id", unitId);
+  const { error } = await supabase
+    .from("units")
+    .update({ name: cleanName })
+    .eq("id", unitId);
   if (error) throw error;
   // Cascada: renombra la unidad en los productos que la usaban (no hay FK por nombre).
   if (previousName && previousName !== cleanName) {
@@ -666,15 +747,22 @@ export async function deleteUnit(unitId: string) {
 
 // True when PostgREST rejects a write because a column isn't in the schema yet
 // (e.g. `address` before its migration is applied). Lets writes degrade safely.
-function isMissingColumnError(error: { code?: string; message?: string } | null): boolean {
+function isMissingColumnError(
+  error: { code?: string; message?: string } | null,
+): boolean {
   if (!error) return false;
   return (
     error.code === "PGRST204" ||
-    /could not find the .* column|column .* does not exist/i.test(error.message ?? "")
+    /could not find the .* column|column .* does not exist/i.test(
+      error.message ?? "",
+    )
   );
 }
 
-export async function createCustomer(session: DemoSession, input: CreateCustomerInput) {
+export async function createCustomer(
+  session: DemoSession,
+  input: CreateCustomerInput,
+) {
   const name = input.name.trim();
   if (!name) throw new Error("Ingresa el nombre del cliente.");
 
@@ -710,7 +798,10 @@ export async function getCustomerAddress(customerId: string): Promise<string> {
   return (data as { address?: string | null }).address ?? "";
 }
 
-export async function createSupplier(session: DemoSession, input: CreateSupplierInput) {
+export async function createSupplier(
+  session: DemoSession,
+  input: CreateSupplierInput,
+) {
   const name = input.name.trim();
   if (!name) throw new Error("Ingresa la razón social.");
 
@@ -724,7 +815,10 @@ export async function createSupplier(session: DemoSession, input: CreateSupplier
   if (error) throw error;
 }
 
-export async function updateSupplier(supplierId: string, input: CreateSupplierInput) {
+export async function updateSupplier(
+  supplierId: string,
+  input: CreateSupplierInput,
+) {
   const name = input.name.trim();
   if (!name) throw new Error("Ingresa la razón social.");
   const payload: Record<string, unknown> = {
@@ -760,14 +854,18 @@ function totalStock(input: CreateProductInput) {
 
 // Stock de un local: Map product_id -> stock (solo productos activos en ese local).
 // La presencia en el Map = el producto se vende en ese punto de venta.
-export async function fetchLocationStock(locationId: string): Promise<Map<string, number>> {
+export async function fetchLocationStock(
+  locationId: string,
+): Promise<Map<string, number>> {
   const { data, error } = await supabase
     .from("product_locations")
     .select("product_id, stock")
     .eq("location_id", locationId)
     .eq("is_active", true);
   if (error) throw error;
-  return new Map((data ?? []).map((row) => [row.product_id, toNumber(row.stock)]));
+  return new Map(
+    (data ?? []).map((row) => [row.product_id, toNumber(row.stock)]),
+  );
 }
 
 // ---- Variantes de producto (talla, color, …) ----
@@ -791,10 +889,14 @@ function variantLabel(attributes: Record<string, string>): string {
 }
 
 // Variantes activas de un producto.
-export async function fetchProductVariants(productId: string): Promise<ProductVariant[]> {
+export async function fetchProductVariants(
+  productId: string,
+): Promise<ProductVariant[]> {
   const { data, error } = await supabase
     .from("product_variants")
-    .select("id, product_id, attributes, barcode, sku, price_override, cost_override")
+    .select(
+      "id, product_id, attributes, barcode, sku, price_override, cost_override",
+    )
     .eq("product_id", productId)
     .eq("is_active", true)
     .is("deleted_at", null)
@@ -809,8 +911,10 @@ export async function fetchProductVariants(productId: string): Promise<ProductVa
       label: variantLabel(attributes),
       barcode: row.barcode ?? undefined,
       sku: row.sku ?? undefined,
-      priceOverride: row.price_override == null ? null : toNumber(row.price_override),
-      costOverride: row.cost_override == null ? null : toNumber(row.cost_override),
+      priceOverride:
+        row.price_override == null ? null : toNumber(row.price_override),
+      costOverride:
+        row.cost_override == null ? null : toNumber(row.cost_override),
     };
   });
 }
@@ -838,20 +942,26 @@ export async function fetchLocationVariantStock(locationId: string): Promise<{
     const stock = toNumber(row.stock);
     byVariant.set(row.product_variant_id, stock);
     const productId = row.product_variants?.product_id;
-    if (productId) byProduct.set(productId, (byProduct.get(productId) ?? 0) + stock);
+    if (productId)
+      byProduct.set(productId, (byProduct.get(productId) ?? 0) + stock);
   }
   return { byVariant, byProduct };
 }
 
 // Stock por sucursal de UNA variante (para precargar el editor).
-export async function fetchVariantLocations(variantId: string): Promise<ProductLocationStock[]> {
+export async function fetchVariantLocations(
+  variantId: string,
+): Promise<ProductLocationStock[]> {
   const { data, error } = await supabase
     .from("product_variant_locations")
     .select("location_id, stock")
     .eq("product_variant_id", variantId)
     .eq("is_active", true);
   if (error) throw error;
-  return (data ?? []).map((row) => ({ locationId: row.location_id, stock: toNumber(row.stock) }));
+  return (data ?? []).map((row) => ({
+    locationId: row.location_id,
+    stock: toNumber(row.stock),
+  }));
 }
 
 // Guarda las variantes de un producto en UNA sola transacción del servidor.
@@ -902,7 +1012,6 @@ export async function fetchLowStockByLocation(
   companyId?: string,
   threshold = 10,
 ): Promise<LowStockRow[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let query: any = supabase
     .from("product_locations")
     .select(
@@ -915,7 +1024,10 @@ export async function fetchLowStockByLocation(
   const { data, error } = await query;
   if (error) throw error;
   return (data ?? [])
-    .filter((row: { products?: { deleted_at?: string | null } }) => !row.products?.deleted_at)
+    .filter(
+      (row: { products?: { deleted_at?: string | null } }) =>
+        !row.products?.deleted_at,
+    )
     .map(
       (row: {
         product_id: string;
@@ -939,7 +1051,12 @@ export async function fetchLowStockByLocation(
 // products, así operadores también pueden transferir.
 export async function transferStock(
   session: DemoSession,
-  input: { productId: string; fromLocationId: string; toLocationId: string; qty: number },
+  input: {
+    productId: string;
+    fromLocationId: string;
+    toLocationId: string;
+    qty: number;
+  },
 ) {
   requireCompanyId(session);
   if (!input.productId) throw new Error("Elige un producto.");
@@ -966,14 +1083,19 @@ export async function transferStock(
 }
 
 // Stock por punto de venta de un producto (solo locales activos para ese producto).
-export async function fetchProductLocations(productId: string): Promise<ProductLocationStock[]> {
+export async function fetchProductLocations(
+  productId: string,
+): Promise<ProductLocationStock[]> {
   const { data, error } = await supabase
     .from("product_locations")
     .select("location_id, stock")
     .eq("product_id", productId)
     .eq("is_active", true);
   if (error) throw error;
-  return (data ?? []).map((row) => ({ locationId: row.location_id, stock: toNumber(row.stock) }));
+  return (data ?? []).map((row) => ({
+    locationId: row.location_id,
+    stock: toNumber(row.stock),
+  }));
 }
 
 export interface StockMovementRow {
@@ -996,7 +1118,6 @@ export async function fetchStockMovements(
   companyId?: string,
   locationId?: string,
 ): Promise<StockMovementRow[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let query: any = supabase
     .from("stock_movements")
     .select(
@@ -1045,7 +1166,10 @@ export async function createStockAdjustment(
   requireCompanyId(session);
   if (!input.productId) throw new Error("Elige un producto.");
   if (!input.locationId) throw new Error("Elige una sucursal.");
-  if (!input.qty) throw new Error("Ingresa una cantidad distinta de cero (usa - para descontar).");
+  if (!input.qty)
+    throw new Error(
+      "Ingresa una cantidad distinta de cero (usa - para descontar).",
+    );
 
   const { data, error } = await supabase.rpc("adjust_stock", {
     p_product_id: input.productId,
@@ -1088,12 +1212,16 @@ async function syncProductLocations(
     .update({ is_active: false, updated_at: new Date().toISOString() })
     .eq("product_id", productId)
     .eq("is_active", true);
-  if (keep.length > 0) deactivate = deactivate.not("location_id", "in", `(${keep.join(",")})`);
+  if (keep.length > 0)
+    deactivate = deactivate.not("location_id", "in", `(${keep.join(",")})`);
   const { error } = await deactivate;
   if (error) throw error;
 }
 
-export async function createProduct(session: DemoSession, input: CreateProductInput) {
+export async function createProduct(
+  session: DemoSession,
+  input: CreateProductInput,
+) {
   const name = input.name.trim();
   if (!name) throw new Error("Ingresa el nombre del producto.");
   const stock = totalStock(input);
@@ -1117,7 +1245,9 @@ export async function createProduct(session: DemoSession, input: CreateProductIn
       ...(input.priceIncludesTax !== undefined
         ? { price_includes_tax: input.priceIncludesTax }
         : {}),
-      ...(input.imageUrl !== undefined ? { image_url: input.imageUrl || null } : {}),
+      ...(input.imageUrl !== undefined
+        ? { image_url: input.imageUrl || null }
+        : {}),
     } as never)
     .select("id")
     .single();
@@ -1153,7 +1283,8 @@ export async function updateProduct(
     updated_at: new Date().toISOString(),
   };
   if (input.imageUrl !== undefined) updates.image_url = input.imageUrl || null;
-  if (input.priceIncludesTax !== undefined) updates.price_includes_tax = input.priceIncludesTax;
+  if (input.priceIncludesTax !== undefined)
+    updates.price_includes_tax = input.priceIncludesTax;
   const { error } = await supabase
     .from("products")
     .update(updates as never)
@@ -1204,7 +1335,9 @@ export interface PlanInput {
 export async function fetchPlans(): Promise<SubscriptionPlan[]> {
   const { data, error } = await supabase
     .from("subscription_plans")
-    .select("id, name, price, product_limit, user_limit, monthly_sales_limit, is_active")
+    .select(
+      "id, name, price, product_limit, user_limit, monthly_sales_limit, is_active",
+    )
     .eq("is_active", true)
     .order("price", { ascending: true });
   if (error) throw error;
@@ -1232,7 +1365,9 @@ function planPayload(input: PlanInput) {
 }
 
 export async function createPlan(input: PlanInput) {
-  const { error } = await supabase.from("subscription_plans").insert(planPayload(input));
+  const { error } = await supabase
+    .from("subscription_plans")
+    .insert(planPayload(input));
   if (error) throw error;
 }
 
@@ -1305,7 +1440,9 @@ function mapCashSession(row: {
 }
 
 // Mapa id de usuario → nombre, para mostrar quién abrió/cerró la caja.
-export async function fetchProfileNames(companyId?: string): Promise<Record<string, string>> {
+export async function fetchProfileNames(
+  companyId?: string,
+): Promise<Record<string, string>> {
   if (!companyId) return {};
   try {
     const { data, error } = await supabase
@@ -1357,7 +1494,9 @@ export async function fetchCashClosings(
   return (data ?? []).map(mapCashSession);
 }
 
-export async function fetchCashMovements(sessionId: string): Promise<CashMovement[]> {
+export async function fetchCashMovements(
+  sessionId: string,
+): Promise<CashMovement[]> {
   const { data, error } = await supabase
     .from("cash_movements")
     .select("id, movement_type, concept, amount, movement_at")
@@ -1437,7 +1576,9 @@ export interface CompanyProfile {
   phone: string;
 }
 
-export async function fetchCompanyProfile(companyId: string): Promise<CompanyProfile> {
+export async function fetchCompanyProfile(
+  companyId: string,
+): Promise<CompanyProfile> {
   const { data, error } = await supabase
     .from("companies")
     .select("name, country_code, fiscal_id, address, phone")
@@ -1457,7 +1598,8 @@ export async function updateCompanySettings(
   session: DemoSession,
   input: UpdateCompanySettingsInput,
 ) {
-  if (!session.companyId) throw new Error("La sesión no tiene empresa asociada.");
+  if (!session.companyId)
+    throw new Error("La sesión no tiene empresa asociada.");
 
   // The store owner only edits its own profile fields. Country, currency, tax
   // and comprobantes are managed centrally per country by the platform admin.
@@ -1469,7 +1611,8 @@ export async function updateCompanySettings(
     updated_at: new Date().toISOString(),
   };
   if (input.logoUrl !== undefined) updates.logo_url = input.logoUrl || null;
-  if (input.businessType !== undefined) updates.business_type = input.businessType;
+  if (input.businessType !== undefined)
+    updates.business_type = input.businessType;
   const { data, error } = await supabase
     .from("companies")
     .update(updates as never)
@@ -1502,7 +1645,10 @@ export interface UpdateCountrySettingInput {
 function parseDocTypesJson(raw: unknown): DocumentType[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === "object")
+    .filter(
+      (entry): entry is Record<string, unknown> =>
+        !!entry && typeof entry === "object",
+    )
     .map((entry) => ({
       name: String(entry.name ?? "").trim(),
       chargesIva: Boolean(entry.charges_iva),
@@ -1511,11 +1657,12 @@ function parseDocTypesJson(raw: unknown): DocumentType[] {
 }
 
 export async function fetchCountrySettings(): Promise<CountrySetting[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const client = supabase as any;
   const { data, error } = await client
     .from("country_settings")
-    .select("country_code, tax_rate, tax_name, fiscal_id_label, currency_code, document_types")
+    .select(
+      "country_code, tax_rate, tax_name, fiscal_id_label, currency_code, document_types",
+    )
     .order("country_code");
   if (error) throw error;
   const rows = (data ?? []) as Array<Record<string, unknown>>;
@@ -1529,11 +1676,14 @@ export async function fetchCountrySettings(): Promise<CountrySetting[]> {
   }));
 }
 
-export async function updateCountrySetting(countryCode: string, input: UpdateCountrySettingInput) {
+export async function updateCountrySetting(
+  countryCode: string,
+  input: UpdateCountrySettingInput,
+) {
   const docs = input.documentTypes
     .map((doc) => ({ name: doc.name.trim(), charges_iva: doc.chargesIva }))
     .filter((doc) => doc.name.length > 0);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   const client = supabase as any;
   const { error } = await client
     .from("country_settings")
@@ -1548,11 +1698,17 @@ export async function updateCountrySetting(countryCode: string, input: UpdateCou
   if (error) throw error;
 }
 
-export async function updateCompanyLogo(session: DemoSession, logoUrl: string | null) {
+export async function updateCompanyLogo(
+  session: DemoSession,
+  logoUrl: string | null,
+) {
   const companyId = requireCompanyId(session);
   const { data, error } = await supabase
     .from("companies")
-    .update({ logo_url: logoUrl, updated_at: new Date().toISOString() } as never)
+    .update({
+      logo_url: logoUrl,
+      updated_at: new Date().toISOString(),
+    } as never)
     .eq("id", companyId)
     .select("*")
     .single();
@@ -1560,7 +1716,9 @@ export async function updateCompanyLogo(session: DemoSession, logoUrl: string | 
   return data as CompanyRow;
 }
 
-export function mapCompanyToBusinessSettings(row: CompanyRow): Partial<BusinessSettings> {
+export function mapCompanyToBusinessSettings(
+  row: CompanyRow,
+): Partial<BusinessSettings> {
   const market = getMarketByCountryCode(row.country_code);
   return {
     businessName: row.name,
@@ -1575,7 +1733,8 @@ export function mapCompanyToBusinessSettings(row: CompanyRow): Partial<BusinessS
     taxName: row.tax_name,
     taxRate: toNumber(row.tax_rate, market.taxRate),
     logoUrl: (row as { logo_url?: string | null }).logo_url ?? undefined,
-    businessType: (row as { business_type?: string | null }).business_type ?? undefined,
+    businessType:
+      (row as { business_type?: string | null }).business_type ?? undefined,
   };
 }
 
@@ -1609,9 +1768,13 @@ export async function fetchProfitReport(
   // Convertir yyyy-mm-dd a límites LOCALes (mismo criterio que useDashboardData), para
   // que el rango de Ganancias coincida con Dashboard/Reportes (antes "from" usaba
   // medianoche UTC y "to" medianoche local → el periodo no cuadraba entre pantallas).
-  const fromTs = fromDate ? new Date(`${fromDate}T00:00:00`).toISOString() : null;
+  const fromTs = fromDate
+    ? new Date(`${fromDate}T00:00:00`).toISOString()
+    : null;
   const toTs = toDate
-    ? new Date(new Date(`${toDate}T00:00:00`).getTime() + 24 * 60 * 60 * 1000).toISOString()
+    ? new Date(
+        new Date(`${toDate}T00:00:00`).getTime() + 24 * 60 * 60 * 1000,
+      ).toISOString()
     : null;
   const { data, error } = await supabase.rpc("profit_report", {
     p_from: fromTs as unknown as string,
@@ -1675,7 +1838,10 @@ export interface LocationInput {
 
 // `onlyActive` para selectores de operación (POS); el gestor pide todos.
 // `select("*")` para tolerar que city/phone/manager_name aún no existan en la BD.
-export async function fetchLocations(companyId?: string, onlyActive = false): Promise<Location[]> {
+export async function fetchLocations(
+  companyId?: string,
+  onlyActive = false,
+): Promise<Location[]> {
   let query = supabase.from("locations").select("*").order("name");
   if (companyId) query = query.eq("company_id", companyId);
   if (onlyActive) query = query.eq("is_active", true);
@@ -1689,12 +1855,16 @@ export async function fetchLocations(companyId?: string, onlyActive = false): Pr
     city: (row as { city?: string | null }).city ?? null,
     phone: (row as { phone?: string | null }).phone ?? null,
     managerName: (row as { manager_name?: string | null }).manager_name ?? null,
-    openingHours: (row as { opening_hours?: string | null }).opening_hours ?? null,
+    openingHours:
+      (row as { opening_hours?: string | null }).opening_hours ?? null,
     isActive: row.is_active,
   }));
 }
 
-export async function createLocation(session: DemoSession, input: LocationInput) {
+export async function createLocation(
+  session: DemoSession,
+  input: LocationInput,
+) {
   const name = input.name.trim();
   if (!name) throw new Error("Ingresa el nombre de la sucursal.");
   const base = {
@@ -1755,11 +1925,18 @@ export async function setLocationActive(locationId: string, isActive: boolean) {
   if (error) throw error;
 }
 
-export function buildDashboardData(catalog: CompanyCatalog, sales: Sale[]): DashboardData {
+export function buildDashboardData(
+  catalog: CompanyCatalog,
+  sales: Sale[],
+): DashboardData {
   const today = localDateKey(new Date());
   const month = today.slice(0, 7);
-  const lowStock = catalog.products.filter((product) => product.stock > 0 && product.stock < 10);
-  const productById = new Map(catalog.products.map((product) => [product.id, product]));
+  const lowStock = catalog.products.filter(
+    (product) => product.stock > 0 && product.stock < 10,
+  );
+  const productById = new Map(
+    catalog.products.map((product) => [product.id, product]),
+  );
 
   const totalToday = sales
     .filter((sale) => sale.date === today)
@@ -1788,8 +1965,12 @@ export function buildDashboardData(catalog: CompanyCatalog, sales: Sale[]): Dash
   const categoryMap = new Map<string, number>();
   for (const sale of sales) {
     for (const item of sale.items) {
-      const category = productById.get(item.productId)?.category ?? "Sin categoría";
-      categoryMap.set(category, (categoryMap.get(category) ?? 0) + item.qty * item.price);
+      const category =
+        productById.get(item.productId)?.category ?? "Sin categoría";
+      categoryMap.set(
+        category,
+        (categoryMap.get(category) ?? 0) + item.qty * item.price,
+      );
     }
   }
 
@@ -1822,7 +2003,10 @@ export function buildDashboardData(catalog: CompanyCatalog, sales: Sale[]): Dash
         total: sale.total,
       })),
     salesLast7Days,
-    salesByCategory: Array.from(categoryMap, ([name, value]) => ({ name, value })),
+    salesByCategory: Array.from(categoryMap, ([name, value]) => ({
+      name,
+      value,
+    })),
     salesByMethod: Array.from(methodMap, ([name, value]) => ({ name, value })),
   };
 }
@@ -1849,7 +2033,10 @@ export function emptyDashboardData(): DashboardData {
 
 // ---- Clientes (update / delete) ----
 
-export async function updateCustomer(customerId: string, input: CreateCustomerInput) {
+export async function updateCustomer(
+  customerId: string,
+  input: CreateCustomerInput,
+) {
   const name = input.name.trim();
   if (!name) throw new Error("Ingresa el nombre del cliente.");
   const base: Record<string, unknown> = {
@@ -1919,13 +2106,19 @@ export interface PromotionInput {
   endsAt?: string | null;
 }
 
-export async function fetchPromotions(companyId?: string): Promise<Promotion[]> {
+export async function fetchPromotions(
+  companyId?: string,
+): Promise<Promotion[]> {
   const query = supabase
     .from("promotions")
-    .select("id, name, promotion_type, value_text, value_amount, starts_at, ends_at, active")
+    .select(
+      "id, name, promotion_type, value_text, value_amount, starts_at, ends_at, active",
+    )
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
-  const { data, error } = await (companyId ? query.eq("company_id", companyId) : query);
+  const { data, error } = await (companyId
+    ? query.eq("company_id", companyId)
+    : query);
   if (error) throw error;
   return (data ?? []).map((row) => ({
     id: row.id,
@@ -1939,7 +2132,10 @@ export async function fetchPromotions(companyId?: string): Promise<Promotion[]> 
   }));
 }
 
-export async function createPromotion(session: DemoSession, input: PromotionInput) {
+export async function createPromotion(
+  session: DemoSession,
+  input: PromotionInput,
+) {
   const name = input.name.trim();
   if (!name) throw new Error("Ingresa el nombre de la promoción.");
   const { error } = await supabase.from("promotions").insert({
@@ -1955,7 +2151,10 @@ export async function createPromotion(session: DemoSession, input: PromotionInpu
   if (error) throw error;
 }
 
-export async function updatePromotion(promotionId: string, input: PromotionInput) {
+export async function updatePromotion(
+  promotionId: string,
+  input: PromotionInput,
+) {
   const name = input.name.trim();
   if (!name) throw new Error("Ingresa el nombre de la promoción.");
   const { error } = await supabase
@@ -2019,15 +2218,23 @@ export interface CreatePurchaseInput {
 export async function fetchPurchases(companyId?: string): Promise<Purchase[]> {
   const query = supabase
     .from("purchases")
-    .select("id, purchase_number, purchase_date, document_number, total, supplier_id")
+    .select(
+      "id, purchase_number, purchase_date, document_number, total, supplier_id",
+    )
     .is("deleted_at", null)
     .order("purchase_date", { ascending: false });
-  const { data, error } = await (companyId ? query.eq("company_id", companyId) : query);
+  const { data, error } = await (companyId
+    ? query.eq("company_id", companyId)
+    : query);
   if (error) throw error;
   const rows = data ?? [];
 
   const supplierIds = Array.from(
-    new Set(rows.map((row) => row.supplier_id).filter((id): id is string => Boolean(id))),
+    new Set(
+      rows
+        .map((row) => row.supplier_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
   );
   const supplierName = new Map<string, string>();
   if (supplierIds.length) {
@@ -2035,29 +2242,40 @@ export async function fetchPurchases(companyId?: string): Promise<Purchase[]> {
       .from("suppliers")
       .select("id, name")
       .in("id", supplierIds);
-    (suppliers ?? []).forEach((supplier) => supplierName.set(supplier.id, supplier.name));
+    (suppliers ?? []).forEach((supplier) =>
+      supplierName.set(supplier.id, supplier.name),
+    );
   }
 
   return rows.map((row) => ({
     id: row.id,
     number: row.purchase_number,
     date: normalizeDate(row.purchase_date),
-    supplier: row.supplier_id ? (supplierName.get(row.supplier_id) ?? "—") : "—",
+    supplier: row.supplier_id
+      ? (supplierName.get(row.supplier_id) ?? "—")
+      : "—",
     supplierId: row.supplier_id ?? null,
     document: row.document_number,
     total: toNumber(row.total),
   }));
 }
 
-export async function createPurchase(session: DemoSession, input: CreatePurchaseInput) {
+export async function createPurchase(
+  session: DemoSession,
+  input: CreatePurchaseInput,
+) {
   requireCompanyId(session);
   const items = input.items.filter((item) => item.productId && item.qty > 0);
-  if (!items.length) throw new Error("Agrega al menos un producto a la compra.");
+  if (!items.length)
+    throw new Error("Agrega al menos un producto a la compra.");
 
   const { data, error } = await supabase.rpc("create_purchase", {
     p_supplier_id: (input.supplierId || null) as unknown as string,
-    p_document_number: (input.documentNumber?.trim() || null) as unknown as string,
-    p_date: input.date ? new Date(input.date).toISOString() : new Date().toISOString(),
+    p_document_number: (input.documentNumber?.trim() ||
+      null) as unknown as string,
+    p_date: input.date
+      ? new Date(input.date).toISOString()
+      : new Date().toISOString(),
     p_location_id: (input.locationId || null) as unknown as string,
     p_items: items.map((item) => ({
       product_id: item.productId,
@@ -2108,12 +2326,16 @@ export async function fetchReturns(companyId?: string): Promise<ReturnDoc[]> {
     .select("id, return_number, created_at, reason, total, status, sale_id")
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
-  const { data, error } = await (companyId ? query.eq("company_id", companyId) : query);
+  const { data, error } = await (companyId
+    ? query.eq("company_id", companyId)
+    : query);
   if (error) throw error;
   const rows = data ?? [];
 
   const saleIds = Array.from(
-    new Set(rows.map((row) => row.sale_id).filter((id): id is string => Boolean(id))),
+    new Set(
+      rows.map((row) => row.sale_id).filter((id): id is string => Boolean(id)),
+    ),
   );
   const saleNumber = new Map<string, string>();
   if (saleIds.length) {
@@ -2150,7 +2372,10 @@ export async function fetchReturns(companyId?: string): Promise<ReturnDoc[]> {
     const its = itemsByReturn.get(row.id) ?? [];
     const units = its.reduce((sum, i) => sum + i.qty, 0);
     const itemsLabel = its
-      .map((i) => `${i.qty} × ${i.productName}${i.variantLabel ? ` (${i.variantLabel})` : ""}`)
+      .map(
+        (i) =>
+          `${i.qty} × ${i.productName}${i.variantLabel ? ` (${i.variantLabel})` : ""}`,
+      )
       .join(", ");
     return {
       id: row.id,
@@ -2177,10 +2402,14 @@ export interface SaleItemForReturn {
   alreadyReturned: number;
 }
 
-export async function fetchSaleItemsForReturn(saleId: string): Promise<SaleItemForReturn[]> {
+export async function fetchSaleItemsForReturn(
+  saleId: string,
+): Promise<SaleItemForReturn[]> {
   const { data, error } = await supabase
     .from("sale_items")
-    .select("id, product_id, product_name, product_variant_id, variant_label, qty, unit_price")
+    .select(
+      "id, product_id, product_name, product_variant_id, variant_label, qty, unit_price",
+    )
     .eq("sale_id", saleId);
   if (error) throw error;
   const items = data ?? [];
@@ -2195,7 +2424,10 @@ export async function fetchSaleItemsForReturn(saleId: string): Promise<SaleItemF
   const returned = new Map<string, number>();
   (prev ?? []).forEach((r) => {
     if (!r.sale_item_id) return;
-    returned.set(r.sale_item_id, (returned.get(r.sale_item_id) ?? 0) + toNumber(r.qty));
+    returned.set(
+      r.sale_item_id,
+      (returned.get(r.sale_item_id) ?? 0) + toNumber(r.qty),
+    );
   });
   return items.map((i) => ({
     id: i.id,
@@ -2209,7 +2441,10 @@ export async function fetchSaleItemsForReturn(saleId: string): Promise<SaleItemF
   }));
 }
 
-export async function createReturn(_session: DemoSession, input: CreateReturnInput) {
+export async function createReturn(
+  _session: DemoSession,
+  input: CreateReturnInput,
+) {
   const reason = input.reason.trim();
   if (!reason) throw new Error("Describe el motivo de la devolución.");
   if (!input.items || input.items.length === 0) {
@@ -2259,7 +2494,9 @@ export async function fetchPlanUsage(companyId?: string): Promise<PlanUsage> {
     if (company?.plan_id) {
       const { data: planRow } = await supabase
         .from("subscription_plans")
-        .select("id, name, price, product_limit, user_limit, monthly_sales_limit, is_active")
+        .select(
+          "id, name, price, product_limit, user_limit, monthly_sales_limit, is_active",
+        )
         .eq("id", company.plan_id)
         .maybeSingle();
       if (planRow) {
@@ -2358,8 +2595,13 @@ export interface CreateTeamUserInput {
 
 // Surface the real error message returned by an Edge Function body. supabase-js
 // wraps non-2xx responses in a generic error; the JSON body lives in `.context`.
-async function invokeFunctionError(error: unknown, fallback: string): Promise<string> {
-  const context = (error as { context?: { json?: () => Promise<{ error?: string }> } })?.context;
+async function invokeFunctionError(
+  error: unknown,
+  fallback: string,
+): Promise<string> {
+  const context = (
+    error as { context?: { json?: () => Promise<{ error?: string }> } }
+  )?.context;
   if (context && typeof context.json === "function") {
     try {
       const body = await context.json();
@@ -2371,12 +2613,16 @@ async function invokeFunctionError(error: unknown, fallback: string): Promise<st
   return fallback;
 }
 
-export async function createTeamUser(session: DemoSession, input: CreateTeamUserInput) {
+export async function createTeamUser(
+  session: DemoSession,
+  input: CreateTeamUserInput,
+) {
   const companyId = requireCompanyId(session);
   const fullName = input.fullName.trim();
   const email = input.email.trim();
   if (!fullName || !email) throw new Error("Ingresa nombre y correo.");
-  if (input.password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres.");
+  if (input.password.length < 6)
+    throw new Error("La contraseña debe tener al menos 6 caracteres.");
 
   const { data, error } = await supabase.functions.invoke("team-create-user", {
     body: {
@@ -2415,9 +2661,13 @@ export interface UpdateTeamUserInput {
   saasPanel?: boolean;
 }
 
-export async function updateTeamUser(session: DemoSession, input: UpdateTeamUserInput) {
+export async function updateTeamUser(
+  session: DemoSession,
+  input: UpdateTeamUserInput,
+) {
   requireCompanyId(session);
-  const password = input.password && input.password.length > 0 ? input.password : undefined;
+  const password =
+    input.password && input.password.length > 0 ? input.password : undefined;
   const { data, error } = await supabase.functions.invoke("team-manage-user", {
     body: {
       action: "update",
@@ -2461,9 +2711,13 @@ export async function deleteTeamUser(session: DemoSession, userId: string) {
 export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
   const query = supabase
     .from("profiles")
-    .select("id, full_name, email, role, is_active, location_id, is_platform_admin, created_at")
+    .select(
+      "id, full_name, email, role, is_active, location_id, is_platform_admin, created_at",
+    )
     .order("created_at", { ascending: true });
-  const { data, error } = await (companyId ? query.eq("company_id", companyId) : query);
+  const { data, error } = await (companyId
+    ? query.eq("company_id", companyId)
+    : query);
   if (error) throw error;
   const members = (data ?? []).map((row) => ({
     id: row.id,
@@ -2474,7 +2728,9 @@ export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
     locationId: (row as { location_id?: string | null }).location_id ?? null,
     locationIds: [] as string[],
     allowedSections: null as string[] | null,
-    isPlatformAdmin: Boolean((row as { is_platform_admin?: boolean | null }).is_platform_admin),
+    isPlatformAdmin: Boolean(
+      (row as { is_platform_admin?: boolean | null }).is_platform_admin,
+    ),
   }));
 
   // Accesos personalizados (columna nueva). Best-effort: si aún no existe, queda
@@ -2488,7 +2744,8 @@ export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
     for (const row of secs ?? []) {
       byId.set(
         (row as { id: string }).id,
-        (row as { allowed_sections?: string[] | null }).allowed_sections ?? null,
+        (row as { allowed_sections?: string[] | null }).allowed_sections ??
+          null,
       );
     }
     for (const member of members) {
@@ -2501,7 +2758,9 @@ export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
   // Sucursales asignadas (tabla nueva). Best-effort: si aún no existe, se cae al
   // campo único `location_id` para no romper.
   try {
-    let plQuery = supabase.from("profile_locations").select("profile_id, location_id");
+    let plQuery = supabase
+      .from("profile_locations")
+      .select("profile_id, location_id");
     if (companyId) plQuery = plQuery.eq("company_id", companyId);
     const { data: pl, error: plErr } = await plQuery;
     if (plErr) throw plErr;
@@ -2524,7 +2783,9 @@ export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
 
 // Sucursales asignadas a un usuario. Best-effort: [] (= todas) si la tabla no
 // existe todavía o el usuario no tiene asignaciones.
-export async function fetchAssignedLocationIds(userId?: string): Promise<string[]> {
+export async function fetchAssignedLocationIds(
+  userId?: string,
+): Promise<string[]> {
   if (!userId) return [];
   try {
     const { data, error } = await supabase
@@ -2540,7 +2801,9 @@ export async function fetchAssignedLocationIds(userId?: string): Promise<string[
 
 // Accesos personalizados del panel para un usuario. Best-effort: null (= usar
 // defaults del rol) si la columna aún no existe o no tiene lista propia.
-export async function fetchAllowedSections(userId?: string): Promise<string[] | null> {
+export async function fetchAllowedSections(
+  userId?: string,
+): Promise<string[] | null> {
   if (!userId) return null;
   try {
     const { data, error } = await supabase
@@ -2549,7 +2812,8 @@ export async function fetchAllowedSections(userId?: string): Promise<string[] | 
       .eq("id", userId)
       .maybeSingle();
     if (error) throw error;
-    const sections = (data as { allowed_sections?: string[] | null } | null)?.allowed_sections;
+    const sections = (data as { allowed_sections?: string[] | null } | null)
+      ?.allowed_sections;
     return sections && sections.length > 0 ? sections : null;
   } catch {
     return null;
@@ -2629,14 +2893,21 @@ export async function fetchAdminCompanies(): Promise<AdminCompany[]> {
     .order("created_at", { ascending: false });
   if (error) throw error;
 
-  const { data: plans } = await supabase.from("subscription_plans").select("id, name");
+  const { data: plans } = await supabase
+    .from("subscription_plans")
+    .select("id, name");
   const planName = new Map((plans ?? []).map((plan) => [plan.id, plan.name]));
 
-  const { data: profiles } = await supabase.from("profiles").select("company_id");
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("company_id");
   const usersByCompany = new Map<string, number>();
   (profiles ?? []).forEach((profile) => {
     if (profile.company_id) {
-      usersByCompany.set(profile.company_id, (usersByCompany.get(profile.company_id) ?? 0) + 1);
+      usersByCompany.set(
+        profile.company_id,
+        (usersByCompany.get(profile.company_id) ?? 0) + 1,
+      );
     }
   });
 
@@ -2646,7 +2917,9 @@ export async function fetchAdminCompanies(): Promise<AdminCompany[]> {
     fiscalId: company.fiscal_id,
     address: company.address ?? null,
     planId: company.plan_id ?? null,
-    planName: company.plan_id ? (planName.get(company.plan_id) ?? "—") : "Sin plan",
+    planName: company.plan_id
+      ? (planName.get(company.plan_id) ?? "—")
+      : "Sin plan",
     status: company.subscription_status,
     expiresAt: company.expires_at,
     usersCount: usersByCompany.get(company.id) ?? 0,
@@ -2676,13 +2949,20 @@ export interface AdminCompanyUpdate {
 }
 
 // Platform super admin edits any store's company record (RLS allows platform admin).
-export async function adminUpdateCompany(companyId: string, input: AdminCompanyUpdate) {
+export async function adminUpdateCompany(
+  companyId: string,
+  input: AdminCompanyUpdate,
+) {
   const { error } = await supabase
     .from("companies")
     .update({
       name: input.name?.trim() || undefined,
-      fiscal_id: input.fiscalId === undefined ? undefined : input.fiscalId?.trim() || null,
-      address: input.address === undefined ? undefined : input.address?.trim() || null,
+      fiscal_id:
+        input.fiscalId === undefined
+          ? undefined
+          : input.fiscalId?.trim() || null,
+      address:
+        input.address === undefined ? undefined : input.address?.trim() || null,
       subscription_status: input.status,
       plan_id: input.planId === undefined ? undefined : input.planId || null,
       expires_at:
@@ -2748,7 +3028,9 @@ export interface CountryPaymentMethodUpsert {
   isActive?: boolean;
 }
 
-export async function upsertCountryPaymentMethod(input: CountryPaymentMethodUpsert) {
+export async function upsertCountryPaymentMethod(
+  input: CountryPaymentMethodUpsert,
+) {
   const payload = {
     country_code: input.countryCode.trim().toUpperCase(),
     method_code: input.methodCode.trim(),
@@ -2777,7 +3059,10 @@ export async function upsertCountryPaymentMethod(input: CountryPaymentMethodUpse
 }
 
 export async function deleteCountryPaymentMethod(id: string) {
-  const { error } = await supabase.from("country_payment_methods").delete().eq("id", id);
+  const { error } = await supabase
+    .from("country_payment_methods")
+    .delete()
+    .eq("id", id);
   if (error) throw error;
 }
 
@@ -2789,7 +3074,10 @@ export async function adminDeleteCompany(companyId: string) {
     .update({ deleted_at: now, updated_at: now })
     .eq("id", companyId);
   if (error) throw error;
-  await supabase.from("profiles").update({ is_active: false }).eq("company_id", companyId);
+  await supabase
+    .from("profiles")
+    .update({ is_active: false })
+    .eq("company_id", companyId);
 }
 
 // Platform super admin creates a new store (and optionally its first admin login).
@@ -2798,19 +3086,24 @@ export async function createCompany(input: CreateCompanyInput) {
   if (!name) throw new Error("Ingresa el nombre de la tienda.");
   const ownerEmail = input.ownerEmail?.trim();
   if (ownerEmail && (!input.ownerPassword || input.ownerPassword.length < 6)) {
-    throw new Error("Si creas un administrador, la contraseña debe tener al menos 6 caracteres.");
+    throw new Error(
+      "Si creas un administrador, la contraseña debe tener al menos 6 caracteres.",
+    );
   }
-  const { data, error } = await supabase.functions.invoke("admin-create-company", {
-    body: {
-      name,
-      fiscal_id: input.fiscalId?.trim() || null,
-      plan_id: input.planId || null,
-      subscription_status: input.status || "active",
-      owner_email: ownerEmail || undefined,
-      owner_password: ownerEmail ? input.ownerPassword : undefined,
-      owner_full_name: input.ownerFullName?.trim() || undefined,
+  const { data, error } = await supabase.functions.invoke(
+    "admin-create-company",
+    {
+      body: {
+        name,
+        fiscal_id: input.fiscalId?.trim() || null,
+        plan_id: input.planId || null,
+        subscription_status: input.status || "active",
+        owner_email: ownerEmail || undefined,
+        owner_password: ownerEmail ? input.ownerPassword : undefined,
+        owner_full_name: input.ownerFullName?.trim() || undefined,
+      },
     },
-  });
+  );
   if (error) {
     throw new Error(
       await invokeFunctionError(
@@ -2832,11 +3125,18 @@ export async function createCompany(input: CreateCompanyInput) {
 }
 
 export async function fetchAdminStats(): Promise<AdminStats> {
-  const [companies, plans] = await Promise.all([fetchAdminCompanies(), fetchPlans()]);
+  const [companies, plans] = await Promise.all([
+    fetchAdminCompanies(),
+    fetchPlans(),
+  ]);
   const planPriceById = new Map(plans.map((plan) => [plan.id, plan.price]));
 
-  const active = companies.filter((company) => company.status === "active").length;
-  const trial = companies.filter((company) => company.status === "trial").length;
+  const active = companies.filter(
+    (company) => company.status === "active",
+  ).length;
+  const trial = companies.filter(
+    (company) => company.status === "trial",
+  ).length;
   const expired = companies.filter(
     (company) => company.status === "expired" || company.status === "suspended",
   ).length;
@@ -2883,7 +3183,9 @@ export async function fetchAdminStats(): Promise<AdminStats> {
   const growth = Array.from({ length: 6 }, (_, index) => {
     const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
     const prefix = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-    const value = companies.filter((company) => company.createdAt.startsWith(prefix)).length;
+    const value = companies.filter((company) =>
+      company.createdAt.startsWith(prefix),
+    ).length;
     return { m: monthsLabels[date.getMonth()], v: value };
   });
 

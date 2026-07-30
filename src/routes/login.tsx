@@ -3,7 +3,13 @@ import { useEffect, useState } from "react";
 import { Shield, Store } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -25,9 +31,10 @@ import { detectCountryCode } from "@/lib/detectCountry";
 import { fetchPlatformBranding } from "@/services/appData";
 
 export const Route = createFileRoute("/login")({
-  validateSearch: (s: Record<string, unknown>) => ({
-    next: typeof s.next === "string" ? s.next : undefined,
-  }),
+  validateSearch: (s: Record<string, unknown>): { next?: string } => {
+    const next = typeof s.next === "string" ? s.next : undefined;
+    return next ? { next } : {};
+  },
   component: LoginPage,
 });
 
@@ -53,7 +60,9 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [demoDialogRole, setDemoDialogRole] = useState<DemoRole | null>(null);
-  const [demoCountryCode, setDemoCountryCode] = useState(() => getBusinessSettings().countryCode);
+  const [demoCountryCode, setDemoCountryCode] = useState(
+    () => getBusinessSettings().countryCode,
+  );
   const selectedDemoMarket = getMarketByCountryCode(demoCountryCode);
   const [platformName, setPlatformName] = useState("Onisa");
 
@@ -69,7 +78,9 @@ function LoginPage() {
       .then((branding) => setPlatformName(branding.name))
       .catch(() => undefined);
   }, []);
-  const selectedDemoOption = demoOptions.find((option) => option.role === demoDialogRole);
+  const selectedDemoOption = demoOptions.find(
+    (option) => option.role === demoDialogRole,
+  );
 
   const { next } = Route.useSearch();
   const routeAfterLogin = (session: DemoSession) => {
@@ -88,7 +99,9 @@ function LoginPage() {
     try {
       const session = await login(email, password);
       if (!session) {
-        toast.error("Correo o contraseña incorrectos. Revísalos e inténtalo de nuevo.");
+        toast.error(
+          "Correo o contraseña incorrectos. Revísalos e inténtalo de nuevo.",
+        );
         return;
       }
 
@@ -105,7 +118,9 @@ function LoginPage() {
     try {
       const session = await loginAs(role, countryCode);
       const market = getMarketByCountryCode(countryCode);
-      toast.success(`Bienvenido, ${session.name}. Modo de Prueba en ${market.countryName}.`);
+      toast.success(
+        `Bienvenido, ${session.name}. Modo de Prueba en ${market.countryName}.`,
+      );
       routeAfterLogin(session);
     } catch {
       toast.error("No se pudo iniciar el Modo de Prueba.");
@@ -122,7 +137,9 @@ function LoginPage() {
             <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/15 text-white">
               <Store className="h-6 w-6" />
             </div>
-            <span className="text-lg font-black text-white">{platformName}</span>
+            <span className="text-lg font-black text-white">
+              {platformName}
+            </span>
           </div>
 
           <div>
@@ -133,8 +150,8 @@ function LoginPage() {
               Gestiona tu tienda desde un solo lugar.
             </h1>
             <p className="mt-4 max-w-md text-sm leading-6 text-white/65">
-              Puntos de venta, inventario, caja, ventas y reportes en una experiencia moderna y
-              multiempresa.
+              Puntos de venta, inventario, caja, ventas y reportes en una
+              experiencia moderna y multiempresa.
             </p>
           </div>
 
@@ -166,7 +183,9 @@ function LoginPage() {
             </div>
             <Card className="border-0 bg-card shadow-xl shadow-emerald-950/10">
               <CardHeader className="space-y-2 p-7 pb-4">
-                <CardTitle className="text-2xl font-black">Iniciar sesión</CardTitle>
+                <CardTitle className="text-2xl font-black">
+                  Iniciar sesión
+                </CardTitle>
                 <CardDescription>
                   Ingresa con tu correo y contraseña, o crea una cuenta nueva.
                 </CardDescription>
@@ -197,31 +216,39 @@ function LoginPage() {
                       className="h-12 rounded-2xl bg-muted/45"
                     />
                   </div>
-                  <Button type="submit" className="h-12 w-full rounded-2xl" disabled={isSubmitting}>
+                  <Button
+                    type="submit"
+                    className="h-12 w-full rounded-2xl"
+                    disabled={isSubmitting}
+                  >
                     {isSubmitting ? "Entrando..." : "Entrar"}
                   </Button>
                   {SHOW_DEMO_ACCESS && (
                     <div className="rounded-2xl border border-border/70 bg-muted/45 p-2.5">
                       <div className="grid gap-2">
-                        {demoOptions.map(({ role, label, description, icon: Icon }) => (
-                          <Button
-                            key={role}
-                            type="button"
-                            variant="outline"
-                            className="h-auto justify-start gap-2 rounded-xl border-border/70 bg-card px-3 py-2 text-left shadow-sm shadow-emerald-950/5"
-                            aria-label={`${label} en modo lectura`}
-                            disabled={isSubmitting}
-                            onClick={() => setDemoDialogRole(role)}
-                          >
-                            <Icon className="h-4 w-4 shrink-0" />
-                            <span className="min-w-0">
-                              <span className="block text-sm font-medium">{label}</span>
-                              <span className="block truncate text-xs text-muted-foreground">
-                                {description}
+                        {demoOptions.map(
+                          ({ role, label, description, icon: Icon }) => (
+                            <Button
+                              key={role}
+                              type="button"
+                              variant="outline"
+                              className="h-auto justify-start gap-2 rounded-xl border-border/70 bg-card px-3 py-2 text-left shadow-sm shadow-emerald-950/5"
+                              aria-label={`${label} en modo lectura`}
+                              disabled={isSubmitting}
+                              onClick={() => setDemoDialogRole(role)}
+                            >
+                              <Icon className="h-4 w-4 shrink-0" />
+                              <span className="min-w-0">
+                                <span className="block text-sm font-medium">
+                                  {label}
+                                </span>
+                                <span className="block truncate text-xs text-muted-foreground">
+                                  {description}
+                                </span>
                               </span>
-                            </span>
-                          </Button>
-                        ))}
+                            </Button>
+                          ),
+                        )}
                       </div>
                       <p className="mt-2 text-center text-xs text-muted-foreground">
                         Vista de demostración (solo lectura).
@@ -231,7 +258,10 @@ function LoginPage() {
                   {PUBLIC_REGISTRATION_ENABLED && (
                     <p className="text-center text-xs text-muted-foreground">
                       ¿No tienes cuenta?{" "}
-                      <Link to="/register" className="font-medium text-primary hover:underline">
+                      <Link
+                        to="/register"
+                        className="font-medium text-primary hover:underline"
+                      >
                         Regístrate
                       </Link>
                     </p>
@@ -252,7 +282,8 @@ function LoginPage() {
           <DialogHeader>
             <DialogTitle>Configura el Modo de Prueba</DialogTitle>
             <DialogDescription>
-              Elige el país para ver la app con su moneda, impuestos y datos de ejemplo.
+              Elige el país para ver la app con su moneda, impuestos y datos de
+              ejemplo.
             </DialogDescription>
           </DialogHeader>
 
@@ -265,14 +296,17 @@ function LoginPage() {
                 disabled={isSubmitting}
               />
               <p className="text-sm text-muted-foreground">
-                Moneda: {selectedDemoMarket.currencyName} ({selectedDemoMarket.currencyCode})
+                Moneda: {selectedDemoMarket.currencyName} (
+                {selectedDemoMarket.currencyCode})
               </p>
             </div>
 
             {selectedDemoOption && (
               <div className="rounded-md border bg-muted/40 p-3 text-sm">
                 <p className="font-medium">{selectedDemoOption.label}</p>
-                <p className="mt-1 text-muted-foreground">{selectedDemoOption.description}</p>
+                <p className="mt-1 text-muted-foreground">
+                  {selectedDemoOption.description}
+                </p>
               </div>
             )}
           </div>
@@ -290,7 +324,8 @@ function LoginPage() {
               type="button"
               disabled={isSubmitting || !demoDialogRole}
               onClick={() => {
-                if (demoDialogRole) void handleDemoAccess(demoDialogRole, demoCountryCode);
+                if (demoDialogRole)
+                  void handleDemoAccess(demoDialogRole, demoCountryCode);
               }}
             >
               {isSubmitting

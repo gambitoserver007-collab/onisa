@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard,
@@ -39,7 +45,12 @@ import { LocationSwitcher } from "./LocationSwitcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetTrigger,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,7 +61,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
-type Item = { to: string; label: string; icon: React.ComponentType<{ className?: string }> };
+type Item = {
+  to: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+};
 
 const sections: { title: string; items: Item[] }[] = [
   {
@@ -132,7 +147,9 @@ function NavList({
   const visibleSections = sections
     .map((s) => ({
       ...s,
-      items: s.items.filter((it) => canAccessPath(role, it.to, allowedSections)),
+      items: s.items.filter((it) =>
+        canAccessPath(role, it.to, allowedSections),
+      ),
     }))
     .filter((s) => s.items.length > 0);
   return (
@@ -185,7 +202,11 @@ function Brand({
     <div className="flex items-center gap-3">
       <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl bg-brand-gradient text-primary-foreground shadow-glow">
         {logoUrl ? (
-          <img src={logoUrl} alt={businessName} className="h-full w-full object-cover" />
+          <img
+            src={logoUrl}
+            alt={businessName}
+            className="h-full w-full object-cover"
+          />
         ) : (
           <Store className="h-5 w-5" />
         )}
@@ -194,13 +215,21 @@ function Brand({
         <p className="truncate text-base font-extrabold leading-tight text-sidebar-foreground">
           {businessName}
         </p>
-        <p className="truncate text-xs text-sidebar-foreground/55">{subtitle}</p>
+        <p className="truncate text-xs text-sidebar-foreground/55">
+          {subtitle}
+        </p>
       </div>
     </div>
   );
 }
 
-function UpgradeCard({ onClick, className }: { onClick?: () => void; className?: string }) {
+function UpgradeCard({
+  onClick,
+  className,
+}: {
+  onClick?: () => void;
+  className?: string;
+}) {
   return (
     <Link
       to="/suscripcion"
@@ -229,7 +258,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { allowedSections, ready: accessReady } = useAccessControl();
   const role = session?.role;
   const hasAppAccess =
-    role === "user" || role === "admin" || role === "finanzas" || role === "operador";
+    role === "user" ||
+    role === "admin" ||
+    role === "finanzas" ||
+    role === "operador";
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
   const desktopSidebarRef = useRef<HTMLDivElement | null>(null);
@@ -268,7 +300,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const canSell = canAccessPath(role, "/pos", allowedSections);
   const canManagePlan = role === "admin";
   const showSaaS = canAccessSaaS(session);
-  const visibleBottomNav = bottomNav.filter((it) => canAccessPath(role, it.to, allowedSections));
+  const visibleBottomNav = bottomNav.filter((it) =>
+    canAccessPath(role, it.to, allowedSections),
+  );
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -289,7 +323,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             desktopSidebarScrollTop = event.currentTarget.scrollTop;
           }}
         >
-          <NavList pathname={pathname} role={role} allowedSections={allowedSections} />
+          <NavList
+            pathname={pathname}
+            role={role}
+            allowedSections={allowedSections}
+          />
           {canManagePlan && <UpgradeCard className="mt-auto" />}
         </div>
       </aside>
@@ -371,14 +409,18 @@ export function AppShell({ children }: { children: ReactNode }) {
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel>
                   <div className="text-sm font-semibold">{session.name}</div>
-                  <div className="text-xs font-normal text-muted-foreground">{session.email}</div>
+                  <div className="text-xs font-normal text-muted-foreground">
+                    {session.email}
+                  </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => navigate({ to: "/perfil" })}>
                   <User className="mr-2 h-4 w-4" /> Mi Perfil
                 </DropdownMenuItem>
                 {canAccessPath(role, "/configuracion", allowedSections) && (
-                  <DropdownMenuItem onClick={() => navigate({ to: "/configuracion" })}>
+                  <DropdownMenuItem
+                    onClick={() => navigate({ to: "/configuracion" })}
+                  >
                     <Settings className="mr-2 h-4 w-4" /> Configuración
                   </DropdownMenuItem>
                 )}
@@ -403,8 +445,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="border-b border-warm/30 bg-warm/10 px-4 py-2.5">
             <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-foreground">
-                Completa los datos de tu negocio (nombre, {session.fiscalIdLabel ?? "ID fiscal"},
-                dirección) para que tus comprobantes salgan correctos.
+                Completa los datos de tu negocio (nombre,{" "}
+                {session.fiscalIdLabel ?? "ID fiscal"}, dirección) para que tus
+                comprobantes salgan correctos.
               </p>
               <Button
                 size="sm"
@@ -421,7 +464,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <main
           className={cn(
             "flex-1 overflow-y-auto bg-background p-4 md:p-6 lg:pb-6",
-            showBottomNav ? "pb-[calc(5.5rem+env(safe-area-inset-bottom))]" : "pb-4",
+            showBottomNav
+              ? "pb-[calc(5.5rem+env(safe-area-inset-bottom))]"
+              : "pb-4",
           )}
         >
           {/* El contenido aparece al instante al navegar. Antes iba envuelto en un
@@ -438,7 +483,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-card/90 pb-safe backdrop-blur-xl lg:hidden">
           <div className="mx-auto grid max-w-md grid-cols-5 items-end px-2 pt-1.5">
             {visibleBottomNav.slice(0, 2).map((it) => (
-              <BottomTab key={it.to} item={it} active={isActive(pathname, it.to)} />
+              <BottomTab
+                key={it.to}
+                item={it}
+                active={isActive(pathname, it.to)}
+              />
             ))}
 
             {/* Center elevated "Vender" FAB (hidden for roles that can't sell) */}
@@ -457,7 +506,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
 
             {visibleBottomNav.slice(2).map((it) => (
-              <BottomTab key={it.to} item={it} active={isActive(pathname, it.to)} />
+              <BottomTab
+                key={it.to}
+                item={it}
+                active={isActive(pathname, it.to)}
+              />
             ))}
 
             {/* "Más" opens the full navigation sheet */}
@@ -494,7 +547,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                   allowedSections={allowedSections}
                   onClick={() => setOpen(false)}
                 />
-                {canManagePlan && <UpgradeCard onClick={() => setOpen(false)} />}
+                {canManagePlan && (
+                  <UpgradeCard onClick={() => setOpen(false)} />
+                )}
               </SheetContent>
             </Sheet>
           </div>
@@ -513,7 +568,9 @@ function BottomTab({ item, active }: { item: Item; active: boolean }) {
         active ? "text-primary" : "text-muted-foreground",
       )}
     >
-      {active && <span className="absolute -top-1.5 h-1 w-7 rounded-full bg-brand-gradient" />}
+      {active && (
+        <span className="absolute -top-1.5 h-1 w-7 rounded-full bg-brand-gradient" />
+      )}
       <item.icon className="h-[22px] w-[22px]" />
       <span className="truncate">{item.label}</span>
     </Link>

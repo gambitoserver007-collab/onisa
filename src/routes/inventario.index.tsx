@@ -89,7 +89,13 @@ function Kpi({
 
 function Inventario() {
   const { formatMoney } = useBusinessSettings();
-  const { products: baseProducts, error, source, isLoading, reload } = useCompanyCatalog();
+  const {
+    products: baseProducts,
+    error,
+    source,
+    isLoading,
+    reload,
+  } = useCompanyCatalog();
   const { isDemo, session } = useDemoSession();
   const { locations, currentLocationId } = useCurrentLocation();
   const multiLocal = locations.length > 1;
@@ -144,7 +150,9 @@ function Inventario() {
   // Obedece el selector: una sucursal concreta → solo la suya; "Todas" → todas.
   const lowByLocView = useMemo(
     () =>
-      location === ALL_LOCATIONS ? lowByLoc : lowByLoc.filter((row) => row.locationId === location),
+      location === ALL_LOCATIONS
+        ? lowByLoc
+        : lowByLoc.filter((row) => row.locationId === location),
     [lowByLoc, location],
   );
   const reloadLowByLoc = useCallback(async () => {
@@ -232,14 +240,23 @@ function Inventario() {
       </FallbackNotice>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi icon={Package} label="Productos" value={products.length} />
-        <Kpi icon={DollarSign} label="Valor inventario" value={formatMoney(valor)} />
+        <Kpi
+          icon={DollarSign}
+          label="Valor inventario"
+          value={formatMoney(valor)}
+        />
         <Kpi
           icon={AlertTriangle}
           label="Stock bajo"
           value={bajo.length}
           tone="bg-primary/10 text-primary"
         />
-        <Kpi icon={XCircle} label="Sin stock" value={sin.length} tone="bg-red-100 text-red-700" />
+        <Kpi
+          icon={XCircle}
+          label="Sin stock"
+          value={sin.length}
+          tone="bg-red-100 text-red-700"
+        />
       </div>
 
       {multiLocal && (
@@ -276,10 +293,16 @@ function Inventario() {
                   ) : (
                     lowByLocView.map((row) => (
                       <TableRow key={`${row.productId}-${row.locationId}`}>
-                        <TableCell className="font-medium">{row.productName}</TableCell>
-                        <TableCell className="text-muted-foreground">{row.locationName}</TableCell>
+                        <TableCell className="font-medium">
+                          {row.productName}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {row.locationName}
+                        </TableCell>
                         <TableCell className="text-right">
-                          <Badge variant={row.stock === 0 ? "destructive" : "warm"}>
+                          <Badge
+                            variant={row.stock === 0 ? "destructive" : "warm"}
+                          >
                             {row.stock}
                           </Badge>
                         </TableCell>
@@ -311,7 +334,10 @@ function Inventario() {
                 <TableBody>
                   {isLoading && (
                     <TableRow>
-                      <TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
+                      <TableCell
+                        colSpan={3}
+                        className="py-8 text-center text-muted-foreground"
+                      >
                         Cargando inventario...
                       </TableCell>
                     </TableRow>
@@ -381,7 +407,10 @@ function Inventario() {
                 <TableBody>
                   {isLoading && (
                     <TableRow>
-                      <TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
+                      <TableCell
+                        colSpan={3}
+                        className="py-8 text-center text-muted-foreground"
+                      >
                         Cargando inventario...
                       </TableCell>
                     </TableRow>
@@ -460,8 +489,8 @@ function Inventario() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Los productos con variantes (talla/color) se gestionan desde su edición, no por
-                transferencia.
+                Los productos con variantes (talla/color) se gestionan desde su
+                edición, no por transferencia.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -513,7 +542,9 @@ function Inventario() {
           <DialogFooter>
             <Button
               variant="brand"
-              disabled={tSaving || !tProduct || !tFrom || !tTo || !(Number(tQty) > 0)}
+              disabled={
+                tSaving || !tProduct || !tFrom || !tTo || !(Number(tQty) > 0)
+              }
               onClick={handleTransfer}
             >
               {tSaving ? "Transfiriendo..." : "Transferir"}

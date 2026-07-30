@@ -25,7 +25,9 @@ export function usePaymentMethods(countryCode: string) {
     return {
       adminCatalog: getPaymentMethodAdminCatalog(countryCode),
       catalog: getCountryPaymentMethodCatalog(countryCode),
-      fullCatalog: getCountryPaymentMethodCatalog(countryCode, { includeDisabled: true }),
+      fullCatalog: getCountryPaymentMethodCatalog(countryCode, {
+        includeDisabled: true,
+      }),
       activeMethods: getActivePaymentMethods(countryCode),
       addCustom: (label: string, kind?: PaymentMethodKind) =>
         addCustomPaymentMethod(countryCode, label, kind),

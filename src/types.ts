@@ -104,7 +104,13 @@ export interface Sale {
   customer: string;
   /** Id del cliente (para cruzar con su documento/cédula al buscar). */
   customerId?: string | null;
-  items: { productId: string; name: string; qty: number; price: number; variantLabel?: string }[];
+  items: {
+    productId: string;
+    name: string;
+    qty: number;
+    price: number;
+    variantLabel?: string;
+  }[];
   subtotal: number;
   igv: number;
   total: number;

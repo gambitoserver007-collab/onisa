@@ -18,7 +18,11 @@ import {
 } from "@/components/ui/table";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useDemoSession } from "@/hooks/useDemoSession";
-import { fetchPurchases, type Purchase, getErrorMessage } from "@/services/appData";
+import {
+  fetchPurchases,
+  type Purchase,
+  getErrorMessage,
+} from "@/services/appData";
 
 export const Route = createFileRoute("/compras/")({ component: Compras });
 
@@ -75,7 +79,10 @@ function Compras() {
               <TableBody>
                 {isLoading && (
                   <TableRow>
-                    <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={5}
+                      className="py-8 text-center text-muted-foreground"
+                    >
                       Cargando compras...
                     </TableCell>
                   </TableRow>
@@ -94,7 +101,9 @@ function Compras() {
                 {!isLoading &&
                   purchases.map((purchase) => (
                     <TableRow key={purchase.id}>
-                      <TableCell className="font-mono">{purchase.number}</TableCell>
+                      <TableCell className="font-mono">
+                        {purchase.number}
+                      </TableCell>
                       <TableCell>{purchase.date}</TableCell>
                       <TableCell>{purchase.supplier}</TableCell>
                       <TableCell>

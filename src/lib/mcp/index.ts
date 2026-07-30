@@ -4,7 +4,8 @@ import listRecentSalesTool from "./tools/list-recent-sales";
 import lowStockTool from "./tools/low-stock";
 
 // The OAuth issuer must be the direct Supabase host (not the .lovable.cloud proxy).
-const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unset";
+const projectRef =
+  import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unset";
 
 export default defineMcp({
   name: "onisa-mcp",

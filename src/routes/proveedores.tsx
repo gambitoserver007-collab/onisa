@@ -1,6 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Pencil, Plus, ShoppingCart, Trash2, Truck } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Pencil,
+  Plus,
+  ShoppingCart,
+  Trash2,
+  Truck,
+} from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -40,12 +48,15 @@ import {
 } from "@/services/appData";
 import type { Supplier } from "@/types";
 
-export const Route = createFileRoute("/proveedores")({ component: Proveedores });
+export const Route = createFileRoute("/proveedores")({
+  component: Proveedores,
+});
 
 const clean = (value: string) => (value === "-" ? "" : value);
 
 function Proveedores() {
-  const { suppliers, error, source, isLoading, reload, session } = useCompanyCatalog();
+  const { suppliers, error, source, isLoading, reload, session } =
+    useCompanyCatalog();
   const { isDemo } = useDemoSession();
   const { formatMoney } = useBusinessSettings();
   const [query, setQuery] = useState("");
@@ -59,10 +70,15 @@ function Proveedores() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [purchasesLoading, setPurchasesLoading] = useState(false);
-  const [purchaseSupplierId, setPurchaseSupplierId] = useState<string | null>(null);
+  const [purchaseSupplierId, setPurchaseSupplierId] = useState<string | null>(
+    null,
+  );
 
   const list = useMemo(
-    () => suppliers.filter((supplier) => supplier.name.toLowerCase().includes(query.toLowerCase())),
+    () =>
+      suppliers.filter((supplier) =>
+        supplier.name.toLowerCase().includes(query.toLowerCase()),
+      ),
     [query, suppliers],
   );
 
@@ -171,12 +187,17 @@ function Proveedores() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editing ? "Editar proveedor" : "Nuevo proveedor"}</DialogTitle>
+            <DialogTitle>
+              {editing ? "Editar proveedor" : "Nuevo proveedor"}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
               <Label>Razón social</Label>
-              <Input value={name} onChange={(event) => setName(event.target.value)} />
+              <Input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
             </div>
             <div className="space-y-1">
               <Label>Documento fiscal</Label>
@@ -187,11 +208,18 @@ function Proveedores() {
             </div>
             <div className="space-y-1">
               <Label>Teléfono</Label>
-              <Input value={phone} onChange={(event) => setPhone(event.target.value)} />
+              <Input
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+              />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="brand" disabled={isSaving || !name.trim()} onClick={handleSave}>
+            <Button
+              variant="brand"
+              disabled={isSaving || !name.trim()}
+              onClick={handleSave}
+            >
               {isSaving ? "Guardando..." : "Guardar"}
             </Button>
           </DialogFooter>
@@ -222,7 +250,10 @@ function Proveedores() {
               <TableBody>
                 {isLoading && (
                   <TableRow>
-                    <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={5}
+                      className="py-8 text-center text-muted-foreground"
+                    >
                       Cargando proveedores...
                     </TableCell>
                   </TableRow>
@@ -241,12 +272,15 @@ function Proveedores() {
                 {!isLoading &&
                   list.map((supplier) => {
                     const expanded = expandedId === supplier.id;
-                    const supplierPurchases = purchasesBySupplier.get(supplier.id) ?? [];
+                    const supplierPurchases =
+                      purchasesBySupplier.get(supplier.id) ?? [];
                     return (
                       <Fragment key={supplier.id}>
                         <TableRow
                           className="cursor-pointer"
-                          onClick={() => setExpandedId(expanded ? null : supplier.id)}
+                          onClick={() =>
+                            setExpandedId(expanded ? null : supplier.id)
+                          }
                         >
                           <TableCell>
                             {expanded ? (
@@ -255,7 +289,9 @@ function Proveedores() {
                               <ChevronRight className="h-4 w-4 text-muted-foreground" />
                             )}
                           </TableCell>
-                          <TableCell className="font-medium">{supplier.name}</TableCell>
+                          <TableCell className="font-medium">
+                            {supplier.name}
+                          </TableCell>
                           <TableCell>{supplier.ruc}</TableCell>
                           <TableCell>{supplier.phone}</TableCell>
                           <TableCell className="text-right">
@@ -288,21 +324,28 @@ function Proveedores() {
                           <TableRow className="bg-muted/30">
                             <TableCell colSpan={5} className="p-4">
                               <div className="mb-3 flex items-center justify-between">
-                                <p className="text-sm font-semibold">Lo que le has comprado</p>
+                                <p className="text-sm font-semibold">
+                                  Lo que le has comprado
+                                </p>
                                 <Button
                                   size="sm"
                                   variant="brand"
-                                  onClick={() => setPurchaseSupplierId(supplier.id)}
+                                  onClick={() =>
+                                    setPurchaseSupplierId(supplier.id)
+                                  }
                                 >
-                                  <ShoppingCart className="mr-1 h-4 w-4" /> Nueva compra
+                                  <ShoppingCart className="mr-1 h-4 w-4" />{" "}
+                                  Nueva compra
                                 </Button>
                               </div>
                               {purchasesLoading ? (
-                                <p className="text-sm text-muted-foreground">Cargando compras...</p>
+                                <p className="text-sm text-muted-foreground">
+                                  Cargando compras...
+                                </p>
                               ) : supplierPurchases.length === 0 ? (
                                 <p className="text-sm text-muted-foreground">
-                                  Aún no le has comprado nada. Usa “Nueva compra” para registrar la
-                                  primera.
+                                  Aún no le has comprado nada. Usa “Nueva
+                                  compra” para registrar la primera.
                                 </p>
                               ) : (
                                 <div className="overflow-x-auto rounded-md border bg-background">
@@ -312,7 +355,9 @@ function Proveedores() {
                                         <TableHead>N°</TableHead>
                                         <TableHead>Fecha</TableHead>
                                         <TableHead>N° factura</TableHead>
-                                        <TableHead className="text-right">Total</TableHead>
+                                        <TableHead className="text-right">
+                                          Total
+                                        </TableHead>
                                       </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -322,7 +367,9 @@ function Proveedores() {
                                             {purchase.number}
                                           </TableCell>
                                           <TableCell>{purchase.date}</TableCell>
-                                          <TableCell>{purchase.document || "—"}</TableCell>
+                                          <TableCell>
+                                            {purchase.document || "—"}
+                                          </TableCell>
                                           <TableCell className="text-right font-medium">
                                             {formatMoney(purchase.total)}
                                           </TableCell>

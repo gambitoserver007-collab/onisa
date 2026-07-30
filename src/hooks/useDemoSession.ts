@@ -1,5 +1,9 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { getSession, initializeSession, subscribeSession } from "@/lib/demoAuth";
+import {
+  getSession,
+  initializeSession,
+  subscribeSession,
+} from "@/lib/demoAuth";
 import { isDemoSession } from "@/lib/demoMode";
 
 let sessionHasInitialized = false;
@@ -9,7 +13,11 @@ function getServerSessionSnapshot() {
 }
 
 export function useDemoSession() {
-  const session = useSyncExternalStore(subscribeSession, getSession, getServerSessionSnapshot);
+  const session = useSyncExternalStore(
+    subscribeSession,
+    getSession,
+    getServerSessionSnapshot,
+  );
   const [isReady, setIsReady] = useState(sessionHasInitialized);
 
   useEffect(() => {

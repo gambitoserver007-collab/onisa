@@ -1,6 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 
-const requiredEnv = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OWNER_EMAIL", "OWNER_PASSWORD"];
+const requiredEnv = [
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "OWNER_EMAIL",
+  "OWNER_PASSWORD",
+];
 const missing = requiredEnv.filter((key) => !process.env[key]?.trim());
 
 if (missing.length > 0) {
@@ -12,7 +17,8 @@ const supabaseUrl = process.env.SUPABASE_URL.trim();
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY.trim();
 const ownerEmail = process.env.OWNER_EMAIL.trim().toLowerCase();
 const ownerPassword = process.env.OWNER_PASSWORD;
-const ownerFullName = process.env.OWNER_FULL_NAME?.trim() || "Owner Tienda Agil";
+const ownerFullName =
+  process.env.OWNER_FULL_NAME?.trim() || "Owner Tienda Agil";
 const resetOwnerPassword = process.env.RESET_OWNER_PASSWORD === "true";
 
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
@@ -33,7 +39,9 @@ async function findUserByEmail(email) {
       throw error;
     }
 
-    const found = data.users.find((user) => user.email?.toLowerCase() === email);
+    const found = data.users.find(
+      (user) => user.email?.toLowerCase() === email,
+    );
 
     if (found || data.users.length < 1000) {
       return found ?? null;
@@ -74,7 +82,10 @@ async function upsertOwnerUser() {
     updatePayload.password = ownerPassword;
   }
 
-  const { data, error } = await supabase.auth.admin.updateUserById(existingUser.id, updatePayload);
+  const { data, error } = await supabase.auth.admin.updateUserById(
+    existingUser.id,
+    updatePayload,
+  );
 
   if (error) {
     throw error;
@@ -101,7 +112,9 @@ try {
   }
 
   console.log("Owner profile bootstrapped as private admin.");
-  console.log("Done. Keep this account private and change it after first login.");
+  console.log(
+    "Done. Keep this account private and change it after first login.",
+  );
 } catch (error) {
   console.error("Owner setup failed:");
   console.error(error.message ?? error);

@@ -70,7 +70,9 @@ function Etiquetas() {
     try {
       setUnits(await fetchUnits(session?.companyId));
     } catch (error) {
-      toast.error(getErrorMessage(error, "No se pudieron cargar las unidades."));
+      toast.error(
+        getErrorMessage(error, "No se pudieron cargar las unidades."),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -82,7 +84,10 @@ function Etiquetas() {
   }, [isReady, reload]);
 
   const list = useMemo(
-    () => units.filter((unit) => unit.name.toLowerCase().includes(query.toLowerCase())),
+    () =>
+      units.filter((unit) =>
+        unit.name.toLowerCase().includes(query.toLowerCase()),
+      ),
     [units, query],
   );
 
@@ -189,7 +194,10 @@ function Etiquetas() {
               <TableBody>
                 {isLoading && (
                   <TableRow>
-                    <TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={3}
+                      className="py-8 text-center text-muted-foreground"
+                    >
                       Cargando unidades...
                     </TableCell>
                   </TableRow>
@@ -258,7 +266,11 @@ function Etiquetas() {
             />
           </div>
           <DialogFooter>
-            <Button variant="brand" disabled={isSaving || !name.trim()} onClick={handleCreate}>
+            <Button
+              variant="brand"
+              disabled={isSaving || !name.trim()}
+              onClick={handleCreate}
+            >
               {isSaving ? "Guardando..." : "Guardar"}
             </Button>
           </DialogFooter>
@@ -266,14 +278,20 @@ function Etiquetas() {
       </Dialog>
 
       {/* Editar unidad */}
-      <Dialog open={!!editing} onOpenChange={(value) => !value && setEditing(null)}>
+      <Dialog
+        open={!!editing}
+        onOpenChange={(value) => !value && setEditing(null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Editar unidad</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
             <Label>Nombre</Label>
-            <Input value={editName} onChange={(event) => setEditName(event.target.value)} />
+            <Input
+              value={editName}
+              onChange={(event) => setEditName(event.target.value)}
+            />
             <p className="text-xs text-muted-foreground">
               Al renombrarla, se actualiza en los productos que la usan.
             </p>
@@ -291,13 +309,16 @@ function Etiquetas() {
       </Dialog>
 
       {/* Eliminar unidad */}
-      <AlertDialog open={!!deleting} onOpenChange={(value) => !value && setDeleting(null)}>
+      <AlertDialog
+        open={!!deleting}
+        onOpenChange={(value) => !value && setDeleting(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar unidad?</AlertDialogTitle>
             <AlertDialogDescription>
-              Se quitará <strong>{deleting?.name}</strong> de la lista. Los productos que ya la usan
-              conservan su valor.
+              Se quitará <strong>{deleting?.name}</strong> de la lista. Los
+              productos que ya la usan conservan su valor.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

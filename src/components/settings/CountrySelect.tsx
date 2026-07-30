@@ -15,7 +15,11 @@ interface CountrySelectProps {
   disabled?: boolean;
 }
 
-export function CountrySelect({ value, onValueChange, disabled }: CountrySelectProps) {
+export function CountrySelect({
+  value,
+  onValueChange,
+  disabled,
+}: CountrySelectProps) {
   return (
     <Select value={value} onValueChange={onValueChange} disabled={disabled}>
       <SelectTrigger>
@@ -25,14 +29,18 @@ export function CountrySelect({ value, onValueChange, disabled }: CountrySelectP
         {MARKET_REGIONS.map((region) => (
           <SelectGroup key={region}>
             <SelectLabel>{region}</SelectLabel>
-            {SUPPORTED_MARKETS.filter((market) => market.region === region).map((market) => (
-              <SelectItem key={market.countryCode} value={market.countryCode}>
-                <span className="flex w-full items-center justify-between gap-4">
-                  <span>{market.countryName}</span>
-                  <span className="text-xs text-muted-foreground">{market.currencyCode}</span>
-                </span>
-              </SelectItem>
-            ))}
+            {SUPPORTED_MARKETS.filter((market) => market.region === region).map(
+              (market) => (
+                <SelectItem key={market.countryCode} value={market.countryCode}>
+                  <span className="flex w-full items-center justify-between gap-4">
+                    <span>{market.countryName}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {market.currencyCode}
+                    </span>
+                  </span>
+                </SelectItem>
+              ),
+            )}
           </SelectGroup>
         ))}
       </SelectContent>

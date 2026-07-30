@@ -7,7 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDemoSession } from "@/hooks/useDemoSession";
 import { initializeSession } from "@/lib/demoAuth";
-import { updateAccountEmail, updateAccountPassword, updateProfileName } from "@/services/account";
+import {
+  updateAccountEmail,
+  updateAccountPassword,
+  updateProfileName,
+} from "@/services/account";
 import { getErrorMessage } from "@/services/appData";
 
 interface AccountProfileCardsProps {
@@ -15,7 +19,10 @@ interface AccountProfileCardsProps {
   showCompany?: boolean;
 }
 
-export function AccountProfileCards({ roleLabel, showCompany = false }: AccountProfileCardsProps) {
+export function AccountProfileCards({
+  roleLabel,
+  showCompany = false,
+}: AccountProfileCardsProps) {
   const { session } = useDemoSession();
   const [fullName, setFullName] = useState("");
   const [nextEmail, setNextEmail] = useState("");
@@ -68,7 +75,9 @@ export function AccountProfileCards({ roleLabel, showCompany = false }: AccountP
       setNextPassword("");
       toast.success("Contraseña actualizada.");
     } catch (error) {
-      toast.error(getErrorMessage(error, "No se pudo actualizar la contraseña."));
+      toast.error(
+        getErrorMessage(error, "No se pudo actualizar la contraseña."),
+      );
     } finally {
       setIsUpdatingPassword(false);
     }
@@ -83,7 +92,10 @@ export function AccountProfileCards({ roleLabel, showCompany = false }: AccountP
         <CardContent className="space-y-3">
           <div className="space-y-1">
             <Label>Nombre</Label>
-            <Input value={fullName} onChange={(event) => setFullName(event.target.value)} />
+            <Input
+              value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
+            />
           </div>
           {showCompany && (
             <div className="space-y-1">
@@ -99,7 +111,8 @@ export function AccountProfileCards({ roleLabel, showCompany = false }: AccountP
             disabled={isSavingProfile}
             onAllowedClick={() => void handleSaveProfile()}
           >
-            <Save className="mr-1 h-3 w-3" /> {isSavingProfile ? "Guardando..." : "Guardar"}
+            <Save className="mr-1 h-3 w-3" />{" "}
+            {isSavingProfile ? "Guardando..." : "Guardar"}
           </DemoGuardedButton>
         </CardContent>
       </Card>

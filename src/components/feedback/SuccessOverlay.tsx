@@ -12,7 +12,12 @@ interface SuccessOverlayProps {
  * (e.g. a sale is registered). Animated check + pulsing rings, auto-dismiss
  * is managed by the caller.
  */
-export function SuccessOverlay({ open, title, subtitle, onClose }: SuccessOverlayProps) {
+export function SuccessOverlay({
+  open,
+  title,
+  subtitle,
+  onClose,
+}: SuccessOverlayProps) {
   if (!open) return null;
 
   return (
@@ -34,7 +39,9 @@ export function SuccessOverlay({ open, title, subtitle, onClose }: SuccessOverla
           </span>
         </div>
         <h2 className="mt-5 text-xl font-black">{title}</h2>
-        {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
+        {subtitle && (
+          <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+        )}
       </div>
     </div>
   );

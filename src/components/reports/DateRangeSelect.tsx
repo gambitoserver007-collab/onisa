@@ -50,7 +50,10 @@ function rangeForPreset(id: string): DateRange {
     case "30d":
       return { from: back(29), to: dateKey(now) };
     case "mes":
-      return { from: dateKey(new Date(now.getFullYear(), now.getMonth(), 1)), to: dateKey(now) };
+      return {
+        from: dateKey(new Date(now.getFullYear(), now.getMonth(), 1)),
+        to: dateKey(now),
+      };
     case "mesPasado":
       return {
         from: dateKey(new Date(now.getFullYear(), now.getMonth() - 1, 1)),

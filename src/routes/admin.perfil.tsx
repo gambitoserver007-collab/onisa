@@ -19,7 +19,9 @@ import {
   getErrorMessage,
 } from "@/services/appData";
 
-export const Route = createFileRoute("/admin/perfil")({ component: AdminPerfil });
+export const Route = createFileRoute("/admin/perfil")({
+  component: AdminPerfil,
+});
 
 function AdminPerfil() {
   const { isDemo, isReady } = useDemoSession();
@@ -45,9 +47,16 @@ function AdminPerfil() {
     try {
       await updatePlatformLogo(dataUrl);
       setLogo(dataUrl);
-      toast.success(dataUrl ? "Logo de la plataforma actualizado." : "Logo quitado.");
+      toast.success(
+        dataUrl ? "Logo de la plataforma actualizado." : "Logo quitado.",
+      );
     } catch (error) {
-      toast.error(getErrorMessage(error, "No se pudo actualizar el logo de la plataforma."));
+      toast.error(
+        getErrorMessage(
+          error,
+          "No se pudo actualizar el logo de la plataforma.",
+        ),
+      );
     }
   };
 
@@ -61,7 +70,12 @@ function AdminPerfil() {
       await updatePlatformBrandName(name);
       toast.success("Nombre de la plataforma actualizado.");
     } catch (error) {
-      toast.error(getErrorMessage(error, "No se pudo actualizar el nombre de la plataforma."));
+      toast.error(
+        getErrorMessage(
+          error,
+          "No se pudo actualizar el nombre de la plataforma.",
+        ),
+      );
     } finally {
       setSavingName(false);
     }

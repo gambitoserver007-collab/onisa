@@ -6,11 +6,15 @@ import { useDemoSession } from "./useDemoSession";
 
 export function useSales(locationId?: string) {
   const { isReady, session } = useDemoSession();
-  const sessionKey = session ? `${session.userId ?? session.email}:${session.companyId ?? ""}` : "";
+  const sessionKey = session
+    ? `${session.userId ?? session.email}:${session.companyId ?? ""}`
+    : "";
   const [sales, setSales] = useState<Sale[]>(demoSales);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [source, setSource] = useState<"supabase" | "demo-fallback">("demo-fallback");
+  const [source, setSource] = useState<"supabase" | "demo-fallback">(
+    "demo-fallback",
+  );
 
   const reload = useCallback(async () => {
     if (!sessionKey) {
@@ -40,7 +44,8 @@ export function useSales(locationId?: string) {
   }, [isReady, reload]);
 
   const findSale = useCallback(
-    (id: string) => sales.find((sale) => sale.id === id || sale.databaseId === id) ?? null,
+    (id: string) =>
+      sales.find((sale) => sale.id === id || sale.databaseId === id) ?? null,
     [sales],
   );
 

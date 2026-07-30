@@ -2,7 +2,10 @@ import { normalizeEmail } from "@/data/demoCredentials";
 import { supabase } from "@/integrations/supabase/client";
 import type { DemoSession } from "@/types";
 
-export async function updateProfileName(session: DemoSession, fullName: string) {
+export async function updateProfileName(
+  session: DemoSession,
+  fullName: string,
+) {
   const cleanName = fullName.trim();
   if (!session.userId) throw new Error("La sesión no tiene usuario asociado.");
   if (!cleanName) throw new Error("Ingresa un nombre válido.");
@@ -27,7 +30,8 @@ export async function updateAccountEmail(email: string) {
 
 export async function updateAccountPassword(password: string) {
   const cleanPassword = password.trim();
-  if (cleanPassword.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres.");
+  if (cleanPassword.length < 6)
+    throw new Error("La contraseña debe tener al menos 6 caracteres.");
 
   const { error } = await supabase.auth.updateUser({ password: cleanPassword });
   if (error) throw error;

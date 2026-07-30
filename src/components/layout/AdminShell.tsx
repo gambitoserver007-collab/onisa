@@ -36,11 +36,32 @@ type Item = {
 };
 
 const items: Item[] = [
-  { to: "/admin", label: "Dashboard", short: "Inicio", icon: LayoutDashboard, exact: true },
-  { to: "/admin/empresas", label: "Empresas", short: "Empresas", icon: Building2 },
-  { to: "/admin/paises", label: "Países / Impuestos", short: "Países", icon: Globe },
+  {
+    to: "/admin",
+    label: "Dashboard",
+    short: "Inicio",
+    icon: LayoutDashboard,
+    exact: true,
+  },
+  {
+    to: "/admin/empresas",
+    label: "Empresas",
+    short: "Empresas",
+    icon: Building2,
+  },
+  {
+    to: "/admin/paises",
+    label: "Países / Impuestos",
+    short: "Países",
+    icon: Globe,
+  },
   { to: "/admin/planes", label: "Planes", short: "Planes", icon: Layers },
-  { to: "/admin/metodos-pago", label: "Métodos de pago", short: "Pagos", icon: CreditCard },
+  {
+    to: "/admin/metodos-pago",
+    label: "Métodos de pago",
+    short: "Pagos",
+    icon: CreditCard,
+  },
   { to: "/admin/perfil", label: "Mi Perfil", short: "Perfil", icon: User },
 ];
 
@@ -104,14 +125,22 @@ export function AdminShell({ children }: { children: ReactNode }) {
         <div className="flex items-center gap-3 border-b border-sidebar-border px-4 py-4">
           <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-2xl bg-brand-gradient text-primary-foreground shadow-glow">
             {platformLogo ? (
-              <img src={platformLogo} alt={platformName} className="h-full w-full object-cover" />
+              <img
+                src={platformLogo}
+                alt={platformName}
+                className="h-full w-full object-cover"
+              />
             ) : (
               <Store className="h-5 w-5" />
             )}
           </span>
           <div className="min-w-0">
-            <p className="truncate text-sm font-bold text-sidebar-foreground">{platformName}</p>
-            <p className="truncate text-xs text-muted-foreground">Plataforma SaaS</p>
+            <p className="truncate text-sm font-bold text-sidebar-foreground">
+              {platformName}
+            </p>
+            <p className="truncate text-xs text-muted-foreground">
+              Plataforma SaaS
+            </p>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto nice-scroll">
@@ -145,10 +174,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel>
                   <div className="text-sm font-semibold">{session.name}</div>
-                  <div className="text-xs font-normal text-muted-foreground">{session.email}</div>
+                  <div className="text-xs font-normal text-muted-foreground">
+                    {session.email}
+                  </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => navigate({ to: "/admin/perfil" })}>
+                <DropdownMenuItem
+                  onClick={() => navigate({ to: "/admin/perfil" })}
+                >
                   <User className="mr-2 h-4 w-4" /> Mi Perfil
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
