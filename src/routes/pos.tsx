@@ -76,6 +76,15 @@ function POS() {
   const pendingSaleRef = useRef<{ key: string; signature: string } | null>(
     null,
   );
+  // Un lector de código de barras físico solo "escribe" en el elemento que
+  // tenga el foco. Cada click en el catálogo o en el carrito (agregar,
+  // +/-, quitar) se lo roba, así que el siguiente escaneo se pierde hasta
+  // que el cajero vuelve a hacer click manualmente en el buscador. Se
+  // reenfoca ahí después de cada una de esas acciones rápidas.
+  const scanInputRef = useRef<HTMLInputElement>(null);
+  const refocusScanner = () => {
+    requestAnimationFrame(() => scanInputRef.current?.focus());
+  };
   // Stock del punto de venta activo: Map product_id -> stock (null = sin cargar).
   const [locationStock, setLocationStock] = useState<Map<
     string,
@@ -300,6 +309,7 @@ function POS() {
       duration: 1500,
     });
     setPendingProduct(null);
+    refocusScanner();
   };
 
   const addProduct = (product: Product) => {
@@ -345,6 +355,7 @@ function POS() {
     });
 
     toast.success(`${product.name} agregado al carrito`, { duration: 1500 });
+    refocusScanner();
   };
 
   // Barcode scanner support: scanners type the code and press Enter. On Enter we
@@ -534,8 +545,14 @@ function POS() {
     onCustomerChange: setCustomer,
     onDocTypeChange: setDocType,
     onMethodChange: setMethod,
-    onIncrement: increment,
-    onDecrement: decrement,
+    onIncrement: (lineId: string) => {
+      increment(lineId);
+      refocusScanner();
+    },
+    onDecrement: (lineId: string) => {
+      decrement(lineId);
+      refocusScanner();
+    },
     onRemove: remove,
     onCheckout: checkout,
     onCreateCustomer: handleCreateCustomer,
@@ -598,6 +615,7 @@ function POS() {
           onCategoryChange={setCategory}
           onAddProduct={addProduct}
           onScan={handleScan}
+          inputRef={scanInputRef}
         />
         <SaleCart
           className="hidden lg:sticky lg:top-0 lg:flex lg:max-h-[calc(100dvh-6.5rem)] lg:flex-col lg:self-start"

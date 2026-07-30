@@ -2655,7 +2655,7 @@ export async function fetchPlanUsage(companyId?: string): Promise<PlanUsage> {
     ? productsQuery.eq("company_id", companyId)
     : productsQuery);
 
-  const month = new Date().toISOString().slice(0, 7);
+  const month = localDateKey(new Date()).slice(0, 7);
   const salesQuery = supabase
     .from("sales")
     .select("id", { count: "exact", head: true })

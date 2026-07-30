@@ -1,4 +1,5 @@
 import { Plus, Search } from "lucide-react";
+import type { RefObject } from "react";
 import type { Product } from "@/types";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +24,9 @@ interface ProductCatalogProps {
   onCategoryChange: (value: string) => void;
   onAddProduct: (product: Product) => void;
   onScan?: (code: string) => void;
+  /** Ref del buscador, para poder reenfocarlo tras un click (el lector de
+   * código de barras solo escribe en el elemento que tenga el foco). */
+  inputRef?: RefObject<HTMLInputElement | null>;
 }
 
 export function ProductCatalog({
@@ -35,6 +39,7 @@ export function ProductCatalog({
   onCategoryChange,
   onAddProduct,
   onScan,
+  inputRef,
 }: ProductCatalogProps) {
   const { formatMoney } = useBusinessSettings();
 
@@ -44,6 +49,7 @@ export function ProductCatalog({
         <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
+            ref={inputRef}
             className="h-12 rounded-2xl pl-10 text-sm"
             placeholder="Buscar o escanear código de barras..."
             value={query}

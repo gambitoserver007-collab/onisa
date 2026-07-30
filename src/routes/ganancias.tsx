@@ -36,6 +36,8 @@ import {
 
 export const Route = createFileRoute("/ganancias")({ component: Ganancias });
 
+const PAGE_SIZE = 25;
+
 function Kpi({
   icon: Icon,
   label,
@@ -71,11 +73,13 @@ function Ganancias() {
   const [isLoading, setIsLoading] = useState(true);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [page, setPage] = useState(1);
   const { currentLocationId } = useCurrentLocation();
 
   useEffect(() => {
     if (!isReady) return;
     setIsLoading(true);
+    setPage(1);
     void fetchProfitReport(
       session?.companyId,
       from || undefined,
@@ -94,6 +98,8 @@ function Ganancias() {
   }, [isReady, session?.companyId, from, to, currentLocationId]);
 
   const rows = report?.rows ?? [];
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const exportCsv = () => {
     if (rows.length === 0) {
@@ -216,7 +222,7 @@ function Ganancias() {
                     </TableRow>
                   )}
                   {!isLoading &&
-                    rows.map((row) => (
+                    pageRows.map((row) => (
                       <TableRow key={row.productName}>
                         <TableCell className="font-medium">
                           {row.productName}
@@ -236,6 +242,36 @@ function Ganancias() {
                 </TableBody>
               </Table>
             </div>
+            {!isLoading && rows.length > PAGE_SIZE && (
+              <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
+                <span>
+                  {(page - 1) * PAGE_SIZE + 1}-
+                  {Math.min(page * PAGE_SIZE, rows.length)} de {rows.length}{" "}
+                  productos
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    Anterior
+                  </Button>
+                  <span>
+                    Página {page} de {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    Siguiente
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
