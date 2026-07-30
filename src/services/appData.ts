@@ -407,6 +407,139 @@ export async function fetchCompanyCatalog(
   };
 }
 
+/** Cuenta productos y clientes activos sin traer las filas completas -- a
+ * diferencia de `fetchCompanyCatalog`, esto no se trunca en silencio por el
+ * límite por defecto de PostgREST (1000 filas) en catálogos grandes. */
+export async function fetchCompanyCounts(
+  companyId?: string,
+): Promise<{ productsCount: number; customersCount: number }> {
+  const productsQuery = supabase
+    .from("products")
+    .select("id", { count: "exact", head: true })
+    .is("deleted_at", null)
+    .eq("active", true);
+  const customersQuery = supabase
+    .from("customers")
+    .select("id", { count: "exact", head: true })
+    .is("deleted_at", null);
+
+  const [{ count: productsCount }, { count: customersCount }] =
+    await Promise.all([
+      companyId ? productsQuery.eq("company_id", companyId) : productsQuery,
+      companyId ? customersQuery.eq("company_id", companyId) : customersQuery,
+    ]);
+
+  return {
+    productsCount: productsCount ?? 0,
+    customersCount: customersCount ?? 0,
+  };
+}
+
+const LOW_STOCK_THRESHOLD = 10;
+
+export interface LowStockProduct {
+  id: string;
+  name: string;
+  stock: number;
+  unit: string;
+}
+
+export interface LowStockSummary {
+  count: number;
+  items: LowStockProduct[];
+}
+
+/** Resumen de bajo stock para el dashboard: total de productos con
+ * 0 < stock < 10 y los de menor stock (hasta `limit`), calculado por el
+ * servidor -- evita traer el catálogo completo solo para filtrarlo. */
+export async function fetchLowStockSummary(
+  companyId?: string,
+  locationId?: string,
+  limit = 4,
+): Promise<LowStockSummary> {
+  if (locationId) {
+    const countQuery = supabase
+      .from("product_locations")
+      .select("product_id", { count: "exact", head: true })
+      .eq("location_id", locationId)
+      .eq("is_active", true)
+      .gt("stock", 0)
+      .lt("stock", LOW_STOCK_THRESHOLD);
+    const rowsQuery = supabase
+      .from("product_locations")
+      .select("product_id, stock")
+      .eq("location_id", locationId)
+      .eq("is_active", true)
+      .gt("stock", 0)
+      .lt("stock", LOW_STOCK_THRESHOLD)
+      .order("stock", { ascending: true })
+      .limit(limit);
+
+    const [{ count }, { data: rows, error: rowsError }] = await Promise.all([
+      countQuery,
+      rowsQuery,
+    ]);
+    if (rowsError) throw rowsError;
+
+    const productIds = (rows ?? []).map((row) => row.product_id);
+    if (!productIds.length) return { count: count ?? 0, items: [] };
+
+    const { data: products, error: productsError } = await supabase
+      .from("products")
+      .select("id, name, unit")
+      .in("id", productIds);
+    if (productsError) throw productsError;
+
+    const productById = new Map((products ?? []).map((p) => [p.id, p]));
+    const items = (rows ?? []).flatMap((row) => {
+      const product = productById.get(row.product_id);
+      if (!product) return [];
+      return [
+        {
+          id: product.id,
+          name: product.name,
+          stock: toNumber(row.stock),
+          unit: product.unit,
+        },
+      ];
+    });
+    return { count: count ?? 0, items };
+  }
+
+  const countQuery = supabase
+    .from("products")
+    .select("id", { count: "exact", head: true })
+    .is("deleted_at", null)
+    .eq("active", true)
+    .gt("stock", 0)
+    .lt("stock", LOW_STOCK_THRESHOLD);
+  const rowsQuery = supabase
+    .from("products")
+    .select("id, name, stock, unit")
+    .is("deleted_at", null)
+    .eq("active", true)
+    .gt("stock", 0)
+    .lt("stock", LOW_STOCK_THRESHOLD)
+    .order("stock", { ascending: true })
+    .limit(limit);
+
+  const [{ count }, { data: rows, error: rowsError }] = await Promise.all([
+    companyId ? countQuery.eq("company_id", companyId) : countQuery,
+    companyId ? rowsQuery.eq("company_id", companyId) : rowsQuery,
+  ]);
+  if (rowsError) throw rowsError;
+
+  return {
+    count: count ?? 0,
+    items: (rows ?? []).map((row) => ({
+      id: row.id,
+      name: row.name,
+      stock: toNumber(row.stock),
+      unit: row.unit,
+    })),
+  };
+}
+
 export async function fetchSales(
   companyId?: string,
   locationId?: string,

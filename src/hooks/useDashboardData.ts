@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import {
   buildDemoDashboardData,
   emptyDashboardData,
-  fetchCompanyCatalog,
-  fetchLocationStock,
+  fetchCompanyCounts,
+  fetchLowStockSummary,
   fetchRecentSales,
   fetchSalesAggregates,
   getErrorMessage,
@@ -63,47 +63,21 @@ export function useDashboardData(locationId?: string, range?: DashboardRange) {
           ).toISOString()
         : undefined;
 
-      const [catalog, aggregates, recentSales] = await Promise.all([
-        fetchCompanyCatalog(session?.companyId),
+      const [counts, lowStock, aggregates, recentSales] = await Promise.all([
+        fetchCompanyCounts(session?.companyId),
+        fetchLowStockSummary(session?.companyId, locationId),
         fetchSalesAggregates(tz, locationId, fromTs, toTs),
         fetchRecentSales(session?.companyId, locationId, 4),
       ]);
-
-      let effectiveCatalog = catalog;
-      if (locationId) {
-        const stock = await fetchLocationStock(locationId);
-        effectiveCatalog = {
-          ...catalog,
-          products: catalog.products
-            .filter((product) => stock.has(product.id))
-            .map((product) => ({
-              ...product,
-              stock: stock.get(product.id) ?? 0,
-            })),
-        };
-      }
-
-      const lowStock = effectiveCatalog.products.filter(
-        (product) => product.stock > 0 && product.stock < 10,
-      );
 
       setData({
         totalToday: aggregates.totalToday,
         salesTodayCount: aggregates.salesTodayCount,
         totalMonth: aggregates.totalMonth,
-        productsCount: effectiveCatalog.products.length,
-        customersCount: effectiveCatalog.customers.length,
-        lowStockCount: lowStock.length,
-        lowStockProducts: lowStock
-          .slice()
-          .sort((a, b) => a.stock - b.stock)
-          .slice(0, 4)
-          .map((product) => ({
-            id: product.id,
-            name: product.name,
-            stock: product.stock,
-            unit: product.unit,
-          })),
+        productsCount: counts.productsCount,
+        customersCount: counts.customersCount,
+        lowStockCount: lowStock.count,
+        lowStockProducts: lowStock.items,
         recentSales,
         salesLast7Days: aggregates.salesLast7Days,
         salesByCategory: aggregates.salesByCategory,
