@@ -272,9 +272,14 @@ function isSafeUserMessage(message: string): boolean {
   if (!message) return false;
   if (message.length > 240) return false;
   // Hide anything that looks like a Postgres/PostgREST error.
-  if (/\b(relation|column|schema|constraint|function|operator|policy|rls)\b/i.test(message)) {
+  if (/\b(relation|column|schema|constraint|operator|policy|rls)\b/i.test(message)) {
     return false;
   }
+  // Raw Postgres "function name(args) ..." leaks (e.g. "function does not exist").
+  // Narrower than banning the word "function" outright, porque el propio código
+  // usa "Edge Function" en mensajes legítimos (ver createCompany) y ese texto no
+  // debe tratarse como si fuera un error crudo de Postgres.
+  if (/\bfunction\s+\S+\([^)]*\)/i.test(message)) return false;
   if (/(SQLSTATE|pg_|duplicate key value|violates)/i.test(message)) return false;
   return SAFE_USER_MESSAGE_RE.test(message);
 }
