@@ -53,7 +53,13 @@
       "Bash(node scratch_policy_diff.mjs supabase/install/01_install.sql /private/tmp/claude-501/-Users-omarreyesamezcua-Desktop-VentaPro/3db706f3-ccaf-40f9-8357-8d69ad7d0bae/scratchpad/01_install_consolidated.sql)",
       "Bash(node scratch_idempotency_check.mjs)",
       "Bash(grep -rniE \"service_role|sk-[a-z0-9]{10,}|SUPABASE_SERVICE\" src/ scripts/)",
-      "Bash(gh auth *)"
+      "Bash(gh auth *)",
+      "Bash(git remote *)",
+      "Bash(git push *)",
+      "Bash(git config *)",
+      "Read(//Users/omarreyesamezcua/**)",
+      "Bash(grep -v \"known_hosts\\\\|config$\")",
+      "Bash(git fetch *)"
     ]
   }
 }

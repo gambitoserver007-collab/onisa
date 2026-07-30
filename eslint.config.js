@@ -6,7 +6,21 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", ".output", ".vinxi", "supabase/functions"] },
+  {
+    // Los últimos 3 patrones son emitidos por el plugin @lovable.dev/mcp-js
+    // (banner "AUTO-GENERATED ... do not edit" en cada archivo) en cada build/dev
+    // con un formato que no coincide con Prettier -- lintearlos hace que el
+    // repo "falle" lint tras cada build aunque nadie haya tocado nada a mano.
+    ignores: [
+      "dist",
+      ".output",
+      ".vinxi",
+      "supabase/functions",
+      "src/routes/\\[.mcp\\]/**",
+      "src/routes/\\[.well-known\\]/**",
+      "src/routes/mcp.ts",
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

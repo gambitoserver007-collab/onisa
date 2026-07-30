@@ -6,8 +6,7 @@ import {
 import { getSession } from "@/lib/demoAuth";
 
 const PAYMENT_METHOD_SETTINGS_KEY = "onisa_payment_methods";
-const PAYMENT_METHOD_SETTINGS_CHANGED_EVENT =
-  "onisa:payment-methods-changed";
+const PAYMENT_METHOD_SETTINGS_CHANGED_EVENT = "onisa:payment-methods-changed";
 
 // Clave por EMPRESA (no global): así los métodos de cobro de una empresa no se filtran
 // a otra que use el mismo navegador/dispositivo. Sin sesión, usa la clave base.
