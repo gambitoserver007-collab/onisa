@@ -4843,3 +4843,9 @@ $$;
 
 revoke execute on function public.expire_overdue_trials() from public, anon;
 grant execute on function public.expire_overdue_trials() to authenticated;
+
+-- La tabla customers nunca tuvo columna "address": createCustomer/updateCustomer
+-- ya la escribían (con reintento silencioso sin ella si faltaba la columna),
+-- así que la dirección se guardaba en el alta pero se perdía en cuanto la
+-- pantalla de edición volvía a leerla. Se agrega la columna real.
+alter table public.customers add column if not exists address text;

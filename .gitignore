@@ -8,5 +8,6 @@ entrega-plr/
 .env
 .env.local
 .dev.vars
+supabase/.temp/
 *.log
 .DS_Store

@@ -91,13 +91,24 @@ export async function loadLocationsForCompany(
     !!id && list.some((loc) => loc.id === id);
   const isValid = (id: string | null | undefined): boolean =>
     (allowAll && id === ALL_LOCATIONS) || existsConcrete(id);
-  currentId = isValid(currentId)
-    ? currentId
-    : allowAll
-      ? ALL_LOCATIONS
-      : existsConcrete(preferredId)
-        ? preferredId
-        : (list[0]?.id ?? null);
+  // Con una sola sucursal en la lista no hay ambigüedad posible -- se usa esa
+  // siempre, incluso si la selección previa (guardada de cuando había más de
+  // una) era "Todas las tiendas". Es necesario forzarlo aquí: para admin/
+  // finanzas "Todas" siempre cuenta como selección válida (isValid), y el
+  // selector que permitiría corregirlo a mano se oculta precisamente cuando
+  // solo queda una sucursal (ver LocationSwitcher) -- sin este caso especial,
+  // desactivar una sucursal hasta dejar solo una deja al usuario sin forma de
+  // salir de "Todas las tiendas", que el POS/Caja no aceptan.
+  currentId =
+    list.length === 1
+      ? list[0].id
+      : isValid(currentId)
+        ? currentId
+        : allowAll
+          ? ALL_LOCATIONS
+          : existsConcrete(preferredId)
+            ? preferredId
+            : (list[0]?.id ?? null);
   commit();
   return list;
 }

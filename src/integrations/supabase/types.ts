@@ -356,6 +356,7 @@ export type Database = {
       };
       customers: {
         Row: {
+          address: string | null;
           company_id: string;
           created_at: string;
           deleted_at: string | null;
@@ -368,6 +369,7 @@ export type Database = {
           updated_at: string;
         };
         Insert: {
+          address?: string | null;
           company_id: string;
           created_at?: string;
           deleted_at?: string | null;
@@ -380,6 +382,7 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          address?: string | null;
           company_id?: string;
           created_at?: string;
           deleted_at?: string | null;
