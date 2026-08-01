@@ -62,6 +62,8 @@ let lastLoadArgs: {
 } | null = null;
 
 export async function refreshLocations() {
+  // eslint-disable-next-line no-console -- depuración temporal, se quita después
+  console.log("[DEBUG refreshLocations] lastLoadArgs:", lastLoadArgs);
   if (!lastLoadArgs) return;
   return loadLocationsForCompany(lastLoadArgs.companyId, lastLoadArgs.options);
 }
@@ -79,6 +81,8 @@ export async function loadLocationsForCompany(
   const allowAll = options?.allowAll ?? false;
   const allowedIds = options?.allowedIds ?? [];
   const all = await fetchLocations(companyId, true);
+  // eslint-disable-next-line no-console -- depuración temporal, se quita después
+  console.log("[DEBUG loadLocationsForCompany] companyId:", companyId, "prevCurrentId:", currentId, "allowAll:", allowAll, "activas desde DB:", all.map((l) => ({ id: l.id, name: l.name })));
   // Restringe a las sucursales asignadas (vacío = todas). Si el filtro dejara la
   // lista vacía (p. ej. asignado a una sucursal inactiva), se cae a todas para
   // no bloquear al usuario.
