@@ -1533,6 +1533,7 @@ export interface CashSession {
   difference: number | null;
   openedBy: string | null;
   closedBy: string | null;
+  tillId: string | null;
 }
 
 export interface CashMovement {
@@ -1544,7 +1545,7 @@ export interface CashMovement {
 }
 
 const CASH_SESSION_COLS =
-  "id, status, opening_amount, opened_at, closed_at, real_amount, expected_amount, difference, opened_by, closed_by";
+  "id, status, opening_amount, opened_at, closed_at, real_amount, expected_amount, difference, opened_by, closed_by, till_id";
 
 function mapCashSession(row: {
   id: string;
@@ -1557,6 +1558,7 @@ function mapCashSession(row: {
   difference: number | null;
   opened_by?: string | null;
   closed_by?: string | null;
+  till_id?: string | null;
 }): CashSession {
   return {
     id: row.id,
@@ -1569,6 +1571,7 @@ function mapCashSession(row: {
     difference: row.difference == null ? null : toNumber(row.difference),
     openedBy: row.opened_by ?? null,
     closedBy: row.closed_by ?? null,
+    tillId: row.till_id ?? null,
   };
 }
 
@@ -1591,9 +1594,13 @@ export async function fetchProfileNames(
   }
 }
 
+// `openedBy`: acota a la sesión abierta por ESE usuario. Necesario desde que
+// puede haber varias cajas abiertas a la vez en la misma sucursal -- sin
+// esto, un cajero vería (y podría cerrar) la caja de otro compañero.
 export async function fetchOpenCashSession(
   companyId?: string,
   locationId?: string,
+  openedBy?: string,
 ): Promise<CashSession | null> {
   let query = supabase
     .from("cash_sessions")
@@ -1604,6 +1611,7 @@ export async function fetchOpenCashSession(
     .limit(1);
   if (companyId) query = query.eq("company_id", companyId);
   if (locationId) query = query.eq("location_id", locationId);
+  if (openedBy) query = query.eq("opened_by", openedBy);
   const { data, error } = await query;
   if (error) throw error;
   const row = data?.[0];
@@ -1649,10 +1657,12 @@ export async function openCashSession(
   _session: DemoSession,
   openingAmount: number,
   locationId?: string,
+  tillId?: string,
 ) {
   const { data, error } = await supabase.rpc("open_cash_session", {
     p_opening_amount: Math.max(0, openingAmount),
     p_location_id: locationId ?? undefined,
+    p_till_id: tillId ?? undefined,
   });
   if (error) throw error;
   return data as string;

@@ -54,9 +54,11 @@ import {
   fetchCashMovements,
   fetchOpenCashSession,
   fetchProfileNames,
+  fetchTills,
   openCashSession,
   type CashMovement,
   type CashSession,
+  type Till,
   getErrorMessage,
 } from "@/services/appData";
 
@@ -74,6 +76,7 @@ const DEMO_SESSION: CashSession = {
   difference: null,
   openedBy: null,
   closedBy: null,
+  tillId: null,
 };
 const DEMO_MOVEMENTS: CashMovement[] = [
   {
@@ -110,6 +113,7 @@ const DEMO_CLOSINGS: CashSession[] = [
     difference: 0,
     openedBy: null,
     closedBy: null,
+    tillId: null,
   },
   {
     id: "CJ-0010",
@@ -122,6 +126,7 @@ const DEMO_CLOSINGS: CashSession[] = [
     difference: -1.5,
     openedBy: null,
     closedBy: null,
+    tillId: null,
   },
 ];
 
@@ -149,8 +154,13 @@ function Caja() {
   const [movements, setMovements] = useState<CashMovement[]>([]);
   const [closings, setClosings] = useState<CashSession[]>([]);
   const [profileNames, setProfileNames] = useState<Record<string, string>>({});
+  const [tills, setTills] = useState<Till[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+
+  const activeTills = tills.filter((t) => t.isActive);
+  const tillName = (id: string | null) =>
+    id ? (tills.find((t) => t.id === id)?.name ?? null) : null;
 
   // Nombre del cajero que abrió/cerró (con fallback al usuario actual).
   const nameOf = (id: string | null) =>
@@ -160,6 +170,7 @@ function Caja() {
       : "—";
 
   const [openingAmount, setOpeningAmount] = useState("");
+  const [openingTillId, setOpeningTillId] = useState("");
   const [busy, setBusy] = useState(false);
 
   const [movDialog, setMovDialog] = useState(false);
@@ -173,22 +184,32 @@ function Caja() {
   const load = async () => {
     setIsLoading(true);
     try {
-      const [current, history, names] = await Promise.all([
-        fetchOpenCashSession(companyId, cajaLocationId ?? undefined),
+      const [current, history, names, tillsList] = await Promise.all([
+        // Acotado al propio usuario: puede haber varias cajas abiertas a la
+        // vez en la misma sucursal, y cada quien debe ver (y poder cerrar)
+        // solo la suya.
+        fetchOpenCashSession(
+          companyId,
+          cajaLocationId ?? undefined,
+          session?.userId,
+        ),
         fetchCashClosings(companyId, cajaLocationId ?? undefined),
         fetchProfileNames(companyId),
+        cajaLocationId ? fetchTills(cajaLocationId) : Promise.resolve([]),
       ]);
       const mv = current ? await fetchCashMovements(current.id) : [];
       setOpenSession(current);
       setClosings(history);
       setProfileNames(names);
       setMovements(mv);
+      setTills(tillsList);
       setLoadError(false);
     } catch {
       setLoadError(true);
       setOpenSession(null);
       setClosings([]);
       setMovements([]);
+      setTills([]);
     } finally {
       setIsLoading(false);
     }
@@ -258,14 +279,23 @@ function Caja() {
   const handleOpen = async () => {
     if (isDemo) return blockDemoAction();
     if (!session) return;
+    // Con una sola caja activa no hay nada que elegir; con varias, sí se
+    // exige (el servidor también lo exige -- esto es solo para no mandar
+    // una petición que sabemos que va a fallar).
+    if (activeTills.length > 1 && !openingTillId) {
+      toast.error("Elige en qué caja vas a trabajar.");
+      return;
+    }
     setBusy(true);
     try {
       await openCashSession(
         session,
         Number(openingAmount) || 0,
         cajaLocationId ?? undefined,
+        openingTillId || undefined,
       );
       setOpeningAmount("");
+      setOpeningTillId("");
       toast.success("Caja abierta.");
       await load();
     } catch (error) {
@@ -458,6 +488,14 @@ function Caja() {
                   </div>
                 </div>
                 <p className="px-1 text-xs text-muted-foreground">
+                  {tillName(sessionView.tillId) && (
+                    <>
+                      <span className="font-medium text-foreground">
+                        {tillName(sessionView.tillId)}
+                      </span>
+                      {" · "}
+                    </>
+                  )}
                   Abierta por{" "}
                   <span className="font-medium text-foreground">
                     {nameOf(sessionView.openedBy)}
@@ -482,6 +520,28 @@ function Caja() {
               </>
             ) : (
               <>
+                {activeTills.length > 1 && (
+                  <div className="space-y-1">
+                    <Label>
+                      Caja <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={openingTillId}
+                      onValueChange={setOpeningTillId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Elige una caja" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {activeTills.map((till) => (
+                          <SelectItem key={till.id} value={till.id}>
+                            {till.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div className="space-y-1">
                   <Label>Monto inicial</Label>
                   <Input

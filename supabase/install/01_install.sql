@@ -4916,3 +4916,432 @@ end; $$;
 drop trigger if exists locations_create_default_till on public.locations;
 create trigger locations_create_default_till after insert on public.locations for each row execute function public.create_default_till();
 revoke execute on function public.create_default_till() from anon, public;
+
+-- ============================================================
+-- Módulo de arqueo de caja — Etapa 2: varias cajas simultáneas por
+-- sucursal + atribución de ventas a la caja correcta.
+--
+-- Hasta ahora solo podía haber una cash_sessions abierta por sucursal, y
+-- close_cash_session sumaba "ventas en efectivo" por sucursal+ventana de
+-- tiempo -- eso ya no alcanza con varias cajas abiertas a la vez en la
+-- misma sucursal (se duplicaría la misma venta en el "esperado" de dos
+-- cajas). Se agrega sales.till_id (resuelto server-side, nunca por el
+-- cliente) y se cambia la restricción de "una sesión abierta por
+-- sucursal" a "una sesión abierta por caja".
+-- ============================================================
+
+alter table public.sales add column if not exists till_id uuid references public.tills(id) on delete set null;
+create index if not exists sales_till_idx on public.sales(till_id);
+
+alter table public.cash_sessions add column if not exists till_id uuid references public.tills(id) on delete set null;
+
+drop index if exists cash_sessions_one_open_per_location;
+create unique index if not exists cash_sessions_one_open_per_till
+  on public.cash_sessions (company_id, till_id)
+  where status = 'open' and till_id is not null;
+
+-- open_cash_session: ahora requiere/resuelve una caja física. Si la
+-- sucursal tiene exactamente una caja activa, se autoasigna sola (cero
+-- cambios para una tienda de una sola caja); si tiene varias, exige elegir.
+drop function if exists public.open_cash_session(numeric, uuid);
+create or replace function public.open_cash_session(
+  p_opening_amount numeric,
+  p_location_id uuid default null,
+  p_till_id uuid default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_location_id uuid;
+  v_till_id uuid;
+  v_active_tills int;
+  v_session_id uuid;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
+
+  v_location_id := p_location_id;
+  if v_location_id is null then
+    select location_id into v_location_id from public.profiles where id = auth.uid();
+  end if;
+  if v_location_id is null then
+    select id into v_location_id from public.locations
+      where company_id = v_company_id and is_active = true
+      order by created_at limit 1;
+  end if;
+  if v_location_id is null then raise exception 'No hay punto de venta configurado.'; end if;
+
+  perform 1 from public.locations where id = v_location_id and company_id = v_company_id;
+  if not found then raise exception 'Sucursal invalida.'; end if;
+
+  v_till_id := p_till_id;
+  if v_till_id is not null then
+    perform 1 from public.tills
+      where id = v_till_id and company_id = v_company_id and location_id = v_location_id and is_active = true;
+    if not found then raise exception 'Caja invalida.'; end if;
+  else
+    select count(*) into v_active_tills from public.tills
+      where company_id = v_company_id and location_id = v_location_id and is_active = true;
+    if v_active_tills = 1 then
+      select id into v_till_id from public.tills
+        where company_id = v_company_id and location_id = v_location_id and is_active = true;
+    elsif v_active_tills = 0 then
+      raise exception 'Esta sucursal no tiene ninguna caja configurada.';
+    else
+      raise exception 'Debes elegir una caja.';
+    end if;
+  end if;
+
+  if exists (
+    select 1 from public.cash_sessions
+    where company_id = v_company_id and till_id = v_till_id and status = 'open'
+  ) then
+    raise exception 'Ya hay una caja abierta en esa caja.';
+  end if;
+
+  insert into public.cash_sessions
+    (company_id, location_id, till_id, status, opening_amount, opened_by, opened_at)
+  values
+    (v_company_id, v_location_id, v_till_id, 'open', greatest(coalesce(p_opening_amount,0), 0),
+     auth.uid(), now())
+  returning id into v_session_id;
+
+  return v_session_id;
+end;
+$$;
+
+revoke execute on function public.open_cash_session(numeric, uuid, uuid) from public, anon;
+grant execute on function public.open_cash_session(numeric, uuid, uuid) to authenticated;
+
+-- close_cash_session: la firma no cambia, pero las ventas en efectivo del
+-- turno ahora se atribuyen por caja (till_id), no solo por sucursal+tiempo
+-- -- necesario para que dos cajas abiertas a la vez en la misma sucursal no
+-- se mezclen entre sí.
+create or replace function public.close_cash_session(
+  p_session_id uuid,
+  p_real_amount numeric
+) returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_company_id uuid;
+  v_session public.cash_sessions%rowtype;
+  v_movements numeric(12,2) := 0;
+  v_cash_sales numeric(12,2) := 0;
+  v_expected numeric(12,2);
+  v_real numeric(12,2);
+  v_diff numeric(12,2);
+  v_rows int;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
+
+  -- Lock the row so concurrent closes can't double-process
+  select * into v_session from public.cash_sessions
+    where id = p_session_id and company_id = v_company_id
+    for update;
+  if not found then raise exception 'Caja no encontrada.'; end if;
+  if v_session.status <> 'open' then
+    raise exception 'Esta caja ya está cerrada.';
+  end if;
+
+  -- Sum signed cash movements for this session (egreso is stored negative)
+  select coalesce(sum(amount), 0) into v_movements
+  from public.cash_movements
+  where cash_session_id = v_session.id;
+
+  -- Sum cash sales since the session opened, scoped to THIS caja física
+  -- (till_id) -- no solo a la sucursal, para no mezclar el efectivo de dos
+  -- cajas abiertas simultáneamente en el mismo local.
+  select coalesce(sum(total), 0) into v_cash_sales
+  from public.sales
+  where company_id = v_company_id
+    and location_id = v_session.location_id
+    and till_id = v_session.till_id
+    and deleted_at is null
+    and payment_method = 'Efectivo'
+    and sale_date >= v_session.opened_at;
+
+  v_expected := round(coalesce(v_session.opening_amount, 0) + v_movements + v_cash_sales, 2);
+  v_real := round(coalesce(p_real_amount, 0), 2);
+  v_diff := round(v_real - v_expected, 2);
+
+  -- Only close if still open (defensive, race-safe)
+  update public.cash_sessions set
+    status = 'closed',
+    closed_at = now(),
+    closed_by = auth.uid(),
+    expected_amount = v_expected,
+    real_amount = v_real,
+    difference = v_diff,
+    updated_at = now()
+  where id = v_session.id and status = 'open';
+  get diagnostics v_rows = row_count;
+  if v_rows = 0 then raise exception 'Esta caja ya está cerrada.'; end if;
+
+  return jsonb_build_object(
+    'session_id', v_session.id,
+    'opening_amount', v_session.opening_amount,
+    'movements', v_movements,
+    'cash_sales', v_cash_sales,
+    'expected_amount', v_expected,
+    'real_amount', v_real,
+    'difference', v_diff
+  );
+end;
+$function$;
+
+revoke all on function public.close_cash_session(uuid, numeric) from public;
+grant execute on function public.close_cash_session(uuid, numeric) to authenticated;
+
+-- create_sale: gana p_till_id opcional. Si no se manda, se resuelve solo
+-- (primero la caja que el propio cajero tenga abierta en esa sucursal;
+-- si no tiene una abierta y hay exactamente una caja abierta en la
+-- sucursal, se usa esa) -- nunca bloquea la venta por falta de caja, solo
+-- queda till_id en null si es ambiguo o no hay ninguna caja abierta.
+drop function if exists public.create_sale(uuid, text, text, jsonb, uuid, uuid);
+create or replace function public.create_sale(
+  p_customer_id uuid,
+  p_document_type text,
+  p_payment_method text,
+  p_items jsonb,
+  p_location_id uuid default null,
+  p_client_request_id uuid default null,
+  p_till_id uuid default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_company_id uuid; v_location_id uuid; v_till_id uuid; v_tax_rate numeric(5,4); v_doc_types jsonb; v_charges_iva boolean;
+  v_sale_id uuid; v_customer_name text; v_item jsonb; v_product public.products%rowtype; v_loc_stock numeric(12,3);
+  v_qty numeric(12,3); v_line_total numeric(12,2); v_line_tax numeric(12,2);
+  v_total numeric(12,2) := 0; v_tax numeric(12,2) := 0; v_subtotal numeric(12,2); v_sale_number text;
+  v_variant_id uuid; v_variant public.product_variants%rowtype; v_unit_price numeric(12,2); v_unit_cost numeric(12,2);
+  v_variant_label text; v_attr_key text; v_attr_val text; v_label_parts text[];
+  v_price_includes_tax boolean;
+  v_existing record;
+  v_plan_sales_limit integer;
+  v_sales_this_month integer;
+  v_open_sessions integer;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.'; end if;
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
+  if p_items is null or jsonb_array_length(p_items) = 0 then raise exception 'El carrito esta vacio.'; end if;
+
+  if p_client_request_id is not null then
+    select id, subtotal, tax, total into v_existing
+    from public.sales
+    where company_id = v_company_id and client_request_id = p_client_request_id;
+    if found then
+      return jsonb_build_object(
+        'sale_id', v_existing.id,
+        'subtotal', v_existing.subtotal,
+        'tax', v_existing.tax,
+        'total', v_existing.total
+      );
+    end if;
+  end if;
+
+  if not public.current_user_is_platform_admin() then
+    select sp.monthly_sales_limit into v_plan_sales_limit
+    from public.companies c
+    join public.subscription_plans sp on sp.id = c.plan_id
+    where c.id = v_company_id;
+
+    if v_plan_sales_limit is not null then
+      select count(*) into v_sales_this_month
+      from public.sales
+      where company_id = v_company_id
+        and deleted_at is null
+        and sale_date >= date_trunc('month', now());
+
+      if v_sales_this_month >= v_plan_sales_limit then
+        raise exception 'Se alcanzo el limite de ventas mensuales de tu plan (%). Actualiza tu plan para seguir vendiendo este mes.', v_plan_sales_limit;
+      end if;
+    end if;
+  end if;
+
+  v_location_id := p_location_id;
+  if v_location_id is null then select location_id into v_location_id from public.profiles where id = auth.uid(); end if;
+  if v_location_id is null then select id into v_location_id from public.locations where company_id = v_company_id order by created_at limit 1; end if;
+  if v_location_id is null then raise exception 'No hay punto de venta configurado.'; end if;
+
+  -- Resolución de caja (till_id): nunca bloquea la venta, solo intenta
+  -- atribuirla correctamente para el arqueo. Prioridad: (1) la caja que
+  -- indique el cliente, si de verdad tiene una sesión abierta; (2) la
+  -- sesión abierta por el propio usuario en esta sucursal; (3) si hay
+  -- exactamente una sesión abierta en la sucursal, esa.
+  v_till_id := p_till_id;
+  if v_till_id is not null and not exists (
+    select 1 from public.cash_sessions
+    where till_id = v_till_id and company_id = v_company_id and location_id = v_location_id and status = 'open'
+  ) then
+    v_till_id := null;
+  end if;
+  if v_till_id is null then
+    select till_id into v_till_id from public.cash_sessions
+      where company_id = v_company_id and location_id = v_location_id and status = 'open' and opened_by = auth.uid()
+      order by opened_at desc limit 1;
+  end if;
+  if v_till_id is null then
+    select count(*) into v_open_sessions from public.cash_sessions
+      where company_id = v_company_id and location_id = v_location_id and status = 'open';
+    if v_open_sessions = 1 then
+      select till_id into v_till_id from public.cash_sessions
+        where company_id = v_company_id and location_id = v_location_id and status = 'open';
+    end if;
+  end if;
+
+  select tax_rate, document_types into v_tax_rate, v_doc_types from public.companies where id = v_company_id;
+  v_tax_rate := coalesce(v_tax_rate, 0.18);
+  select (dt ->> 'charges_iva')::boolean into v_charges_iva from jsonb_array_elements(coalesce(v_doc_types,'[]'::jsonb)) dt
+    where lower(dt ->> 'name') = lower(coalesce(p_document_type,'')) limit 1;
+  v_charges_iva := coalesce(v_charges_iva, true);
+  select coalesce(name,'Publico general') into v_customer_name from public.customers
+    where id = p_customer_id and company_id = v_company_id and deleted_at is null;
+  v_customer_name := coalesce(v_customer_name,'Publico general');
+  v_sale_number := 'V-' || to_char(now(),'YYYYMMDD') || '-' || upper(substr(replace(gen_random_uuid()::text,'-',''),1,6));
+  insert into public.sales (company_id, location_id, till_id, customer_id, sale_number, document_type, payment_method, customer_name, subtotal, tax, total, created_by, client_request_id)
+  values (v_company_id, v_location_id, v_till_id, p_customer_id, v_sale_number, coalesce(p_document_type,'Ticket'), coalesce(p_payment_method,'Efectivo'), v_customer_name, 0,0,0, auth.uid(), p_client_request_id)
+  returning id into v_sale_id;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_qty := coalesce((v_item ->> 'qty')::numeric, 0);
+    if v_qty <= 0 then raise exception 'Cantidad invalida.'; end if;
+    select * into v_product from public.products where id = (v_item ->> 'product_id')::uuid and company_id = v_company_id and deleted_at is null and active = true;
+    if not found then raise exception 'Producto no encontrado.'; end if;
+
+    v_price_includes_tax := coalesce(v_product.price_includes_tax, true);
+    v_variant_id := nullif(v_item ->> 'variant_id','')::uuid;
+
+    if v_variant_id is not null then
+      select * into v_variant from public.product_variants
+        where id = v_variant_id and product_id = v_product.id and company_id = v_company_id
+          and is_active = true and deleted_at is null;
+      if not found then raise exception 'Variante no encontrada para el producto %.', v_product.name; end if;
+
+      -- SECURITY: server-side price only; never trust client-supplied unit_price/price.
+      v_unit_price := coalesce(v_variant.price_override, v_product.price);
+      v_unit_cost  := coalesce(v_variant.cost_override, v_product.cost);
+
+      select stock into v_loc_stock from public.product_variant_locations
+        where product_variant_id = v_variant.id and location_id = v_location_id for update;
+      if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_product.name; end if;
+      if v_loc_stock < v_qty then raise exception 'Stock insuficiente para % en este local.', v_product.name; end if;
+
+      if not v_charges_iva then
+        v_line_total := round(v_unit_price * v_qty, 2); v_line_tax := 0;
+      elsif v_price_includes_tax then
+        v_line_total := round(v_unit_price * v_qty, 2); v_line_tax := round(v_line_total - v_line_total/(1+v_tax_rate), 2);
+      else
+        v_line_total := round(v_unit_price * v_qty * (1+v_tax_rate), 2); v_line_tax := round(v_unit_price * v_qty * v_tax_rate, 2);
+      end if;
+      v_total := v_total + v_line_total; v_tax := v_tax + v_line_tax;
+
+      v_label_parts := array[]::text[];
+      for v_attr_key, v_attr_val in select key, value::text from jsonb_each_text(coalesce(v_variant.attributes,'{}'::jsonb)) loop
+        v_label_parts := v_label_parts || (v_attr_key || ' ' || v_attr_val);
+      end loop;
+      v_variant_label := array_to_string(v_label_parts, ' / ');
+
+      insert into public.sale_items (company_id, location_id, sale_id, product_id, product_variant_id, variant_label, product_name, qty, unit_price, total, cost, tax_amount, price_includes_tax)
+      values (v_company_id, v_location_id, v_sale_id, v_product.id, v_variant.id, v_variant_label, v_product.name, v_qty, v_unit_price, v_line_total, v_unit_cost, v_line_tax, case when v_charges_iva then v_price_includes_tax else true end);
+
+      update public.product_variant_locations set stock = stock - v_qty, updated_at = now()
+        where product_variant_id = v_variant.id and location_id = v_location_id;
+
+      update public.products set stock = (
+        select coalesce(sum(pvl.stock),0)
+        from public.product_variant_locations pvl
+        join public.product_variants pv on pv.id = pvl.product_variant_id
+        where pv.product_id = v_product.id
+      ) where id = v_product.id;
+
+      insert into public.stock_movements (company_id, location_id, product_id, product_variant_id, movement_type, qty, reference_type, reference_id, notes)
+      values (v_company_id, v_location_id, v_product.id, v_variant.id, 'sale', -v_qty, 'sale', v_sale_id, 'Venta POS');
+
+    else
+      -- SECURITY: server-side price only; never trust client-supplied unit_price/price.
+      v_unit_price := v_product.price;
+      v_unit_cost := v_product.cost;
+
+      select stock into v_loc_stock from public.product_locations where product_id = v_product.id and location_id = v_location_id for update;
+      if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_product.name; end if;
+      if v_loc_stock < v_qty then raise exception 'Stock insuficiente para % en este local.', v_product.name; end if;
+      if not v_charges_iva then
+        v_line_total := round(v_unit_price * v_qty, 2); v_line_tax := 0;
+      elsif v_price_includes_tax then
+        v_line_total := round(v_unit_price * v_qty, 2); v_line_tax := round(v_line_total - v_line_total/(1+v_tax_rate), 2);
+      else
+        v_line_total := round(v_unit_price * v_qty * (1+v_tax_rate), 2); v_line_tax := round(v_unit_price * v_qty * v_tax_rate, 2);
+      end if;
+      v_total := v_total + v_line_total; v_tax := v_tax + v_line_tax;
+
+      insert into public.sale_items (company_id, location_id, sale_id, product_id, product_name, qty, unit_price, total, cost, tax_amount, price_includes_tax)
+      values (v_company_id, v_location_id, v_sale_id, v_product.id, v_product.name, v_qty, v_unit_price, v_line_total, v_unit_cost, v_line_tax, case when v_charges_iva then v_price_includes_tax else true end);
+
+      update public.product_locations set stock = stock - v_qty, updated_at = now() where product_id = v_product.id and location_id = v_location_id;
+      update public.products set stock = (select coalesce(sum(stock),0) from public.product_locations where product_id = v_product.id) where id = v_product.id;
+      insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty, reference_type, reference_id, notes)
+      values (v_company_id, v_location_id, v_product.id, 'sale', -v_qty, 'sale', v_sale_id, 'Venta POS');
+    end if;
+  end loop;
+
+  v_subtotal := v_total - v_tax;
+  update public.sales set subtotal = v_subtotal, tax = v_tax, total = v_total where id = v_sale_id;
+
+  return jsonb_build_object(
+    'sale_id', v_sale_id,
+    'subtotal', v_subtotal,
+    'tax', v_tax,
+    'total', v_total
+  );
+end;
+$function$;
+
+revoke execute on function public.create_sale(uuid, text, text, jsonb, uuid, uuid, uuid) from public, anon;
+grant execute on function public.create_sale(uuid, text, text, jsonb, uuid, uuid, uuid) to authenticated, service_role;

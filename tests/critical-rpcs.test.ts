@@ -565,4 +565,201 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(finalRows[0].is_active).toBe(false);
     });
   });
+
+  describe("10. Etapa 2 del arqueo: varias cajas simultáneas + atribución de ventas", () => {
+    it("dos cajas abiertas a la vez en la misma sucursal no mezclan sus ventas", async () => {
+      const company = await makeCompany(db, "Empresa Multi-Caja Test");
+      const prod = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Multi-Caja",
+        1,
+        10,
+        50,
+      );
+      const cajeroX = await makeUser(db, company.id, "user");
+      const cajeroY = await makeUser(db, company.id, "user");
+
+      const { rows: tillRows } = await db.query<{ id: string; name: string }>(
+        "select id, name from public.tills where location_id=$1",
+        [company.loc1],
+      );
+      expect(tillRows).toHaveLength(1); // "Caja 1" del trigger de Etapa 1
+      const caja1 = tillRows[0].id;
+      const { rows: caja2Rows } = await db.query<{ id: string }>(
+        "insert into public.tills (company_id, location_id, name, code) values ($1,$2,'Caja 2','CAJA-2') returning id",
+        [company.id, company.loc1],
+      );
+      const caja2 = caja2Rows[0].id;
+
+      let sessionX = "";
+      let sessionY = "";
+      await asUser(db, cajeroX, async () => {
+        const { rows } = await db.query<{ open_cash_session: string }>(
+          "select open_cash_session(200, $1, $2) as open_cash_session",
+          [company.loc1, caja1],
+        );
+        sessionX = rows[0].open_cash_session;
+      });
+      // Caja1 sigue abierta -> abrir OTRA sesión en la misma caja debe fallar,
+      // pero abrir Caja2 (misma sucursal) debe funcionar sin problema.
+      await asUser(db, cajeroY, async () => {
+        await expect(
+          db.query("select open_cash_session(100, $1, $2)", [
+            company.loc1,
+            caja1,
+          ]),
+        ).rejects.toThrow(/ya hay una caja abierta/i);
+
+        const { rows } = await db.query<{ open_cash_session: string }>(
+          "select open_cash_session(100, $1, $2) as open_cash_session",
+          [company.loc1, caja2],
+        );
+        sessionY = rows[0].open_cash_session;
+      });
+
+      // Cada cajero vende sin mandar till_id -- debe autoatribuirse a SU
+      // propia sesión abierta, no a la del otro.
+      let saleXId = "";
+      let saleYId = "";
+      await asUser(db, cajeroX, async () => {
+        const { rows } = await db.query<{ create_sale: { sale_id: string } }>(
+          "select create_sale(null,'Ticket','Efectivo',$1::jsonb,$2) as create_sale",
+          [
+            JSON.stringify([{ product_id: prod, qty: 1, unit_price: 10 }]),
+            company.loc1,
+          ],
+        );
+        saleXId = rows[0].create_sale.sale_id;
+      });
+      await asUser(db, cajeroY, async () => {
+        const { rows } = await db.query<{ create_sale: { sale_id: string } }>(
+          "select create_sale(null,'Ticket','Efectivo',$1::jsonb,$2) as create_sale",
+          [
+            JSON.stringify([{ product_id: prod, qty: 2, unit_price: 10 }]),
+            company.loc1,
+          ],
+        );
+        saleYId = rows[0].create_sale.sale_id;
+      });
+
+      const { rows: saleTills } = await db.query<{
+        id: string;
+        till_id: string;
+      }>("select id, till_id from public.sales where id in ($1,$2)", [
+        saleXId,
+        saleYId,
+      ]);
+      const tillOf = (id: string) =>
+        saleTills.find((s) => s.id === id)?.till_id;
+      expect(tillOf(saleXId)).toBe(caja1);
+      expect(tillOf(saleYId)).toBe(caja2);
+
+      // Cerrar cada caja: el efectivo esperado debe reflejar SOLO la venta
+      // de su propio cajero, no la del otro (la prueba de que no se mezclan).
+      let closeX: { expected_amount: number } | undefined;
+      let closeY: { expected_amount: number } | undefined;
+      await asUser(db, cajeroX, async () => {
+        const { rows } = await db.query<{
+          close_cash_session: { expected_amount: number };
+        }>("select close_cash_session($1, $2) as close_cash_session", [
+          sessionX,
+          210, // 200 fondo + 10 de su venta
+        ]);
+        closeX = rows[0].close_cash_session;
+      });
+      await asUser(db, cajeroY, async () => {
+        const { rows } = await db.query<{
+          close_cash_session: { expected_amount: number };
+        }>("select close_cash_session($1, $2) as close_cash_session", [
+          sessionY,
+          120, // 100 fondo + 20 de su venta
+        ]);
+        closeY = rows[0].close_cash_session;
+      });
+
+      expect(Number(closeX!.expected_amount)).toBe(210);
+      expect(Number(closeY!.expected_amount)).toBe(120);
+    });
+
+    it("create_sale nunca bloquea la venta aunque no haya ninguna caja abierta", async () => {
+      const company = await makeCompany(db, "Empresa Sin Caja Abierta Test");
+      const prod = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Sin Caja",
+        1,
+        5,
+        50,
+      );
+      const admin = await makeUser(db, company.id, "admin");
+
+      let saleId = "";
+      let tillId: string | null = "unset";
+      await asUser(db, admin, async () => {
+        const { rows } = await db.query<{ create_sale: { sale_id: string } }>(
+          "select create_sale(null,'Ticket','Efectivo',$1::jsonb,$2) as create_sale",
+          [
+            JSON.stringify([{ product_id: prod, qty: 1, unit_price: 5 }]),
+            company.loc1,
+          ],
+        );
+        saleId = rows[0].create_sale.sale_id;
+      });
+
+      const { rows } = await db.query<{ till_id: string | null }>(
+        "select till_id from public.sales where id=$1",
+        [saleId],
+      );
+      tillId = rows[0].till_id;
+      expect(saleId).toBeTruthy(); // la venta se completó de todos modos
+      expect(tillId).toBeNull(); // pero sin caja abierta, no hay a qué atribuirla
+    });
+
+    it("un solo caja por sucursal (caso Onisa hoy) sigue funcionando exactamente igual que antes", async () => {
+      const company = await makeCompany(db, "Empresa Una Sola Caja Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const prod = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Una Caja",
+        1,
+        3,
+        50,
+      );
+
+      let closeResult:
+        | { expected_amount: number; difference: number }
+        | undefined;
+      await asUser(db, admin, async () => {
+        // Sin p_till_id: con una sola caja activa en la sucursal, se
+        // autoasigna sola -- cero cambios de comportamiento para Onisa.
+        await db.query("select open_cash_session(50, $1)", [company.loc1]);
+        await db.query(
+          "select create_sale(null,'Ticket','Efectivo',$1::jsonb,$2) as create_sale",
+          [
+            JSON.stringify([{ product_id: prod, qty: 1, unit_price: 3 }]),
+            company.loc1,
+          ],
+        );
+        const { rows: sessionRows } = await db.query<{ id: string }>(
+          "select id from public.cash_sessions where company_id=$1 and status='open' limit 1",
+          [company.id],
+        );
+        const { rows } = await db.query<{
+          close_cash_session: { expected_amount: number; difference: number };
+        }>("select close_cash_session($1, $2) as close_cash_session", [
+          sessionRows[0].id,
+          53,
+        ]);
+        closeResult = rows[0].close_cash_session;
+      });
+
+      expect(Number(closeResult!.expected_amount)).toBe(53);
+      expect(Number(closeResult!.difference)).toBe(0);
+    });
+  });
 });

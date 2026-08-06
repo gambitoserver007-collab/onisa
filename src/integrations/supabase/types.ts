@@ -91,6 +91,7 @@ export type Database = {
           opening_amount: number;
           real_amount: number | null;
           status: string;
+          till_id: string | null;
           updated_at: string;
         };
         Insert: {
@@ -108,6 +109,7 @@ export type Database = {
           opening_amount?: number;
           real_amount?: number | null;
           status?: string;
+          till_id?: string | null;
           updated_at?: string;
         };
         Update: {
@@ -125,6 +127,7 @@ export type Database = {
           opening_amount?: number;
           real_amount?: number | null;
           status?: string;
+          till_id?: string | null;
           updated_at?: string;
         };
         Relationships: [
@@ -154,6 +157,13 @@ export type Database = {
             columns: ["opened_by"];
             isOneToOne: false;
             referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "cash_sessions_till_id_fkey";
+            columns: ["till_id"];
+            isOneToOne: false;
+            referencedRelation: "tills";
             referencedColumns: ["id"];
           },
         ];
@@ -1333,6 +1343,7 @@ export type Database = {
           status: string;
           subtotal: number;
           tax: number;
+          till_id: string | null;
           total: number;
           updated_at: string;
         };
@@ -1353,6 +1364,7 @@ export type Database = {
           status?: string;
           subtotal?: number;
           tax?: number;
+          till_id?: string | null;
           total?: number;
           updated_at?: string;
         };
@@ -1373,6 +1385,7 @@ export type Database = {
           status?: string;
           subtotal?: number;
           tax?: number;
+          till_id?: string | null;
           total?: number;
           updated_at?: string;
         };
@@ -1403,6 +1416,13 @@ export type Database = {
             columns: ["location_id"];
             isOneToOne: false;
             referencedRelation: "locations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sales_till_id_fkey";
+            columns: ["till_id"];
+            isOneToOne: false;
+            referencedRelation: "tills";
             referencedColumns: ["id"];
           },
         ];
