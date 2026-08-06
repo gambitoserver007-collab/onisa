@@ -2058,6 +2058,79 @@ export async function setLocationActive(locationId: string, isActive: boolean) {
   if (error) throw error;
 }
 
+// ---- Cajas físicas (tills) — Etapa 1 del módulo de arqueo de caja ----
+// Cada sucursal recibe una "Caja 1" automática (trigger locations_create_
+// default_till en 01_install.sql); esto solo es el catálogo para
+// crear/renombrar/desactivar cajas adicionales. No cambia apertura/cierre.
+
+export interface Till {
+  id: string;
+  locationId: string;
+  name: string;
+  code: string | null;
+  isActive: boolean;
+}
+
+export interface TillInput {
+  name: string;
+  code?: string;
+  isActive?: boolean;
+}
+
+export async function fetchTills(locationId: string): Promise<Till[]> {
+  const { data, error } = await supabase
+    .from("tills")
+    .select("id, location_id, name, code, is_active")
+    .eq("location_id", locationId)
+    .order("name");
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    locationId: row.location_id,
+    name: row.name,
+    code: row.code,
+    isActive: row.is_active,
+  }));
+}
+
+export async function createTill(
+  session: DemoSession,
+  locationId: string,
+  input: TillInput,
+) {
+  const name = input.name.trim();
+  if (!name) throw new Error("Ingresa el nombre de la caja.");
+  const { error } = await supabase.from("tills").insert({
+    company_id: requireCompanyId(session),
+    location_id: locationId,
+    name,
+    code: input.code?.trim() || null,
+  });
+  if (error) throw error;
+}
+
+export async function updateTill(tillId: string, input: TillInput) {
+  const name = input.name.trim();
+  if (!name) throw new Error("Ingresa el nombre de la caja.");
+  const { error } = await supabase
+    .from("tills")
+    .update({
+      name,
+      code: input.code?.trim() || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", tillId);
+  if (error) throw error;
+}
+
+export async function setTillActive(tillId: string, isActive: boolean) {
+  const { error } = await supabase
+    .from("tills")
+    .update({ is_active: isActive, updated_at: new Date().toISOString() })
+    .eq("id", tillId);
+  if (error) throw error;
+}
+
 export function buildDashboardData(
   catalog: CompanyCatalog,
   sales: Sale[],

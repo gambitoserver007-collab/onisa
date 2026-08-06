@@ -486,4 +486,83 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(Number(closeResult!.difference)).toBe(0);
     });
   });
+
+  describe("9. Cajas físicas (tills) — Etapa 1 del módulo de arqueo", () => {
+    it("toda sucursal (existente o nueva) recibe su 'Caja 1' automáticamente", async () => {
+      // companyA.loc1/loc2 se crearon en el beforeAll de arriba, ya con el
+      // trigger locations_create_default_till instalado -- confirma que el
+      // backfill de sucursales nuevas funciona sin intervención manual.
+      for (const locId of [companyA.loc1, companyA.loc2]) {
+        const { rows } = await db.query<{
+          name: string;
+          code: string | null;
+          is_active: boolean;
+        }>(
+          "select name, code, is_active from public.tills where location_id=$1",
+          [locId],
+        );
+        expect(rows).toHaveLength(1);
+        expect(rows[0].name).toBe("Caja 1");
+        expect(rows[0].code).toBe("CAJA-1");
+        expect(rows[0].is_active).toBe(true);
+      }
+
+      // Una sucursal creada después de la migración (ej. desde "Nueva
+      // sucursal" en Puntos de venta) también debe recibir su caja sola.
+      const { rows: newLoc } = await db.query<{ id: string }>(
+        "insert into public.locations (company_id, name) values ($1,'Sucursal Nueva') returning id",
+        [companyA.id],
+      );
+      const { rows: newTill } = await db.query<{ name: string }>(
+        "select name from public.tills where location_id=$1",
+        [newLoc[0].id],
+      );
+      expect(newTill).toHaveLength(1);
+      expect(newTill[0].name).toBe("Caja 1");
+    });
+
+    it("cualquier rol puede leer las cajas de su sucursal, pero solo admin las administra", async () => {
+      await asUser(db, cajeroA, async () => {
+        const { rows } = await db.query(
+          "select id from public.tills where location_id=$1",
+          [companyA.loc1],
+        );
+        expect(rows.length).toBeGreaterThan(0);
+
+        await expect(
+          db.query(
+            "insert into public.tills (company_id, location_id, name, code) values ($1,$2,'Caja 2','CAJA-2')",
+            [companyA.id, companyA.loc1],
+          ),
+        ).rejects.toThrow();
+      });
+
+      let newTillId: string;
+      await asUser(db, adminA, async () => {
+        const { rows } = await db.query<{ id: string }>(
+          "insert into public.tills (company_id, location_id, name, code) values ($1,$2,'Caja 2','CAJA-2') returning id",
+          [companyA.id, companyA.loc1],
+        );
+        newTillId = rows[0].id;
+
+        // Único por sucursal+nombre: repetir "Caja 2" en la misma sucursal falla.
+        await expect(
+          db.query(
+            "insert into public.tills (company_id, location_id, name) values ($1,$2,'Caja 2')",
+            [companyA.id, companyA.loc1],
+          ),
+        ).rejects.toThrow();
+
+        await db.query("update public.tills set is_active=false where id=$1", [
+          newTillId,
+        ]);
+      });
+
+      const { rows: finalRows } = await db.query<{ is_active: boolean }>(
+        "select is_active from public.tills where id=$1",
+        [newTillId!],
+      );
+      expect(finalRows[0].is_active).toBe(false);
+    });
+  });
 });

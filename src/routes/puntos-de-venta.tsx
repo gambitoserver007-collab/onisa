@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
-import { Pencil, Plus, Store } from "lucide-react";
+import { Pencil, Plus, Store, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -31,10 +31,15 @@ import { blockDemoAction } from "@/lib/demoMode";
 import { refreshLocations } from "@/lib/currentLocation";
 import {
   createLocation,
+  createTill,
   fetchLocations,
+  fetchTills,
   setLocationActive,
+  setTillActive,
   updateLocation,
+  updateTill,
   type Location,
+  type Till,
   getErrorMessage,
 } from "@/services/appData";
 
@@ -73,6 +78,16 @@ function PuntosDeVenta() {
   const [managerName, setManagerName] = useState("");
   const [openHour, setOpenHour] = useState("");
   const [closeHour, setCloseHour] = useState("");
+
+  // Cajas (tills): catálogo de cajas físicas por sucursal -- Etapa 1 del
+  // módulo de arqueo. No afecta apertura/cierre de caja todavía.
+  const [tillsFor, setTillsFor] = useState<Location | null>(null);
+  const [tillsList, setTillsList] = useState<Till[]>([]);
+  const [tillsLoading, setTillsLoading] = useState(false);
+  const [editingTill, setEditingTill] = useState<Till | null>(null);
+  const [tillName, setTillName] = useState("");
+  const [tillCode, setTillCode] = useState("");
+  const [tillSaving, setTillSaving] = useState(false);
 
   const reload = useCallback(async () => {
     setIsLoading(true);
@@ -184,6 +199,87 @@ function PuntosDeVenta() {
     }
   };
 
+  const reloadTills = async (locationId: string) => {
+    setTillsLoading(true);
+    try {
+      setTillsList(await fetchTills(locationId));
+    } catch (error) {
+      toast.error(getErrorMessage(error, "No se pudieron cargar las cajas."));
+    } finally {
+      setTillsLoading(false);
+    }
+  };
+
+  const openTills = (location: Location) => {
+    setTillsFor(location);
+    setEditingTill(null);
+    setTillName("");
+    setTillCode("");
+    void reloadTills(location.id);
+  };
+
+  const openTillEdit = (till: Till) => {
+    setEditingTill(till);
+    setTillName(till.name);
+    setTillCode(till.code ?? "");
+  };
+
+  const resetTillForm = () => {
+    setEditingTill(null);
+    setTillName("");
+    setTillCode("");
+  };
+
+  const handleTillSave = async () => {
+    if (isDemo) {
+      blockDemoAction();
+      return;
+    }
+    if (!session || !tillsFor) return;
+    setTillSaving(true);
+    try {
+      if (editingTill) {
+        await updateTill(editingTill.id, {
+          name: tillName,
+          code: tillCode,
+          isActive: editingTill.isActive,
+        });
+        toast.success("Caja actualizada.");
+      } else {
+        await createTill(session, tillsFor.id, {
+          name: tillName,
+          code: tillCode,
+        });
+        toast.success("Caja creada.");
+      }
+      resetTillForm();
+      await reloadTills(tillsFor.id);
+    } catch (error) {
+      toast.error(getErrorMessage(error, "No se pudo guardar la caja."));
+    } finally {
+      setTillSaving(false);
+    }
+  };
+
+  const handleTillToggle = async (till: Till, isActive: boolean) => {
+    if (isDemo) {
+      blockDemoAction();
+      return;
+    }
+    if (!tillsFor) return;
+    setTillsList((current) =>
+      current.map((item) =>
+        item.id === till.id ? { ...item, isActive } : item,
+      ),
+    );
+    try {
+      await setTillActive(till.id, isActive);
+    } catch (error) {
+      toast.error(getErrorMessage(error, "No se pudo actualizar."));
+      await reloadTills(tillsFor.id);
+    }
+  };
+
   return (
     <AppShell>
       <PageHeader
@@ -269,6 +365,15 @@ function PuntosDeVenta() {
                         <Button
                           size="icon"
                           variant="ghost"
+                          title="Cajas"
+                          onClick={() => openTills(location)}
+                        >
+                          <Wallet className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="Editar"
                           onClick={() => openEdit(location)}
                         >
                           <Pencil className="h-4 w-4" />
@@ -375,6 +480,122 @@ function PuntosDeVenta() {
               onClick={handleSave}
             >
               {isSaving ? "Guardando..." : "Guardar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!tillsFor}
+        onOpenChange={(open) => !open && setTillsFor(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cajas — {tillsFor?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="overflow-x-auto rounded-2xl border border-border/70">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nombre</TableHead>
+                    <TableHead>Código</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tillsLoading && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={4}
+                        className="py-6 text-center text-muted-foreground"
+                      >
+                        Cargando cajas...
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {!tillsLoading && tillsList.length === 0 && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={4}
+                        className="py-6 text-center text-muted-foreground"
+                      >
+                        Sin cajas todavía.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {tillsList.map((till) => (
+                    <TableRow key={till.id}>
+                      <TableCell className="font-medium">{till.name}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {till.code || "—"}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={till.isActive}
+                            onCheckedChange={(checked) =>
+                              handleTillToggle(till, checked)
+                            }
+                          />
+                          <Badge variant={till.isActive ? "success" : "warm"}>
+                            {till.isActive ? "Activa" : "Inactiva"}
+                          </Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => openTillEdit(till)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label>
+                  Nombre <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  value={tillName}
+                  onChange={(event) => setTillName(event.target.value)}
+                  placeholder="Ej. Caja 2"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Código</Label>
+                <Input
+                  value={tillCode}
+                  onChange={(event) => setTillCode(event.target.value)}
+                  placeholder="Ej. CAJA-2"
+                  maxLength={12}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            {editingTill && (
+              <Button variant="ghost" onClick={resetTillForm}>
+                Cancelar edición
+              </Button>
+            )}
+            <Button
+              variant="brand"
+              disabled={tillSaving || !tillName.trim()}
+              onClick={handleTillSave}
+            >
+              {tillSaving
+                ? "Guardando..."
+                : editingTill
+                  ? "Guardar cambios"
+                  : "Agregar caja"}
             </Button>
           </DialogFooter>
         </DialogContent>

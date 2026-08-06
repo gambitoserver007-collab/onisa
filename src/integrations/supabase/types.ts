@@ -1567,6 +1567,57 @@ export type Database = {
           },
         ];
       };
+      tills: {
+        Row: {
+          code: string | null;
+          company_id: string;
+          created_at: string;
+          id: string;
+          is_active: boolean;
+          is_demo_data: boolean;
+          location_id: string;
+          name: string;
+          updated_at: string;
+        };
+        Insert: {
+          code?: string | null;
+          company_id: string;
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          is_demo_data?: boolean;
+          location_id: string;
+          name: string;
+          updated_at?: string;
+        };
+        Update: {
+          code?: string | null;
+          company_id?: string;
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          is_demo_data?: boolean;
+          location_id?: string;
+          name?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "tills_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "tills_location_id_fkey";
+            columns: ["location_id"];
+            isOneToOne: false;
+            referencedRelation: "locations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       units: {
         Row: {
           active: boolean;

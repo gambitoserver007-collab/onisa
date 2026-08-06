@@ -4849,3 +4849,70 @@ grant execute on function public.expire_overdue_trials() to authenticated;
 -- así que la dirección se guardaba en el alta pero se perdía en cuanto la
 -- pantalla de edición volvía a leerla. Se agrega la columna real.
 alter table public.customers add column if not exists address text;
+
+-- ============================================================
+-- Módulo de arqueo de caja — Etapa 1: cajas físicas (tills).
+--
+-- Hoy solo puede haber una sesión de cash_sessions abierta por sucursal.
+-- Este catálogo es el primer paso para permitir varias cajas físicas
+-- simultáneas por sucursal (ej. CAJA-1/CAJA-2); esta etapa es puramente
+-- aditiva -- no cambia open_cash_session/close_cash_session/create_sale
+-- ni ningún comportamiento existente. Se agrega un backfill de una caja
+-- "Caja 1" por cada sucursal activa para que nada se rompa.
+-- ============================================================
+create table if not exists public.tills (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  location_id uuid not null references public.locations(id) on delete cascade,
+  name text not null,
+  code text,
+  is_active boolean not null default true,
+  is_demo_data boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (location_id, name)
+);
+create index if not exists tills_company_idx on public.tills(company_id);
+create index if not exists tills_location_idx on public.tills(location_id);
+
+grant select, insert, update, delete on public.tills to authenticated;
+grant all on public.tills to service_role;
+alter table public.tills enable row level security;
+
+drop policy if exists "tills select scoped" on public.tills;
+create policy "tills select scoped" on public.tills for select to authenticated
+  using (public.can_select_company(company_id, is_demo_data) and public.user_can_access_location(location_id));
+
+-- Solo el admin de tienda administra el catálogo de cajas (crear/renombrar/
+-- desactivar), igual que product_locations/product_variant_locations.
+drop policy if exists "tills write scoped" on public.tills;
+create policy "tills write scoped" on public.tills for all to authenticated
+  using (public.can_admin_company(company_id) and public.user_can_access_location(location_id))
+  with check (public.can_admin_company(company_id) and public.user_can_access_location(location_id));
+
+drop trigger if exists touch_tills_updated_at on public.tills;
+create trigger touch_tills_updated_at before update on public.tills for each row execute function public.touch_updated_at();
+drop trigger if exists prevent_demo_tills_write on public.tills;
+create trigger prevent_demo_tills_write before insert or update or delete on public.tills for each row execute function public.reject_demo_write();
+
+-- Backfill: una caja por defecto por cada sucursal activa existente.
+insert into public.tills (company_id, location_id, name, code, is_demo_data)
+select l.company_id, l.id, 'Caja 1', 'CAJA-1', l.is_demo_data
+from public.locations l
+where l.is_active = true
+  and not exists (select 1 from public.tills t where t.location_id = l.id);
+
+-- Trigger: toda sucursal nueva (creada a mano desde Puntos de venta, o la
+-- "Principal" que ya crea create_default_location() para cada empresa nueva)
+-- recibe su caja por defecto automáticamente -- sin esto, el backfill de
+-- arriba solo cubriría sucursales que ya existían el día de esta migración.
+create or replace function public.create_default_till()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.tills (company_id, location_id, name, code, is_demo_data)
+  values (new.company_id, new.id, 'Caja 1', 'CAJA-1', new.is_demo_data);
+  return new;
+end; $$;
+drop trigger if exists locations_create_default_till on public.locations;
+create trigger locations_create_default_till after insert on public.locations for each row execute function public.create_default_till();
+revoke execute on function public.create_default_till() from anon, public;
