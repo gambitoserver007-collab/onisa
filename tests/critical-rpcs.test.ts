@@ -11,12 +11,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import {
   asUser,
+  authorizeCashSession,
   createSale,
   createTestDb,
+  finishTillCount,
   makeCompany,
   makePlan,
   makeProduct,
   makeUser,
+  submitTillCount,
   type TestCompany,
 } from "./helpers/db";
 
@@ -436,8 +439,8 @@ describe("RPCs críticas de dinero y stock", () => {
     });
   });
 
-  describe("8. Regresión: cierre de caja completo", () => {
-    it("open_cash_session -> venta -> close_cash_session calcula bien el esperado", async () => {
+  describe("8. Regresión: cierre de caja completo (conteo ciego -> cierre -> autorización)", () => {
+    it("abrir caja -> venta -> conteo exacto -> cierra solo -> autorizar calcula bien el esperado", async () => {
       const planTiny = await makePlan(db, "Plan Caja", 10, 5, 10);
       const company = await makeCompany(db, "Empresa Caja Test", {
         planId: planTiny,
@@ -453,37 +456,44 @@ describe("RPCs críticas de dinero y stock", () => {
         50,
       );
 
-      let closeResult:
-        | { expected_amount: number; real_amount: number; difference: number }
+      let authResult:
+        | {
+            expected_amount: number;
+            real_amount: number;
+            difference: number;
+            classification: string;
+          }
         | undefined;
       await asUser(db, admin, async () => {
-        await db.query("select open_cash_session(200, $1)", [company.loc1]);
+        const { rows: openRows } = await db.query<{
+          open_cash_session: string;
+        }>("select open_cash_session(200, $1) as open_cash_session", [
+          company.loc1,
+        ]);
+        const sessionId = openRows[0].open_cash_session;
         await createSale(
           db,
           [{ product_id: prod, qty: 1, unit_price: 2.0 }],
           company.loc1,
         );
-        const { rows: sessionRows } = await db.query<{ id: string }>(
-          "select id from public.cash_sessions where company_id=$1 and status='open' order by opened_at desc limit 1",
-          [company.id],
-        );
-        const { rows } = await db.query<{
-          close_cash_session: {
-            expected_amount: number;
-            real_amount: number;
-            difference: number;
-          };
-        }>("select close_cash_session($1, $2) as close_cash_session", [
-          sessionRows[0].id,
-          202.0,
+
+        // 200 fondo + 2 de venta = 202: 1 billete de 200 + 1 moneda de 2.
+        await submitTillCount(db, sessionId, [
+          { denomination: 200, quantity: 1 },
+          { denomination: 2, quantity: 1 },
         ]);
-        closeResult = rows[0].close_cash_session;
+        const finish = await finishTillCount(db, sessionId);
+        expect(finish.status).toBe("closed");
+        expect(finish.second_count_required).toBe(false);
+
+        authResult = await authorizeCashSession(db, sessionId);
       });
 
-      expect(closeResult).toBeTruthy();
-      expect(Number(closeResult!.expected_amount)).toBe(202);
-      expect(Number(closeResult!.real_amount)).toBe(202);
-      expect(Number(closeResult!.difference)).toBe(0);
+      expect(authResult).toBeTruthy();
+      expect(Number(authResult!.expected_amount)).toBe(202);
+      expect(Number(authResult!.real_amount)).toBe(202);
+      expect(Number(authResult!.difference)).toBe(0);
+      expect(authResult!.classification).toBe("cuadrado");
     });
   });
 
@@ -656,31 +666,37 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(tillOf(saleXId)).toBe(caja1);
       expect(tillOf(saleYId)).toBe(caja2);
 
-      // Cerrar cada caja: el efectivo esperado debe reflejar SOLO la venta
-      // de su propio cajero, no la del otro (la prueba de que no se mezclan).
-      let closeX: { expected_amount: number } | undefined;
-      let closeY: { expected_amount: number } | undefined;
+      // Cerrar cada caja con conteo ciego exacto: el esperado debe reflejar
+      // SOLO la venta de su propio cajero, no la del otro (la prueba de que
+      // no se mezclan). 200 fondo + 10 de venta = 210: 1x200 + 1x10.
       await asUser(db, cajeroX, async () => {
-        const { rows } = await db.query<{
-          close_cash_session: { expected_amount: number };
-        }>("select close_cash_session($1, $2) as close_cash_session", [
-          sessionX,
-          210, // 200 fondo + 10 de su venta
+        await submitTillCount(db, sessionX, [
+          { denomination: 200, quantity: 1 },
+          { denomination: 10, quantity: 1 },
         ]);
-        closeX = rows[0].close_cash_session;
+        const finish = await finishTillCount(db, sessionX);
+        expect(finish.status).toBe("closed");
       });
+      // 100 fondo + 20 de venta = 120: 1x100 + 1x20.
       await asUser(db, cajeroY, async () => {
-        const { rows } = await db.query<{
-          close_cash_session: { expected_amount: number };
-        }>("select close_cash_session($1, $2) as close_cash_session", [
-          sessionY,
-          120, // 100 fondo + 20 de su venta
+        await submitTillCount(db, sessionY, [
+          { denomination: 100, quantity: 1 },
+          { denomination: 20, quantity: 1 },
         ]);
-        closeY = rows[0].close_cash_session;
+        const finish = await finishTillCount(db, sessionY);
+        expect(finish.status).toBe("closed");
       });
 
-      expect(Number(closeX!.expected_amount)).toBe(210);
-      expect(Number(closeY!.expected_amount)).toBe(120);
+      const admin = await makeUser(db, company.id, "admin");
+      let authX: { expected_amount: number } | undefined;
+      let authY: { expected_amount: number } | undefined;
+      await asUser(db, admin, async () => {
+        authX = await authorizeCashSession(db, sessionX);
+        authY = await authorizeCashSession(db, sessionY);
+      });
+
+      expect(Number(authX!.expected_amount)).toBe(210);
+      expect(Number(authY!.expected_amount)).toBe(120);
     });
 
     it("create_sale nunca bloquea la venta aunque no haya ninguna caja abierta", async () => {
@@ -731,13 +747,18 @@ describe("RPCs críticas de dinero y stock", () => {
         50,
       );
 
-      let closeResult:
+      let authResult:
         | { expected_amount: number; difference: number }
         | undefined;
       await asUser(db, admin, async () => {
         // Sin p_till_id: con una sola caja activa en la sucursal, se
         // autoasigna sola -- cero cambios de comportamiento para Onisa.
-        await db.query("select open_cash_session(50, $1)", [company.loc1]);
+        const { rows: openRows } = await db.query<{
+          open_cash_session: string;
+        }>("select open_cash_session(50, $1) as open_cash_session", [
+          company.loc1,
+        ]);
+        const sessionId = openRows[0].open_cash_session;
         await db.query(
           "select create_sale(null,'Ticket','Efectivo',$1::jsonb,$2) as create_sale",
           [
@@ -745,21 +766,230 @@ describe("RPCs críticas de dinero y stock", () => {
             company.loc1,
           ],
         );
-        const { rows: sessionRows } = await db.query<{ id: string }>(
-          "select id from public.cash_sessions where company_id=$1 and status='open' limit 1",
-          [company.id],
-        );
-        const { rows } = await db.query<{
-          close_cash_session: { expected_amount: number; difference: number };
-        }>("select close_cash_session($1, $2) as close_cash_session", [
-          sessionRows[0].id,
-          53,
+        // 50 fondo + 3 de venta = 53: 1x50 + 1x2 + 1x1.
+        await submitTillCount(db, sessionId, [
+          { denomination: 50, quantity: 1 },
+          { denomination: 2, quantity: 1 },
+          { denomination: 1, quantity: 1 },
         ]);
-        closeResult = rows[0].close_cash_session;
+        const finish = await finishTillCount(db, sessionId);
+        expect(finish.status).toBe("closed");
+        authResult = await authorizeCashSession(db, sessionId);
       });
 
-      expect(Number(closeResult!.expected_amount)).toBe(53);
-      expect(Number(closeResult!.difference)).toBe(0);
+      expect(Number(authResult!.expected_amount)).toBe(53);
+      expect(Number(authResult!.difference)).toBe(0);
+    });
+  });
+
+  describe("11. Etapas 3+4: arqueo ciego, segundo conteo y autorización", () => {
+    it("submit_till_count nunca devuelve el monto esperado ni la diferencia", async () => {
+      const company = await makeCompany(db, "Empresa Ciego Test");
+      const cajero = await makeUser(db, company.id, "user");
+      let result: Record<string, unknown> = {};
+      await asUser(db, cajero, async () => {
+        const { rows: openRows } = await db.query<{
+          open_cash_session: string;
+        }>("select open_cash_session(100, $1) as open_cash_session", [
+          company.loc1,
+        ]);
+        result = await submitTillCount(db, openRows[0].open_cash_session, [
+          { denomination: 100, quantity: 1 },
+        ]);
+      });
+      expect(Object.keys(result).sort()).toEqual(
+        [
+          "card_total",
+          "count_id",
+          "count_number",
+          "counted_cash_total",
+          "other_total",
+          "transfer_total",
+        ].sort(),
+      );
+      expect(result.expected_amount).toBeUndefined();
+      expect(result.difference).toBeUndefined();
+    });
+
+    it("rechaza denominaciones que no son de la lista mexicana permitida", async () => {
+      const company = await makeCompany(db, "Empresa Denominación Test");
+      const cajero = await makeUser(db, company.id, "user");
+      await asUser(db, cajero, async () => {
+        const { rows: openRows } = await db.query<{
+          open_cash_session: string;
+        }>("select open_cash_session(100, $1) as open_cash_session", [
+          company.loc1,
+        ]);
+        await expect(
+          submitTillCount(db, openRows[0].open_cash_session, [
+            { denomination: 999, quantity: 1 },
+          ]),
+        ).rejects.toThrow(/denominaci[oó]n inv[aá]lida/i);
+      });
+    });
+
+    it("finish_till_count exige al menos un conteo antes de cerrar", async () => {
+      const company = await makeCompany(db, "Empresa Sin Conteo Test");
+      const cajero = await makeUser(db, company.id, "user");
+      await asUser(db, cajero, async () => {
+        const { rows: openRows } = await db.query<{
+          open_cash_session: string;
+        }>("select open_cash_session(100, $1) as open_cash_session", [
+          company.loc1,
+        ]);
+        await expect(
+          finishTillCount(db, openRows[0].open_cash_session),
+        ).rejects.toThrow(/primero registra el conteo/i);
+      });
+    });
+
+    it("si el primer conteo no cuadra, exige un segundo conteo de OTRA persona -- y con dos conteos, cierra sí o sí", async () => {
+      const company = await makeCompany(db, "Empresa Segundo Conteo Test");
+      const cajeroA = await makeUser(db, company.id, "user");
+      const cajeroB = await makeUser(db, company.id, "user");
+      const admin = await makeUser(db, company.id, "admin");
+
+      let sessionId = "";
+      await asUser(db, cajeroA, async () => {
+        const { rows: openRows } = await db.query<{
+          open_cash_session: string;
+        }>("select open_cash_session(100, $1) as open_cash_session", [
+          company.loc1,
+        ]);
+        sessionId = openRows[0].open_cash_session;
+
+        // Conteo 1: 80 -- no cuadra contra el fondo de 100.
+        await submitTillCount(db, sessionId, [
+          { denomination: 50, quantity: 1 },
+          { denomination: 20, quantity: 1 },
+          { denomination: 10, quantity: 1 },
+        ]);
+        const finish1 = await finishTillCount(db, sessionId);
+        expect(finish1.status).toBe("open");
+        expect(finish1.second_count_required).toBe(true);
+
+        // La misma persona no puede hacer el segundo conteo.
+        await expect(
+          submitTillCount(db, sessionId, [{ denomination: 100, quantity: 1 }]),
+        ).rejects.toThrow(/persona distinta/i);
+      });
+
+      await asUser(db, cajeroB, async () => {
+        // Conteo 2 (otra persona), también equivocado (95) -- con dos
+        // conteos ya hechos, se cierra de todos modos.
+        await submitTillCount(db, sessionId, [
+          { denomination: 50, quantity: 1 },
+          { denomination: 20, quantity: 2 },
+          { denomination: 5, quantity: 1 },
+        ]);
+        const finish2 = await finishTillCount(db, sessionId);
+        expect(finish2.status).toBe("closed");
+        expect(finish2.second_count_required).toBe(false);
+      });
+
+      // Cerrada pero sin autorizar: expected/real/difference siguen sin
+      // calcularse -- ESO es lo que hace que sea "INCOMPLETA" hasta que
+      // alguien de admin/finanzas la autorice.
+      const { rows: pending } = await db.query<{
+        review_status: string;
+        classification: string | null;
+        expected_amount: number;
+        real_amount: number | null;
+      }>(
+        "select review_status, classification, expected_amount, real_amount from public.cash_sessions where id=$1",
+        [sessionId],
+      );
+      expect(pending[0].review_status).toBe("pending");
+      expect(pending[0].classification).toBeNull();
+
+      // Un cajero (no admin/finanzas) no puede autorizar.
+      await asUser(db, cajeroA, async () => {
+        await expect(authorizeCashSession(db, sessionId)).rejects.toThrow(
+          /solo un administrador o finanzas/i,
+        );
+      });
+
+      // El SEGUNDO conteo (95) es el que manda para el real -- no el primero.
+      let auth:
+        | { real_amount: number; difference: number; classification: string }
+        | undefined;
+      await asUser(db, admin, async () => {
+        auth = await authorizeCashSession(db, sessionId);
+      });
+      expect(Number(auth!.real_amount)).toBe(95);
+      expect(Number(auth!.difference)).toBe(-5);
+      expect(auth!.classification).toBe("faltante");
+    });
+
+    it("clasifica SOBRANTE cuando el conteo final supera el esperado, y finanzas también puede autorizar", async () => {
+      const company = await makeCompany(db, "Empresa Sobrante Test");
+      const cajeroA = await makeUser(db, company.id, "user");
+      const cajeroB = await makeUser(db, company.id, "user");
+      const finanzas = await makeUser(db, company.id, "finanzas");
+
+      let sessionId = "";
+      await asUser(db, cajeroA, async () => {
+        const { rows: openRows } = await db.query<{
+          open_cash_session: string;
+        }>("select open_cash_session(100, $1) as open_cash_session", [
+          company.loc1,
+        ]);
+        sessionId = openRows[0].open_cash_session;
+        await submitTillCount(db, sessionId, [
+          { denomination: 50, quantity: 1 },
+          { denomination: 20, quantity: 1 },
+        ]); // 70, no cuadra
+        await finishTillCount(db, sessionId);
+      });
+      await asUser(db, cajeroB, async () => {
+        await submitTillCount(db, sessionId, [
+          { denomination: 100, quantity: 1 },
+          { denomination: 10, quantity: 1 },
+        ]); // 110, sigue sin cuadrar -> cierra de todos modos
+        const finish = await finishTillCount(db, sessionId);
+        expect(finish.status).toBe("closed");
+      });
+
+      let auth: { difference: number; classification: string } | undefined;
+      await asUser(db, finanzas, async () => {
+        auth = await authorizeCashSession(db, sessionId);
+      });
+      expect(Number(auth!.difference)).toBe(10);
+      expect(auth!.classification).toBe("sobrante");
+    });
+
+    it("no se puede enviar un tercer conteo", async () => {
+      const company = await makeCompany(db, "Empresa Tercer Conteo Test");
+      const cajeroA = await makeUser(db, company.id, "user");
+      const cajeroB = await makeUser(db, company.id, "user");
+      const cajeroC = await makeUser(db, company.id, "user");
+
+      let sessionId = "";
+      await asUser(db, cajeroA, async () => {
+        const { rows: openRows } = await db.query<{
+          open_cash_session: string;
+        }>("select open_cash_session(100, $1) as open_cash_session", [
+          company.loc1,
+        ]);
+        sessionId = openRows[0].open_cash_session;
+        await submitTillCount(db, sessionId, [
+          { denomination: 50, quantity: 1 },
+        ]); // 50, no cuadra
+      });
+      await asUser(db, cajeroB, async () => {
+        // No se llama finishTillCount entre el 2º y el intento de 3º, para
+        // probar el candado de ">2 conteos" directamente (no solo el de
+        // "la caja ya está cerrada").
+        await submitTillCount(db, sessionId, [
+          { denomination: 20, quantity: 2 },
+          { denomination: 10, quantity: 1 },
+        ]); // 50, tampoco cuadra
+      });
+      await asUser(db, cajeroC, async () => {
+        await expect(
+          submitTillCount(db, sessionId, [{ denomination: 100, quantity: 1 }]),
+        ).rejects.toThrow(/ya se registraron los dos conteos|ya está cerrada/i);
+      });
     });
   });
 });

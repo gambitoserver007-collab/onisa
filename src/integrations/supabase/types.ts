@@ -77,9 +77,11 @@ export type Database = {
       };
       cash_sessions: {
         Row: {
+          classification: string | null;
           closed_at: string | null;
           closed_by: string | null;
           company_id: string;
+          count_cutoff_at: string | null;
           created_at: string;
           difference: number | null;
           expected_amount: number;
@@ -90,14 +92,20 @@ export type Database = {
           opened_by: string | null;
           opening_amount: number;
           real_amount: number | null;
+          review_notes: string | null;
+          review_status: string;
+          reviewed_at: string | null;
+          reviewed_by: string | null;
           status: string;
           till_id: string | null;
           updated_at: string;
         };
         Insert: {
+          classification?: string | null;
           closed_at?: string | null;
           closed_by?: string | null;
           company_id: string;
+          count_cutoff_at?: string | null;
           created_at?: string;
           difference?: number | null;
           expected_amount?: number;
@@ -108,14 +116,20 @@ export type Database = {
           opened_by?: string | null;
           opening_amount?: number;
           real_amount?: number | null;
+          review_notes?: string | null;
+          review_status?: string;
+          reviewed_at?: string | null;
+          reviewed_by?: string | null;
           status?: string;
           till_id?: string | null;
           updated_at?: string;
         };
         Update: {
+          classification?: string | null;
           closed_at?: string | null;
           closed_by?: string | null;
           company_id?: string;
+          count_cutoff_at?: string | null;
           created_at?: string;
           difference?: number | null;
           expected_amount?: number;
@@ -126,6 +140,10 @@ export type Database = {
           opened_by?: string | null;
           opening_amount?: number;
           real_amount?: number | null;
+          review_notes?: string | null;
+          review_status?: string;
+          reviewed_at?: string | null;
+          reviewed_by?: string | null;
           status?: string;
           till_id?: string | null;
           updated_at?: string;
@@ -155,6 +173,13 @@ export type Database = {
           {
             foreignKeyName: "cash_sessions_opened_by_fkey";
             columns: ["opened_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "cash_sessions_reviewed_by_fkey";
+            columns: ["reviewed_by"];
             isOneToOne: false;
             referencedRelation: "profiles";
             referencedColumns: ["id"];
@@ -1587,6 +1612,127 @@ export type Database = {
           },
         ];
       };
+      till_count_lines: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          denomination: number;
+          id: string;
+          is_demo_data: boolean;
+          quantity: number;
+          subtotal: number;
+          till_count_id: string;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          denomination: number;
+          id?: string;
+          is_demo_data?: boolean;
+          quantity?: number;
+          subtotal?: number;
+          till_count_id: string;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          denomination?: number;
+          id?: string;
+          is_demo_data?: boolean;
+          quantity?: number;
+          subtotal?: number;
+          till_count_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "till_count_lines_till_count_id_fkey";
+            columns: ["till_count_id"];
+            isOneToOne: false;
+            referencedRelation: "till_counts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      till_counts: {
+        Row: {
+          card_total: number;
+          cash_session_id: string;
+          company_id: string;
+          count_number: number;
+          counted_at: string;
+          counted_by: string;
+          counted_cash_total: number;
+          created_at: string;
+          id: string;
+          is_demo_data: boolean;
+          location_id: string | null;
+          other_total: number;
+          till_id: string | null;
+          transfer_total: number;
+        };
+        Insert: {
+          card_total?: number;
+          cash_session_id: string;
+          company_id: string;
+          count_number: number;
+          counted_at?: string;
+          counted_by: string;
+          counted_cash_total?: number;
+          created_at?: string;
+          id?: string;
+          is_demo_data?: boolean;
+          location_id?: string | null;
+          other_total?: number;
+          till_id?: string | null;
+          transfer_total?: number;
+        };
+        Update: {
+          card_total?: number;
+          cash_session_id?: string;
+          company_id?: string;
+          count_number?: number;
+          counted_at?: string;
+          counted_by?: string;
+          counted_cash_total?: number;
+          created_at?: string;
+          id?: string;
+          is_demo_data?: boolean;
+          location_id?: string | null;
+          other_total?: number;
+          till_id?: string | null;
+          transfer_total?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "till_counts_cash_session_id_fkey";
+            columns: ["cash_session_id"];
+            isOneToOne: false;
+            referencedRelation: "cash_sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "till_counts_counted_by_fkey";
+            columns: ["counted_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "till_counts_location_id_fkey";
+            columns: ["location_id"];
+            isOneToOne: false;
+            referencedRelation: "locations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "till_counts_till_id_fkey";
+            columns: ["till_id"];
+            isOneToOne: false;
+            referencedRelation: "tills";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       tills: {
         Row: {
           code: string | null;
@@ -1693,6 +1839,10 @@ export type Database = {
         };
         Returns: Json;
       };
+      authorize_cash_session: {
+        Args: { p_notes?: string; p_session_id: string };
+        Returns: Json;
+      };
       bootstrap_demo_profiles: { Args: never; Returns: undefined };
       bootstrap_owner_profile: {
         Args: { p_owner_email?: string };
@@ -1704,9 +1854,9 @@ export type Database = {
         Returns: boolean;
       };
       can_write_company: { Args: { p_company_id: string }; Returns: boolean };
-      close_cash_session: {
-        Args: { p_real_amount: number; p_session_id: string };
-        Returns: Json;
+      compute_cash_session_expected: {
+        Args: { p_session_id: string };
+        Returns: number;
       };
       create_purchase: {
         Args: {
@@ -1730,11 +1880,13 @@ export type Database = {
       };
       create_sale: {
         Args: {
+          p_client_request_id?: string;
           p_customer_id: string;
           p_document_type: string;
           p_items: Json;
           p_location_id?: string;
           p_payment_method: string;
+          p_till_id?: string;
         };
         Returns: Json;
       };
@@ -1758,8 +1910,16 @@ export type Database = {
       default_tax_name: { Args: { p_country: string }; Returns: string };
       default_tax_rate: { Args: { p_country: string }; Returns: number };
       expire_overdue_trials: { Args: never; Returns: number };
+      finish_till_count: {
+        Args: { p_session_id: string };
+        Returns: Json;
+      };
       open_cash_session: {
-        Args: { p_location_id?: string; p_opening_amount: number };
+        Args: {
+          p_location_id?: string;
+          p_opening_amount: number;
+          p_till_id?: string;
+        };
         Returns: string;
       };
       profit_report: {
@@ -1809,6 +1969,10 @@ export type Database = {
       soft_delete_product: {
         Args: { p_product_id: string };
         Returns: undefined;
+      };
+      submit_till_count: {
+        Args: { p_denominations: Json; p_session_id: string };
+        Returns: Json;
       };
       sync_product_variants: {
         Args: {

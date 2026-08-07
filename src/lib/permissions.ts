@@ -116,6 +116,13 @@ const ROUTE_ACCESS: Record<string, StoreRole[]> = {
   "/devoluciones": ["admin", "finanzas", "user"],
   "/compras": ["admin", "finanzas", "operador"],
   "/caja": ["admin", "finanzas", "user"],
+  // Nota: no se agrega a GRANTABLE_SECTIONS (sin casilla propia en Usuarios)
+  // a propósito -- por el prefix-match de allowedSections abajo, otorgar
+  // "/caja" a un cajero también le abriría "/caja/revision" si esta ruta
+  // tuviera su propia casilla independiente. Al no ser otorgable aparte,
+  // solo entra por ROUTE_ACCESS (admin/finanzas), nunca por un acceso
+  // personalizado mal entendido.
+  "/caja/revision": ["admin", "finanzas"],
   "/promociones": ["admin"],
   "/productos": ["admin", "finanzas", "user", "operador"],
   "/inventario": ["admin", "finanzas", "user", "operador"],

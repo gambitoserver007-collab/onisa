@@ -5345,3 +5345,432 @@ $function$;
 
 revoke execute on function public.create_sale(uuid, text, text, jsonb, uuid, uuid, uuid) from public, anon;
 grant execute on function public.create_sale(uuid, text, text, jsonb, uuid, uuid, uuid) to authenticated, service_role;
+
+-- ============================================================
+-- Módulo de arqueo de caja — Etapas 3+4: conteo ciego por denominación,
+-- segundo conteo por otra persona, y autorización administrativa separada
+-- del cierre.
+--
+-- close_cash_session (Etapas 1-2) se reemplaza por dos pasos: la cajera
+-- llama finish_till_count (nunca ve el esperado ni la diferencia -- esa
+-- función literalmente no tiene ningún camino de código que los calcule
+-- y devuelva), y admin/finanzas llama authorize_cash_session por separado
+-- (ahí sí se calcula todo). Una caja cerrada pero no autorizada es, por
+-- definición, INCOMPLETA -- no tiene classification todavía.
+-- ============================================================
+
+create table if not exists public.till_counts (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  cash_session_id uuid not null references public.cash_sessions(id) on delete cascade,
+  till_id uuid references public.tills(id) on delete set null,
+  location_id uuid references public.locations(id) on delete set null,
+  count_number smallint not null check (count_number in (1,2)),
+  counted_by uuid not null references public.profiles(id) on delete set null,
+  counted_at timestamptz not null default now(),
+  counted_cash_total numeric(12,2) not null default 0,
+  card_total numeric(12,2) not null default 0,
+  transfer_total numeric(12,2) not null default 0,
+  other_total numeric(12,2) not null default 0,
+  is_demo_data boolean not null default false,
+  created_at timestamptz not null default now(),
+  unique (cash_session_id, count_number)
+);
+create index if not exists till_counts_session_idx on public.till_counts(cash_session_id);
+create index if not exists till_counts_company_idx on public.till_counts(company_id);
+
+grant select on public.till_counts to authenticated;
+grant all on public.till_counts to service_role;
+alter table public.till_counts enable row level security;
+
+drop policy if exists "till_counts select scoped" on public.till_counts;
+create policy "till_counts select scoped" on public.till_counts for select to authenticated
+  using (public.can_select_company(company_id, is_demo_data) and public.user_can_access_location(location_id));
+-- A propósito NO hay política de insert/update/delete para "authenticated":
+-- solo se escribe vía submit_till_count (SECURITY DEFINER). Un insert
+-- directo permitiría mandar un counted_cash_total falso sin pasar por las
+-- líneas de denominación, y el segundo conteo no podría exigir "otra
+-- persona" (eso solo se puede comparar de forma procedural, no con RLS).
+
+create table if not exists public.till_count_lines (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  till_count_id uuid not null references public.till_counts(id) on delete cascade,
+  denomination numeric(12,2) not null,
+  quantity integer not null default 0 check (quantity >= 0),
+  subtotal numeric(12,2) generated always as (denomination * quantity) stored,
+  is_demo_data boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists till_count_lines_count_idx on public.till_count_lines(till_count_id);
+
+grant select on public.till_count_lines to authenticated;
+grant all on public.till_count_lines to service_role;
+alter table public.till_count_lines enable row level security;
+
+drop policy if exists "till_count_lines select scoped" on public.till_count_lines;
+create policy "till_count_lines select scoped" on public.till_count_lines for select to authenticated
+  using (exists (
+    select 1 from public.till_counts tc
+    where tc.id = till_count_lines.till_count_id
+      and public.can_select_company(tc.company_id, tc.is_demo_data)
+      and public.user_can_access_location(tc.location_id)
+  ));
+-- Igual: sin política de escritura para authenticated, solo vía submit_till_count.
+
+alter table public.cash_sessions add column if not exists count_cutoff_at timestamptz;
+alter table public.cash_sessions add column if not exists review_status text not null default 'pending';
+alter table public.cash_sessions add column if not exists classification text;
+alter table public.cash_sessions add column if not exists reviewed_by uuid references public.profiles(id) on delete set null;
+alter table public.cash_sessions add column if not exists reviewed_at timestamptz;
+alter table public.cash_sessions add column if not exists review_notes text;
+
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'cash_sessions_review_status_chk') then
+    alter table public.cash_sessions add constraint cash_sessions_review_status_chk
+      check (review_status in ('pending','authorized'));
+  end if;
+end $$;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'cash_sessions_classification_chk') then
+    alter table public.cash_sessions add constraint cash_sessions_classification_chk
+      check (classification is null or classification in ('cuadrado','faltante','sobrante'));
+  end if;
+end $$;
+
+-- Cajas ya cerradas antes de esta migración (con el close_cash_session
+-- viejo, de un solo paso) quedan marcadas como ya autorizadas -- no tiene
+-- sentido pedir un arqueo ciego retroactivo de un turno que ya terminó.
+update public.cash_sessions set review_status = 'authorized', reviewed_at = closed_at
+  where status = 'closed' and review_status = 'pending';
+
+-- Cálculo del efectivo esperado, compartido por finish_till_count y
+-- authorize_cash_session para que ambos calculen exactamente lo mismo.
+-- Nunca se expone como RPC al cliente (sin grant a authenticated/anon) --
+-- solo lo pueden llamar otras funciones SECURITY DEFINER.
+create or replace function public.compute_cash_session_expected(p_session_id uuid)
+returns numeric
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_session public.cash_sessions%rowtype;
+  v_movements numeric(12,2) := 0;
+  v_cash_sales numeric(12,2) := 0;
+  v_cutoff timestamptz;
+begin
+  select * into v_session from public.cash_sessions where id = p_session_id;
+  if not found then raise exception 'Caja no encontrada.'; end if;
+
+  -- Antes del primer conteo no hay corte todavía -- se usa "ahora". Una
+  -- vez que empieza el conteo (count_cutoff_at ya está fijo), una venta
+  -- hecha después de jalar el cajón para contar no debe colarse aquí.
+  v_cutoff := coalesce(v_session.count_cutoff_at, now());
+
+  select coalesce(sum(amount), 0) into v_movements
+  from public.cash_movements where cash_session_id = v_session.id;
+
+  select coalesce(sum(total), 0) into v_cash_sales
+  from public.sales
+  where company_id = v_session.company_id
+    and location_id = v_session.location_id
+    and till_id = v_session.till_id
+    and deleted_at is null
+    and payment_method = 'Efectivo'
+    and sale_date >= v_session.opened_at
+    and sale_date <= v_cutoff;
+
+  return round(coalesce(v_session.opening_amount, 0) + v_movements + v_cash_sales, 2);
+end;
+$$;
+
+revoke all on function public.compute_cash_session_expected(uuid) from public, anon, authenticated;
+
+-- El close_cash_session de un solo paso (Etapas 1-2) queda reemplazado por
+-- submit_till_count + finish_till_count + authorize_cash_session.
+drop function if exists public.close_cash_session(uuid, numeric);
+
+-- submit_till_count: RPC del arqueo ciego que llama la cajera. NUNCA
+-- calcula ni devuelve el esperado ni la diferencia -- solo recalcula (server-
+-- side, nunca confía en el total que mande el cliente) lo que ella misma
+-- acaba de contar, y jala tarjeta/transferencia/otros automáticamente.
+create or replace function public.submit_till_count(
+  p_session_id uuid,
+  p_denominations jsonb
+) returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_company_id uuid;
+  v_session public.cash_sessions%rowtype;
+  v_count_number smallint;
+  v_first_counted_by uuid;
+  v_count_id uuid;
+  v_item jsonb;
+  v_denom numeric;
+  v_qty integer;
+  v_counted_total numeric(12,2) := 0;
+  v_card_total numeric(12,2) := 0;
+  v_transfer_total numeric(12,2) := 0;
+  v_other_total numeric(12,2) := 0;
+  v_cutoff timestamptz;
+  v_allowed numeric[] := array[1000,500,200,100,50,20,10,5,2,1,0.5];
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
+
+  select * into v_session from public.cash_sessions
+    where id = p_session_id and company_id = v_company_id
+    for update;
+  if not found then raise exception 'Caja no encontrada.'; end if;
+  if v_session.status <> 'open' then raise exception 'Esta caja ya está cerrada.'; end if;
+
+  select count(*) + 1 into v_count_number from public.till_counts where cash_session_id = p_session_id;
+  if v_count_number > 2 then
+    raise exception 'Ya se registraron los dos conteos de esta caja.';
+  end if;
+
+  if v_count_number = 2 then
+    select counted_by into v_first_counted_by from public.till_counts
+      where cash_session_id = p_session_id and count_number = 1;
+    if v_first_counted_by = auth.uid() then
+      raise exception 'El segundo conteo debe hacerlo una persona distinta a quien hizo el primero.';
+    end if;
+  end if;
+
+  if p_denominations is null or jsonb_array_length(p_denominations) = 0 then
+    raise exception 'Captura al menos una denominación.';
+  end if;
+
+  for v_item in select * from jsonb_array_elements(p_denominations) loop
+    v_denom := (v_item ->> 'denomination')::numeric;
+    v_qty := coalesce((v_item ->> 'quantity')::integer, 0);
+    if v_denom is null or not (v_denom = any(v_allowed)) then
+      raise exception 'Denominación inválida: %', v_denom;
+    end if;
+    if v_qty < 0 then raise exception 'Cantidad inválida.'; end if;
+  end loop;
+
+  -- El corte queda fijo desde el primer conteo (cuando de verdad se jaló
+  -- el cajón); el segundo conteo usa el MISMO corte, no uno nuevo.
+  v_cutoff := coalesce(v_session.count_cutoff_at, now());
+
+  select
+    coalesce(sum(total) filter (where payment_method = 'Tarjeta'), 0),
+    coalesce(sum(total) filter (where payment_method = 'Transferencia'), 0),
+    coalesce(sum(total) filter (where payment_method not in ('Efectivo','Tarjeta','Transferencia')), 0)
+  into v_card_total, v_transfer_total, v_other_total
+  from public.sales
+  where company_id = v_company_id
+    and location_id = v_session.location_id
+    and till_id = v_session.till_id
+    and deleted_at is null
+    and sale_date >= v_session.opened_at
+    and sale_date <= v_cutoff;
+
+  insert into public.till_counts
+    (company_id, cash_session_id, till_id, location_id, count_number, counted_by, card_total, transfer_total, other_total)
+  values
+    (v_company_id, p_session_id, v_session.till_id, v_session.location_id, v_count_number, auth.uid(), v_card_total, v_transfer_total, v_other_total)
+  returning id into v_count_id;
+
+  for v_item in select * from jsonb_array_elements(p_denominations) loop
+    v_denom := (v_item ->> 'denomination')::numeric;
+    v_qty := coalesce((v_item ->> 'quantity')::integer, 0);
+    if v_qty = 0 then continue; end if;
+    insert into public.till_count_lines (company_id, till_count_id, denomination, quantity)
+    values (v_company_id, v_count_id, v_denom, v_qty);
+  end loop;
+
+  select coalesce(sum(subtotal), 0) into v_counted_total
+  from public.till_count_lines where till_count_id = v_count_id;
+
+  update public.till_counts set counted_cash_total = v_counted_total where id = v_count_id;
+
+  if v_session.count_cutoff_at is null then
+    update public.cash_sessions set count_cutoff_at = v_cutoff where id = p_session_id;
+  end if;
+
+  return jsonb_build_object(
+    'count_id', v_count_id,
+    'count_number', v_count_number,
+    'counted_cash_total', v_counted_total,
+    'card_total', v_card_total,
+    'transfer_total', v_transfer_total,
+    'other_total', v_other_total
+  );
+end;
+$function$;
+
+revoke all on function public.submit_till_count(uuid, jsonb) from public, anon;
+grant execute on function public.submit_till_count(uuid, jsonb) to authenticated;
+
+-- finish_till_count: lo llama la cajera para terminar. Si el primer conteo
+-- cuadra exacto, cierra de una vez. Si no cuadra y todavía no hay segundo
+-- conteo, NO cierra -- devuelve second_count_required=true (nunca un
+-- número, solo ese booleano) para que la UI pida que otra persona cuente.
+-- Con dos conteos ya hechos, se cierra sí o sí -- lo que siga sin cuadrar
+-- lo resuelve el admin al autorizar.
+create or replace function public.finish_till_count(p_session_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_company_id uuid;
+  v_session public.cash_sessions%rowtype;
+  v_has_count2 boolean;
+  v_latest_total numeric(12,2);
+  v_expected numeric(12,2);
+  v_rows int;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
+
+  select * into v_session from public.cash_sessions
+    where id = p_session_id and company_id = v_company_id
+    for update;
+  if not found then raise exception 'Caja no encontrada.'; end if;
+  if v_session.status <> 'open' then raise exception 'Esta caja ya está cerrada.'; end if;
+
+  if not exists (select 1 from public.till_counts where cash_session_id = p_session_id and count_number = 1) then
+    raise exception 'Primero registra el conteo de la caja.';
+  end if;
+
+  v_has_count2 := exists (
+    select 1 from public.till_counts where cash_session_id = p_session_id and count_number = 2
+  );
+
+  v_expected := public.compute_cash_session_expected(p_session_id);
+
+  select counted_cash_total into v_latest_total from public.till_counts
+    where cash_session_id = p_session_id
+    order by count_number desc limit 1;
+
+  if v_has_count2 or round(v_latest_total, 2) = v_expected then
+    update public.cash_sessions set
+      status = 'closed', closed_at = now(), closed_by = auth.uid(), updated_at = now()
+    where id = p_session_id and status = 'open';
+    get diagnostics v_rows = row_count;
+    if v_rows = 0 then raise exception 'Esta caja ya está cerrada.'; end if;
+    return jsonb_build_object('session_id', p_session_id, 'status', 'closed', 'second_count_required', false);
+  else
+    return jsonb_build_object('session_id', p_session_id, 'status', 'open', 'second_count_required', true);
+  end if;
+end;
+$function$;
+
+revoke all on function public.finish_till_count(uuid) from public, anon;
+grant execute on function public.finish_till_count(uuid) to authenticated;
+
+-- authorize_cash_session: solo admin/finanzas. Aquí, y SOLO aquí, se
+-- calcula y guarda expected/real/difference/classification.
+create or replace function public.authorize_cash_session(p_session_id uuid, p_notes text default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_company_id uuid;
+  v_role text;
+  v_session public.cash_sessions%rowtype;
+  v_expected numeric(12,2);
+  v_real numeric(12,2);
+  v_diff numeric(12,2);
+  v_classification text;
+  v_rows int;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  v_role := public.current_user_role()::text;
+  if not public.current_user_is_platform_admin() and v_role not in ('admin','finanzas') then
+    raise exception 'Solo un administrador o finanzas puede autorizar un corte de caja.';
+  end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
+
+  select * into v_session from public.cash_sessions
+    where id = p_session_id and company_id = v_company_id
+    for update;
+  if not found then raise exception 'Caja no encontrada.'; end if;
+  if v_session.status <> 'closed' then raise exception 'Esta caja todavía no está cerrada.'; end if;
+  if v_session.review_status = 'authorized' then raise exception 'Este corte ya fue autorizado.'; end if;
+
+  v_expected := public.compute_cash_session_expected(p_session_id);
+
+  select counted_cash_total into v_real from public.till_counts
+    where cash_session_id = p_session_id
+    order by count_number desc limit 1;
+  if v_real is null then raise exception 'Esta caja no tiene ningún conteo registrado.'; end if;
+
+  v_diff := round(v_real - v_expected, 2);
+  v_classification := case when v_diff = 0 then 'cuadrado' when v_diff < 0 then 'faltante' else 'sobrante' end;
+
+  update public.cash_sessions set
+    expected_amount = v_expected,
+    real_amount = v_real,
+    difference = v_diff,
+    classification = v_classification,
+    review_status = 'authorized',
+    reviewed_by = auth.uid(),
+    reviewed_at = now(),
+    review_notes = nullif(btrim(coalesce(p_notes,'')),''),
+    updated_at = now()
+  where id = p_session_id and review_status = 'pending';
+  get diagnostics v_rows = row_count;
+  if v_rows = 0 then raise exception 'Este corte ya fue autorizado.'; end if;
+
+  return jsonb_build_object(
+    'session_id', p_session_id,
+    'expected_amount', v_expected,
+    'real_amount', v_real,
+    'difference', v_diff,
+    'classification', v_classification
+  );
+end;
+$function$;
+
+revoke all on function public.authorize_cash_session(uuid, text) from public, anon;
+grant execute on function public.authorize_cash_session(uuid, text) to authenticated;

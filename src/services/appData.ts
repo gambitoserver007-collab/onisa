@@ -1534,6 +1534,8 @@ export interface CashSession {
   openedBy: string | null;
   closedBy: string | null;
   tillId: string | null;
+  reviewStatus: "pending" | "authorized";
+  classification: "cuadrado" | "faltante" | "sobrante" | null;
 }
 
 export interface CashMovement {
@@ -1544,8 +1546,15 @@ export interface CashMovement {
   movementAt: string;
 }
 
-const CASH_SESSION_COLS =
-  "id, status, opening_amount, opened_at, closed_at, real_amount, expected_amount, difference, opened_by, closed_by, till_id";
+// Dos listas de columnas: la "segura" (sin cifras) es la que debe usar
+// cualquier lectura que un cajero pueda disparar -- el arqueo ciego exige
+// que nunca vea el esperado/real/diferencia, ni siquiera de sesiones ya
+// autorizadas de otras personas. No es un reemplazo de RLS (que es por
+// fila, no por columna): es un allowlist a nivel de código, igual que el
+// resto de los controles por rol en este proyecto (ver src/lib/permissions.ts).
+const CASH_SESSION_COLS_SAFE =
+  "id, status, opening_amount, opened_at, closed_at, opened_by, closed_by, till_id, review_status";
+const CASH_SESSION_COLS_FULL = `${CASH_SESSION_COLS_SAFE}, real_amount, expected_amount, difference, classification`;
 
 function mapCashSession(row: {
   id: string;
@@ -1553,12 +1562,14 @@ function mapCashSession(row: {
   opening_amount: number;
   opened_at: string;
   closed_at: string | null;
-  real_amount: number | null;
-  expected_amount: number;
-  difference: number | null;
+  real_amount?: number | null;
+  expected_amount?: number | null;
+  difference?: number | null;
   opened_by?: string | null;
   closed_by?: string | null;
   till_id?: string | null;
+  review_status?: string | null;
+  classification?: string | null;
 }): CashSession {
   return {
     id: row.id,
@@ -1567,11 +1578,18 @@ function mapCashSession(row: {
     openedAt: row.opened_at,
     closedAt: row.closed_at,
     realAmount: row.real_amount == null ? null : toNumber(row.real_amount),
-    expectedAmount: toNumber(row.expected_amount),
+    expectedAmount: toNumber(row.expected_amount ?? 0),
     difference: row.difference == null ? null : toNumber(row.difference),
     openedBy: row.opened_by ?? null,
     closedBy: row.closed_by ?? null,
     tillId: row.till_id ?? null,
+    reviewStatus: row.review_status === "authorized" ? "authorized" : "pending",
+    classification:
+      row.classification === "cuadrado" ||
+      row.classification === "faltante" ||
+      row.classification === "sobrante"
+        ? row.classification
+        : null,
   };
 }
 
@@ -1597,14 +1615,17 @@ export async function fetchProfileNames(
 // `openedBy`: acota a la sesión abierta por ESE usuario. Necesario desde que
 // puede haber varias cajas abiertas a la vez en la misma sucursal -- sin
 // esto, un cajero vería (y podría cerrar) la caja de otro compañero.
+// `includeFigures`: false para cualquier lectura que dispare un cajero (ver
+// comentario en CASH_SESSION_COLS_SAFE) -- solo admin/finanzas piden true.
 export async function fetchOpenCashSession(
   companyId?: string,
   locationId?: string,
   openedBy?: string,
+  includeFigures = false,
 ): Promise<CashSession | null> {
   let query = supabase
     .from("cash_sessions")
-    .select(CASH_SESSION_COLS)
+    .select(includeFigures ? CASH_SESSION_COLS_FULL : CASH_SESSION_COLS_SAFE)
     .eq("status", "open")
     .is("closed_at", null)
     .order("opened_at", { ascending: false })
@@ -1615,24 +1636,27 @@ export async function fetchOpenCashSession(
   const { data, error } = await query;
   if (error) throw error;
   const row = data?.[0];
-  return row ? mapCashSession(row) : null;
+  return row ? mapCashSession(row as never) : null;
 }
 
 export async function fetchCashClosings(
   companyId?: string,
   locationId?: string,
+  openedBy?: string,
+  includeFigures = false,
 ): Promise<CashSession[]> {
   let query = supabase
     .from("cash_sessions")
-    .select(CASH_SESSION_COLS)
+    .select(includeFigures ? CASH_SESSION_COLS_FULL : CASH_SESSION_COLS_SAFE)
     .eq("status", "closed")
     .order("closed_at", { ascending: false })
     .limit(20);
   if (companyId) query = query.eq("company_id", companyId);
   if (locationId) query = query.eq("location_id", locationId);
+  if (openedBy) query = query.eq("opened_by", openedBy);
   const { data, error } = await query;
   if (error) throw error;
-  return (data ?? []).map(mapCashSession);
+  return (data ?? []).map((row) => mapCashSession(row as never));
 }
 
 export async function fetchCashMovements(
@@ -1687,28 +1711,183 @@ export async function createCashMovement(
   if (error) throw error;
 }
 
-export async function closeCashSession(
-  _session: DemoSession,
+// ---- Arqueo ciego: conteo por denominación, segundo conteo, autorización ----
+// (Etapas 3-4 del módulo de caja). Reemplaza al viejo closeCashSession de
+// un solo paso.
+
+export interface TillCountLine {
+  denomination: number;
+  quantity: number;
+  subtotal: number;
+}
+
+export interface TillCount {
+  id: string;
+  countNumber: 1 | 2;
+  countedBy: string;
+  countedAt: string;
+  countedCashTotal: number;
+  cardTotal: number;
+  transferTotal: number;
+  otherTotal: number;
+  lines: TillCountLine[];
+}
+
+// Respuesta de submit_till_count: a propósito NO incluye expected_amount ni
+// difference -- esa RPC literalmente no los calcula. No agregar esos campos
+// aquí aunque el backend algún día los mande por error: el punto es que este
+// tipo documente el contrato "nunca se le revela el esperado al cajero".
+export interface SubmitTillCountResult {
+  countId: string;
+  countNumber: 1 | 2;
+  countedCashTotal: number;
+  cardTotal: number;
+  transferTotal: number;
+  otherTotal: number;
+}
+
+export async function submitTillCount(
   sessionId: string,
-  _expectedAmount: number,
-  realAmount: number,
-) {
-  // The server recomputes expected = opening + cash movements + cash sales of the shift
-  // and only closes sessions that are still open (race-safe).
-  const { data, error } = await supabase.rpc("close_cash_session", {
+  denominations: { denomination: number; quantity: number }[],
+): Promise<SubmitTillCountResult> {
+  const { data, error } = await supabase.rpc("submit_till_count", {
     p_session_id: sessionId,
-    p_real_amount: realAmount,
+    p_denominations: denominations,
   });
   if (error) throw error;
-  return data as {
-    session_id: string;
-    opening_amount: number;
-    movements: number;
-    cash_sales: number;
+  const row = data as {
+    count_id: string;
+    count_number: number;
+    counted_cash_total: number;
+    card_total: number;
+    transfer_total: number;
+    other_total: number;
+  };
+  return {
+    countId: row.count_id,
+    countNumber: row.count_number === 2 ? 2 : 1,
+    countedCashTotal: toNumber(row.counted_cash_total),
+    cardTotal: toNumber(row.card_total),
+    transferTotal: toNumber(row.transfer_total),
+    otherTotal: toNumber(row.other_total),
+  };
+}
+
+export async function finishTillCount(
+  sessionId: string,
+): Promise<{ status: string; secondCountRequired: boolean }> {
+  const { data, error } = await supabase.rpc("finish_till_count", {
+    p_session_id: sessionId,
+  });
+  if (error) throw error;
+  const row = data as { status: string; second_count_required: boolean };
+  return { status: row.status, secondCountRequired: row.second_count_required };
+}
+
+// Admin/finanzas únicamente -- aquí (y solo aquí) se calculan y devuelven
+// expected_amount/real_amount/difference/classification.
+export async function authorizeCashSession(
+  sessionId: string,
+  notes?: string,
+): Promise<{
+  expectedAmount: number;
+  realAmount: number;
+  difference: number;
+  classification: "cuadrado" | "faltante" | "sobrante";
+}> {
+  const { data, error } = await supabase.rpc("authorize_cash_session", {
+    p_session_id: sessionId,
+    p_notes: notes ?? undefined,
+  });
+  if (error) throw error;
+  const row = data as {
     expected_amount: number;
     real_amount: number;
     difference: number;
+    classification: string;
   };
+  return {
+    expectedAmount: toNumber(row.expected_amount),
+    realAmount: toNumber(row.real_amount),
+    difference: toNumber(row.difference),
+    classification: row.classification as "cuadrado" | "faltante" | "sobrante",
+  };
+}
+
+export async function fetchTillCounts(sessionId: string): Promise<TillCount[]> {
+  const { data: counts, error } = await supabase
+    .from("till_counts")
+    .select(
+      "id, count_number, counted_by, counted_at, counted_cash_total, card_total, transfer_total, other_total",
+    )
+    .eq("cash_session_id", sessionId)
+    .order("count_number", { ascending: true });
+  if (error) throw error;
+  const countIds = (counts ?? []).map((c) => c.id);
+  let linesByCount: Record<string, TillCountLine[]> = {};
+  if (countIds.length) {
+    const { data: lines, error: linesError } = await supabase
+      .from("till_count_lines")
+      .select("till_count_id, denomination, quantity, subtotal")
+      .in("till_count_id", countIds);
+    if (linesError) throw linesError;
+    linesByCount = {};
+    for (const line of lines ?? []) {
+      const arr = (linesByCount[line.till_count_id] ??= []);
+      arr.push({
+        denomination: toNumber(line.denomination),
+        quantity: line.quantity,
+        subtotal: toNumber(line.subtotal),
+      });
+    }
+  }
+  return (counts ?? []).map((c) => ({
+    id: c.id,
+    countNumber: c.count_number === 2 ? 2 : 1,
+    countedBy: c.counted_by,
+    countedAt: c.counted_at,
+    countedCashTotal: toNumber(c.counted_cash_total),
+    cardTotal: toNumber(c.card_total),
+    transferTotal: toNumber(c.transfer_total),
+    otherTotal: toNumber(c.other_total),
+    lines: (linesByCount[c.id] ?? []).sort(
+      (a, b) => b.denomination - a.denomination,
+    ),
+  }));
+}
+
+export interface PendingReviewSession extends CashSession {
+  locationName: string;
+  tillName: string | null;
+}
+
+// Cola de revisión para /caja/revision (admin/finanzas): cierres que ya
+// pasaron por finish_till_count pero nadie ha autorizado todavía.
+export async function fetchPendingReviewSessions(
+  companyId?: string,
+  locationId?: string,
+): Promise<PendingReviewSession[]> {
+  let query = supabase
+    .from("cash_sessions")
+    .select(`${CASH_SESSION_COLS_FULL}, locations(name), tills(name)`)
+    .eq("status", "closed")
+    .eq("review_status", "pending")
+    .order("closed_at", { ascending: true });
+  if (companyId) query = query.eq("company_id", companyId);
+  if (locationId) query = query.eq("location_id", locationId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map((row) => {
+    const r = row as unknown as {
+      locations: { name: string } | null;
+      tills: { name: string } | null;
+    };
+    return {
+      ...mapCashSession(row as never),
+      locationName: r.locations?.name ?? "—",
+      tillName: r.tills?.name ?? null,
+    };
+  });
 }
 
 export interface CompanyProfile {

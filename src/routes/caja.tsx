@@ -1,15 +1,20 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
   Banknote,
+  ClipboardCheck,
   Plus,
   Store,
   Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
 import { DemoGuardedButton } from "@/components/demo/DemoGuardedButton";
+import {
+  DenominationCountForm,
+  type DenominationLine,
+} from "@/components/caja/DenominationCountForm";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { FallbackNotice } from "@/components/layout/FallbackNotice";
@@ -48,17 +53,20 @@ import { useDemoSession } from "@/hooks/useDemoSession";
 import { useSales } from "@/hooks/useSales";
 import { blockDemoAction } from "@/lib/demoMode";
 import {
-  closeCashSession,
   createCashMovement,
   fetchCashClosings,
   fetchCashMovements,
   fetchOpenCashSession,
   fetchProfileNames,
+  fetchTillCounts,
   fetchTills,
+  finishTillCount,
   openCashSession,
+  submitTillCount,
   type CashMovement,
   type CashSession,
   type Till,
+  type TillCount,
   getErrorMessage,
 } from "@/services/appData";
 
@@ -77,6 +85,8 @@ const DEMO_SESSION: CashSession = {
   openedBy: null,
   closedBy: null,
   tillId: null,
+  reviewStatus: "pending",
+  classification: null,
 };
 const DEMO_MOVEMENTS: CashMovement[] = [
   {
@@ -114,6 +124,8 @@ const DEMO_CLOSINGS: CashSession[] = [
     openedBy: null,
     closedBy: null,
     tillId: null,
+    reviewStatus: "authorized",
+    classification: "cuadrado",
   },
   {
     id: "CJ-0010",
@@ -127,13 +139,24 @@ const DEMO_CLOSINGS: CashSession[] = [
     openedBy: null,
     closedBy: null,
     tillId: null,
+    reviewStatus: "authorized",
+    classification: "faltante",
   },
 ];
+
+const CLASSIFICATION_LABELS: Record<string, string> = {
+  cuadrado: "Cuadrado",
+  faltante: "Faltante",
+  sobrante: "Sobrante",
+};
 
 function Caja() {
   const { formatMoney, settings } = useBusinessSettings();
   const { session, isDemo, role } = useDemoSession();
   const { currentLocationId, locations } = useCurrentLocation();
+  // Solo admin/finanzas ven el esperado/real/diferencia -- el arqueo ciego
+  // exige que el cajero nunca los vea, ni siquiera de turnos ya autorizados.
+  const canSeeFigures = role === "admin" || role === "finanzas";
   // La caja es de un local: el cajero usa el suyo; el admin, el local activo.
   // "Todas las tiendas" no aplica a la caja → exige elegir una sucursal.
   const resolvedLocationId =
@@ -155,6 +178,7 @@ function Caja() {
   const [closings, setClosings] = useState<CashSession[]>([]);
   const [profileNames, setProfileNames] = useState<Record<string, string>>({});
   const [tills, setTills] = useState<Till[]>([]);
+  const [tillCounts, setTillCounts] = useState<TillCount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
@@ -178,8 +202,8 @@ function Caja() {
   const [movConcept, setMovConcept] = useState("");
   const [movAmount, setMovAmount] = useState("");
 
-  const [closeDialog, setCloseDialog] = useState(false);
-  const [realAmount, setRealAmount] = useState("");
+  const [countDialog, setCountDialog] = useState(false);
+  const [countBusy, setCountBusy] = useState(false);
 
   const load = async () => {
     setIsLoading(true);
@@ -192,17 +216,27 @@ function Caja() {
           companyId,
           cajaLocationId ?? undefined,
           session?.userId,
+          canSeeFigures,
         ),
-        fetchCashClosings(companyId, cajaLocationId ?? undefined),
+        // Admin/finanzas ven el historial de toda la sucursal (supervisión);
+        // un cajero solo el suyo, y sin cifras.
+        fetchCashClosings(
+          companyId,
+          cajaLocationId ?? undefined,
+          canSeeFigures ? undefined : session?.userId,
+          canSeeFigures,
+        ),
         fetchProfileNames(companyId),
         cajaLocationId ? fetchTills(cajaLocationId) : Promise.resolve([]),
       ]);
       const mv = current ? await fetchCashMovements(current.id) : [];
+      const tc = current ? await fetchTillCounts(current.id) : [];
       setOpenSession(current);
       setClosings(history);
       setProfileNames(names);
       setMovements(mv);
       setTills(tillsList);
+      setTillCounts(tc);
       setLoadError(false);
     } catch {
       setLoadError(true);
@@ -210,6 +244,7 @@ function Caja() {
       setClosings([]);
       setMovements([]);
       setTills([]);
+      setTillCounts([]);
     } finally {
       setIsLoading(false);
     }
@@ -222,6 +257,9 @@ function Caja() {
 
   // Ventas en efectivo del TURNO: solo las hechas desde que se abrió la caja
   // (compara la marca de tiempo exacta de la venta con la hora de apertura).
+  // Esto es solo un estimado en vivo para admin/finanzas mientras la caja
+  // sigue abierta -- el número que de verdad cuenta para el arqueo lo
+  // calcula el servidor al autorizar, nunca este cálculo del navegador.
   const cashSales = useMemo(() => {
     if (!openSession) return 0;
     const openedAt = openSession.openedAt;
@@ -252,6 +290,11 @@ function Caja() {
   const ingresosView = preview ? 0 : ingresos;
   const egresosView = preview ? -15 : egresos;
   const expectedView = preview ? 505.5 : expected;
+
+  const hasCount1 = tillCounts.some((c) => c.countNumber === 1);
+  const hasCount2 = tillCounts.some((c) => c.countNumber === 2);
+  const count1 = tillCounts.find((c) => c.countNumber === 1);
+  const iDidCount1 = !!count1 && count1.countedBy === session?.userId;
 
   const fmtTime = (iso: string) => {
     try {
@@ -332,29 +375,30 @@ function Caja() {
     }
   };
 
-  const handleClose = async () => {
+  const handleSubmitCount = async (lines: DenominationLine[]) => {
     if (isDemo) return blockDemoAction();
     if (!session || !openSession) return;
-    setBusy(true);
+    setCountBusy(true);
     try {
-      await closeCashSession(
-        session,
-        openSession.id,
-        expected,
-        Number(realAmount) || 0,
-      );
-      setCloseDialog(false);
-      setRealAmount("");
-      toast.success("Caja cerrada.");
+      await submitTillCount(openSession.id, lines);
+      const finish = await finishTillCount(openSession.id);
+      setCountDialog(false);
+      if (finish.status === "closed") {
+        toast.success(
+          "Caja cerrada. Queda pendiente de que admin la autorice.",
+        );
+      } else {
+        toast(
+          "Conteo registrado. Se necesita un segundo conteo, hecho por otra persona, antes de cerrar.",
+        );
+      }
       await load();
     } catch (error) {
-      toast.error(getErrorMessage(error, "No se pudo cerrar la caja."));
+      toast.error(getErrorMessage(error, "No se pudo registrar el conteo."));
     } finally {
-      setBusy(false);
+      setCountBusy(false);
     }
   };
-
-  const realPreview = (Number(realAmount) || 0) - expected;
 
   // Sin sucursal concreta (admin con "Todas las tiendas") no hay caja que abrir:
   // se pide elegir una en el selector de arriba.
@@ -404,9 +448,18 @@ function Caja() {
         title="Caja"
         description="Control de apertura y cierre."
         actions={
-          <Badge variant={sessionView ? "success" : "outline"}>
-            {sessionView ? "Abierta" : "Cerrada"}
-          </Badge>
+          <div className="flex items-center gap-2">
+            {canSeeFigures && (
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/caja/revision">
+                  <ClipboardCheck className="mr-1 h-4 w-4" /> Revisar cierres
+                </Link>
+              </Button>
+            )}
+            <Badge variant={sessionView ? "success" : "outline"}>
+              {sessionView ? "Abierta" : "Cerrada"}
+            </Badge>
+          </div>
         }
       />
 
@@ -415,20 +468,26 @@ function Caja() {
         ejemplo.
       </FallbackNotice>
 
-      <div className="mb-4 grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
-              <Banknote className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="text-xs text-muted-foreground">Esperado en caja</p>
-              <p className="text-2xl font-black tabular-nums">
-                {formatMoney(expectedView)}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+      <div
+        className={`mb-4 grid gap-4 ${canSeeFigures ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}
+      >
+        {canSeeFigures && (
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
+                <Banknote className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-xs text-muted-foreground">
+                  Esperado en caja
+                </p>
+                <p className="text-2xl font-black tabular-nums">
+                  {formatMoney(expectedView)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
@@ -480,12 +539,14 @@ function Caja() {
                   />
                   <Row label="Ingresos" value={formatMoney(ingresosView)} />
                   <Row label="Egresos" value={formatMoney(egresosView)} />
-                  <div className="mt-1 flex justify-between border-t border-border/60 pt-2 font-bold">
-                    <span>Esperado</span>
-                    <span className="tabular-nums">
-                      {formatMoney(expectedView)}
-                    </span>
-                  </div>
+                  {canSeeFigures && (
+                    <div className="mt-1 flex justify-between border-t border-border/60 pt-2 font-bold">
+                      <span>Esperado</span>
+                      <span className="tabular-nums">
+                        {formatMoney(expectedView)}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <p className="px-1 text-xs text-muted-foreground">
                   {tillName(sessionView.tillId) && (
@@ -510,13 +571,40 @@ function Caja() {
                 >
                   <Plus className="mr-1 h-4 w-4" /> Agregar movimiento
                 </DemoGuardedButton>
-                <DemoGuardedButton
-                  variant="destructive"
-                  className="w-full"
-                  onAllowedClick={() => setCloseDialog(true)}
-                >
-                  Cerrar caja
-                </DemoGuardedButton>
+
+                {!hasCount1 && (
+                  <DemoGuardedButton
+                    variant="destructive"
+                    className="w-full"
+                    onAllowedClick={() => setCountDialog(true)}
+                  >
+                    Cerrar caja
+                  </DemoGuardedButton>
+                )}
+
+                {hasCount1 && !hasCount2 && (
+                  <div className="space-y-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                    <p className="text-amber-700 dark:text-amber-400">
+                      El primer conteo no cuadró. Se necesita un{" "}
+                      <strong>segundo conteo</strong>, hecho por{" "}
+                      <strong>otra persona</strong>, antes de cerrar.
+                    </p>
+                    {iDidCount1 ? (
+                      <p className="text-xs text-muted-foreground">
+                        Tú hiciste el primer conteo — pide que otra persona
+                        entre con su cuenta y complete el segundo.
+                      </p>
+                    ) : (
+                      <DemoGuardedButton
+                        variant="destructive"
+                        className="w-full"
+                        onAllowedClick={() => setCountDialog(true)}
+                      >
+                        Hacer segundo conteo
+                      </DemoGuardedButton>
+                    )}
+                  </div>
+                )}
               </>
             ) : (
               <>
@@ -635,15 +723,21 @@ function Caja() {
                 <TableRow>
                   <TableHead>Turno</TableHead>
                   <TableHead className="text-right">Apertura</TableHead>
-                  <TableHead className="text-right">Esperado</TableHead>
-                  <TableHead className="text-right">Real</TableHead>
-                  <TableHead className="text-right">Diferencia</TableHead>
+                  {canSeeFigures ? (
+                    <>
+                      <TableHead className="text-right">Esperado</TableHead>
+                      <TableHead className="text-right">Real</TableHead>
+                      <TableHead className="text-right">Diferencia</TableHead>
+                    </>
+                  ) : (
+                    <TableHead className="text-right">Estado</TableHead>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {!isLoading && closingsView.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5}>
+                    <TableCell colSpan={canSeeFigures ? 5 : 3}>
                       <EmptyState
                         emoji="🧾"
                         title="Sin cierres todavía"
@@ -676,23 +770,53 @@ function Caja() {
                     <TableCell className="text-right tabular-nums">
                       {formatMoney(closing.openingAmount)}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatMoney(closing.expectedAmount)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatMoney(closing.realAmount ?? 0)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Badge
-                        variant={
-                          (closing.difference ?? 0) < 0
-                            ? "destructive"
-                            : "success"
-                        }
-                      >
-                        {formatMoney(closing.difference ?? 0)}
-                      </Badge>
-                    </TableCell>
+                    {canSeeFigures ? (
+                      closing.reviewStatus === "authorized" ? (
+                        <>
+                          <TableCell className="text-right tabular-nums">
+                            {formatMoney(closing.expectedAmount)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatMoney(closing.realAmount ?? 0)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Badge
+                              variant={
+                                closing.classification === "cuadrado"
+                                  ? "success"
+                                  : closing.classification === "faltante"
+                                    ? "destructive"
+                                    : "warm"
+                              }
+                            >
+                              {closing.classification
+                                ? CLASSIFICATION_LABELS[closing.classification]
+                                : "—"}
+                            </Badge>
+                          </TableCell>
+                        </>
+                      ) : (
+                        <TableCell colSpan={3} className="text-right">
+                          <Badge variant="outline">
+                            Pendiente de autorizar
+                          </Badge>
+                        </TableCell>
+                      )
+                    ) : (
+                      <TableCell className="text-right">
+                        <Badge
+                          variant={
+                            closing.reviewStatus === "authorized"
+                              ? "success"
+                              : "outline"
+                          }
+                        >
+                          {closing.reviewStatus === "authorized"
+                            ? "Autorizado"
+                            : "Pendiente de revisión"}
+                        </Badge>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -754,46 +878,26 @@ function Caja() {
         </DialogContent>
       </Dialog>
 
-      {/* Close cash dialog */}
-      <Dialog open={closeDialog} onOpenChange={setCloseDialog}>
-        <DialogContent>
+      {/* Arqueo ciego: conteo por denominación (1er o 2do conteo) */}
+      <Dialog open={countDialog} onOpenChange={setCountDialog}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Cerrar caja (arqueo)</DialogTitle>
+            <DialogTitle>
+              {hasCount1 ? "Segundo conteo" : "Cerrar caja — conteo ciego"}
+            </DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="flex justify-between rounded-2xl bg-muted/50 p-3 text-sm">
-              <span className="text-muted-foreground">Esperado en caja</span>
-              <span className="font-bold tabular-nums">
-                {formatMoney(expected)}
-              </span>
-            </div>
-            <div className="space-y-1">
-              <Label>Efectivo real contado</Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="0.00"
-                value={realAmount}
-                onChange={(event) => setRealAmount(event.target.value)}
-              />
-            </div>
-            {realAmount !== "" && (
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Diferencia</span>
-                <span
-                  className={`font-bold tabular-nums ${realPreview < 0 ? "text-destructive" : "text-primary"}`}
-                >
-                  {formatMoney(realPreview)}
-                </span>
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="destructive" disabled={busy} onClick={handleClose}>
-              {busy ? "Cerrando..." : "Cerrar caja"}
-            </Button>
-          </DialogFooter>
+          {!hasCount1 && (
+            <p className="text-sm text-muted-foreground">
+              Cuenta los billetes y monedas que hay en la caja. No podrás ver
+              cuánto se esperaba hasta que un administrador autorice este corte.
+            </p>
+          )}
+          <DenominationCountForm
+            busy={countBusy}
+            onSubmit={handleSubmitCount}
+            formatMoney={formatMoney}
+            submitLabel={hasCount1 ? "Enviar segundo conteo" : "Enviar conteo"}
+          />
         </DialogContent>
       </Dialog>
     </AppShell>

@@ -199,6 +199,75 @@ export async function createSale(
   };
 }
 
+export async function submitTillCount(
+  db: PGlite,
+  sessionId: string,
+  denominations: { denomination: number; quantity: number }[],
+): Promise<{
+  count_id: string;
+  count_number: number;
+  counted_cash_total: number;
+  card_total: number;
+  transfer_total: number;
+  other_total: number;
+}> {
+  const { rows } = await db.query<{ submit_till_count: unknown }>(
+    "select submit_till_count($1, $2::jsonb) as submit_till_count",
+    [sessionId, JSON.stringify(denominations)],
+  );
+  return rows[0].submit_till_count as {
+    count_id: string;
+    count_number: number;
+    counted_cash_total: number;
+    card_total: number;
+    transfer_total: number;
+    other_total: number;
+  };
+}
+
+export async function finishTillCount(
+  db: PGlite,
+  sessionId: string,
+): Promise<{
+  session_id: string;
+  status: string;
+  second_count_required: boolean;
+}> {
+  const { rows } = await db.query<{ finish_till_count: unknown }>(
+    "select finish_till_count($1) as finish_till_count",
+    [sessionId],
+  );
+  return rows[0].finish_till_count as {
+    session_id: string;
+    status: string;
+    second_count_required: boolean;
+  };
+}
+
+export async function authorizeCashSession(
+  db: PGlite,
+  sessionId: string,
+  notes?: string,
+): Promise<{
+  session_id: string;
+  expected_amount: number;
+  real_amount: number;
+  difference: number;
+  classification: string;
+}> {
+  const { rows } = await db.query<{ authorize_cash_session: unknown }>(
+    "select authorize_cash_session($1, $2) as authorize_cash_session",
+    [sessionId, notes ?? null],
+  );
+  return rows[0].authorize_cash_session as {
+    session_id: string;
+    expected_amount: number;
+    real_amount: number;
+    difference: number;
+    classification: string;
+  };
+}
+
 /** Extrae un mensaje de error legible sin importar la forma exacta del throw. */
 export function errMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
