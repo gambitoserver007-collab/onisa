@@ -468,10 +468,14 @@ function Caja() {
         ejemplo.
       </FallbackNotice>
 
-      <div
-        className={`mb-4 grid gap-4 ${canSeeFigures ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}
-      >
-        {canSeeFigures && (
+      {/* Estas 3 tarjetas (esperado, ventas en efectivo, egresos) son
+          justo lo que el arqueo ciego debe ocultar: mostrar cualquier
+          subconjunto de los ingredientes de la fórmula (aunque se
+          esconda el resultado final) deja que se sume a mano y se
+          reconstruya el esperado. Por eso todo el bloque es solo para
+          admin/finanzas, nunca para quien va a hacer el conteo. */}
+      {canSeeFigures && (
+        <div className="mb-4 grid gap-4 sm:grid-cols-3">
           <Card>
             <CardContent className="flex items-center gap-3 p-4">
               <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
@@ -487,36 +491,36 @@ function Caja() {
               </div>
             </CardContent>
           </Card>
-        )}
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
-              <ArrowUpCircle className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="text-xs text-muted-foreground">
-                Ventas en efectivo
-              </p>
-              <p className="text-2xl font-black tabular-nums">
-                {formatMoney(cashSalesView)}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
-              <ArrowDownCircle className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="text-xs text-muted-foreground">Egresos</p>
-              <p className="text-2xl font-black tabular-nums">
-                {formatMoney(egresosView)}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
+                <ArrowUpCircle className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-xs text-muted-foreground">
+                  Ventas en efectivo
+                </p>
+                <p className="text-2xl font-black tabular-nums">
+                  {formatMoney(cashSalesView)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
+                <ArrowDownCircle className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-xs text-muted-foreground">Egresos</p>
+                <p className="text-2xl font-black tabular-nums">
+                  {formatMoney(egresosView)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card>
@@ -528,26 +532,26 @@ function Caja() {
           <CardContent className="space-y-3">
             {sessionView ? (
               <>
-                <div className="space-y-1.5 rounded-2xl border border-border/70 p-3 text-sm">
-                  <Row
-                    label="Apertura"
-                    value={formatMoney(sessionView.openingAmount)}
-                  />
-                  <Row
-                    label="Ventas efectivo"
-                    value={formatMoney(cashSalesView)}
-                  />
-                  <Row label="Ingresos" value={formatMoney(ingresosView)} />
-                  <Row label="Egresos" value={formatMoney(egresosView)} />
-                  {canSeeFigures && (
+                {canSeeFigures && (
+                  <div className="space-y-1.5 rounded-2xl border border-border/70 p-3 text-sm">
+                    <Row
+                      label="Apertura"
+                      value={formatMoney(sessionView.openingAmount)}
+                    />
+                    <Row
+                      label="Ventas efectivo"
+                      value={formatMoney(cashSalesView)}
+                    />
+                    <Row label="Ingresos" value={formatMoney(ingresosView)} />
+                    <Row label="Egresos" value={formatMoney(egresosView)} />
                     <div className="mt-1 flex justify-between border-t border-border/60 pt-2 font-bold">
                       <span>Esperado</span>
                       <span className="tabular-nums">
                         {formatMoney(expectedView)}
                       </span>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
                 <p className="px-1 text-xs text-muted-foreground">
                   {tillName(sessionView.tillId) && (
                     <>
