@@ -58,6 +58,7 @@ import {
   fetchCashMovements,
   fetchOpenCashSession,
   fetchProfileNames,
+  fetchSessionsNeedingSecondCount,
   fetchTillCounts,
   fetchTills,
   finishTillCount,
@@ -179,6 +180,11 @@ function Caja() {
   const [profileNames, setProfileNames] = useState<Record<string, string>>({});
   const [tills, setTills] = useState<Till[]>([]);
   const [tillCounts, setTillCounts] = useState<TillCount[]>([]);
+  // Caja abierta por OTRA persona que ya tiene su primer conteo (no cuadró)
+  // y espera que alguien distinto haga el segundo -- sin esto, nadie más
+  // que quien la abrió puede siquiera VER que existe.
+  const [helpSession, setHelpSession] = useState<CashSession | null>(null);
+  const [helpSessionCounts, setHelpSessionCounts] = useState<TillCount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
@@ -231,12 +237,27 @@ function Caja() {
       ]);
       const mv = current ? await fetchCashMovements(current.id) : [];
       const tc = current ? await fetchTillCounts(current.id) : [];
+      // Sin caja propia: busca si alguien más dejó una caja de esta
+      // sucursal esperando un segundo conteo que yo pueda hacer.
+      let help: CashSession | null = null;
+      let helpCounts: TillCount[] = [];
+      if (!current && companyId && cajaLocationId && session?.userId) {
+        const candidates = await fetchSessionsNeedingSecondCount(
+          companyId,
+          cajaLocationId,
+          session.userId,
+        );
+        help = candidates[0] ?? null;
+        helpCounts = help ? await fetchTillCounts(help.id) : [];
+      }
       setOpenSession(current);
       setClosings(history);
       setProfileNames(names);
       setMovements(mv);
       setTills(tillsList);
       setTillCounts(tc);
+      setHelpSession(help);
+      setHelpSessionCounts(helpCounts);
       setLoadError(false);
     } catch {
       setLoadError(true);
@@ -245,6 +266,8 @@ function Caja() {
       setMovements([]);
       setTills([]);
       setTillCounts([]);
+      setHelpSession(null);
+      setHelpSessionCounts([]);
     } finally {
       setIsLoading(false);
     }
@@ -295,6 +318,11 @@ function Caja() {
   const hasCount2 = tillCounts.some((c) => c.countNumber === 2);
   const count1 = tillCounts.find((c) => c.countNumber === 1);
   const iDidCount1 = !!count1 && count1.countedBy === session?.userId;
+
+  // Sesión sobre la que actúa el diálogo de conteo: la mía si tengo una
+  // abierta; si no, la de otra persona que estoy ayudando a cerrar.
+  const activeSessionId = openSession?.id ?? helpSession?.id ?? null;
+  const helpCount1 = helpSessionCounts.find((c) => c.countNumber === 1);
 
   const fmtTime = (iso: string) => {
     try {
@@ -377,11 +405,11 @@ function Caja() {
 
   const handleSubmitCount = async (lines: DenominationLine[]) => {
     if (isDemo) return blockDemoAction();
-    if (!session || !openSession) return;
+    if (!session || !activeSessionId) return;
     setCountBusy(true);
     try {
-      await submitTillCount(openSession.id, lines);
-      const finish = await finishTillCount(openSession.id);
+      await submitTillCount(activeSessionId, lines);
+      const finish = await finishTillCount(activeSessionId);
       setCountDialog(false);
       if (finish.status === "closed") {
         toast.success(
@@ -526,7 +554,11 @@ function Caja() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
-              {sessionView ? "Estado de caja" : "Abrir caja"}
+              {sessionView
+                ? "Estado de caja"
+                : helpSession
+                  ? "Ayudar a cerrar una caja"
+                  : "Abrir caja"}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -609,6 +641,33 @@ function Caja() {
                     )}
                   </div>
                 )}
+              </>
+            ) : helpSession ? (
+              <>
+                <div className="space-y-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                  <p className="text-amber-700 dark:text-amber-400">
+                    {tillName(helpSession.tillId) && (
+                      <>
+                        <strong>{tillName(helpSession.tillId)}</strong>
+                        {" · "}
+                      </>
+                    )}
+                    Esta caja tiene un primer conteo que no cuadró y espera un{" "}
+                    <strong>segundo conteo</strong> de alguien distinto a quien
+                    la contó primero.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Abierta por {nameOf(helpSession.openedBy)} · primer conteo
+                    por {nameOf(helpCount1?.countedBy ?? null)}
+                  </p>
+                </div>
+                <DemoGuardedButton
+                  variant="destructive"
+                  className="w-full"
+                  onAllowedClick={() => setCountDialog(true)}
+                >
+                  Hacer segundo conteo
+                </DemoGuardedButton>
               </>
             ) : (
               <>
@@ -882,15 +941,18 @@ function Caja() {
         </DialogContent>
       </Dialog>
 
-      {/* Arqueo ciego: conteo por denominación (1er o 2do conteo) */}
+      {/* Arqueo ciego: conteo por denominación (1er o 2do conteo, sea mi
+          caja o la de alguien más a quien estoy ayudando). */}
       <Dialog open={countDialog} onOpenChange={setCountDialog}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {hasCount1 ? "Segundo conteo" : "Cerrar caja — conteo ciego"}
+              {hasCount1 || helpSession
+                ? "Segundo conteo"
+                : "Cerrar caja — conteo ciego"}
             </DialogTitle>
           </DialogHeader>
-          {!hasCount1 && (
+          {!hasCount1 && !helpSession && (
             <p className="text-sm text-muted-foreground">
               Cuenta los billetes y monedas que hay en la caja. No podrás ver
               cuánto se esperaba hasta que un administrador autorice este corte.
@@ -900,7 +962,11 @@ function Caja() {
             busy={countBusy}
             onSubmit={handleSubmitCount}
             formatMoney={formatMoney}
-            submitLabel={hasCount1 ? "Enviar segundo conteo" : "Enviar conteo"}
+            submitLabel={
+              hasCount1 || helpSession
+                ? "Enviar segundo conteo"
+                : "Enviar conteo"
+            }
           />
         </DialogContent>
       </Dialog>

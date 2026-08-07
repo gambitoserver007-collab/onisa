@@ -1856,6 +1856,37 @@ export async function fetchTillCounts(sessionId: string): Promise<TillCount[]> {
   }));
 }
 
+// Cajas abiertas por OTRA persona en esta sucursal que ya tienen su primer
+// conteo (no cuadró) y esperan que alguien distinto haga el segundo. Sin
+// esto, cada quien solo puede ver su propia caja (fetchOpenCashSession la
+// acota por opened_by) y nadie tendría forma de ayudar a cerrar la de un
+// compañero -- se quedarían todas abiertas para siempre.
+export async function fetchSessionsNeedingSecondCount(
+  companyId: string,
+  locationId: string,
+  excludeCountedBy: string,
+): Promise<CashSession[]> {
+  const { data, error } = await supabase
+    .from("cash_sessions")
+    .select(CASH_SESSION_COLS_SAFE)
+    .eq("company_id", companyId)
+    .eq("location_id", locationId)
+    .eq("status", "open")
+    .order("opened_at", { ascending: true });
+  if (error) throw error;
+  const sessions = (data ?? []).map((row) => mapCashSession(row as never));
+  const matches: CashSession[] = [];
+  for (const s of sessions) {
+    const counts = await fetchTillCounts(s.id);
+    const count1 = counts.find((c) => c.countNumber === 1);
+    const count2 = counts.find((c) => c.countNumber === 2);
+    if (count1 && !count2 && count1.countedBy !== excludeCountedBy) {
+      matches.push(s);
+    }
+  }
+  return matches;
+}
+
 export interface PendingReviewSession extends CashSession {
   locationName: string;
   tillName: string | null;
