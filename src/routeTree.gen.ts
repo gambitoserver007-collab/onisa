@@ -39,6 +39,7 @@ import { Route as AdminMetodosPagoRouteImport } from './routes/admin.metodos-pag
 import { Route as AdminPaisesRouteImport } from './routes/admin.paises'
 import { Route as AdminPerfilRouteImport } from './routes/admin.perfil'
 import { Route as AdminPlanesRouteImport } from './routes/admin.planes'
+import { Route as CajaReportesRouteImport } from './routes/caja_.reportes'
 import { Route as CajaRevisionRouteImport } from './routes/caja_.revision'
 import { Route as ComprasIndexRouteImport } from './routes/compras.index'
 import { Route as ComprasNuevaRouteImport } from './routes/compras.nueva'
@@ -201,6 +202,11 @@ const AdminPlanesRoute = AdminPlanesRouteImport.update({
   path: '/admin/planes',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CajaReportesRoute = CajaReportesRouteImport.update({
+  id: '/caja_/reportes',
+  path: '/caja/reportes',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CajaRevisionRoute = CajaRevisionRouteImport.update({
   id: '/caja_/revision',
   path: '/caja/revision',
@@ -278,6 +284,7 @@ export interface FileRoutesByFullPath {
   '/admin/paises': typeof AdminPaisesRoute
   '/admin/perfil': typeof AdminPerfilRoute
   '/admin/planes': typeof AdminPlanesRoute
+  '/caja/reportes': typeof CajaReportesRoute
   '/caja/revision': typeof CajaRevisionRoute
   '/compras/nueva': typeof ComprasNuevaRoute
   '/inventario/kardex': typeof InventarioKardexRoute
@@ -319,6 +326,7 @@ export interface FileRoutesByTo {
   '/admin/paises': typeof AdminPaisesRoute
   '/admin/perfil': typeof AdminPerfilRoute
   '/admin/planes': typeof AdminPlanesRoute
+  '/caja/reportes': typeof CajaReportesRoute
   '/caja/revision': typeof CajaRevisionRoute
   '/compras/nueva': typeof ComprasNuevaRoute
   '/inventario/kardex': typeof InventarioKardexRoute
@@ -361,6 +369,7 @@ export interface FileRoutesById {
   '/admin/paises': typeof AdminPaisesRoute
   '/admin/perfil': typeof AdminPerfilRoute
   '/admin/planes': typeof AdminPlanesRoute
+  '/caja_/reportes': typeof CajaReportesRoute
   '/caja_/revision': typeof CajaRevisionRoute
   '/compras/nueva': typeof ComprasNuevaRoute
   '/inventario/kardex': typeof InventarioKardexRoute
@@ -404,6 +413,7 @@ export interface FileRouteTypes {
     | '/admin/paises'
     | '/admin/perfil'
     | '/admin/planes'
+    | '/caja/reportes'
     | '/caja/revision'
     | '/compras/nueva'
     | '/inventario/kardex'
@@ -445,6 +455,7 @@ export interface FileRouteTypes {
     | '/admin/paises'
     | '/admin/perfil'
     | '/admin/planes'
+    | '/caja/reportes'
     | '/caja/revision'
     | '/compras/nueva'
     | '/inventario/kardex'
@@ -486,6 +497,7 @@ export interface FileRouteTypes {
     | '/admin/paises'
     | '/admin/perfil'
     | '/admin/planes'
+    | '/caja_/reportes'
     | '/caja_/revision'
     | '/compras/nueva'
     | '/inventario/kardex'
@@ -528,6 +540,7 @@ export interface RootRouteChildren {
   AdminPaisesRoute: typeof AdminPaisesRoute
   AdminPerfilRoute: typeof AdminPerfilRoute
   AdminPlanesRoute: typeof AdminPlanesRoute
+  CajaReportesRoute: typeof CajaReportesRoute
   CajaRevisionRoute: typeof CajaRevisionRoute
   ComprasNuevaRoute: typeof ComprasNuevaRoute
   InventarioKardexRoute: typeof InventarioKardexRoute
@@ -752,6 +765,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminPlanesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/caja_/reportes': {
+      id: '/caja_/reportes'
+      path: '/caja/reportes'
+      fullPath: '/caja/reportes'
+      preLoaderRoute: typeof CajaReportesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/caja_/revision': {
       id: '/caja_/revision'
       path: '/caja/revision'
@@ -849,6 +869,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminPaisesRoute: AdminPaisesRoute,
   AdminPerfilRoute: AdminPerfilRoute,
   AdminPlanesRoute: AdminPlanesRoute,
+  CajaReportesRoute: CajaReportesRoute,
   CajaRevisionRoute: CajaRevisionRoute,
   ComprasNuevaRoute: ComprasNuevaRoute,
   InventarioKardexRoute: InventarioKardexRoute,

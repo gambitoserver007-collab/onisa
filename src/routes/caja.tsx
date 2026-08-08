@@ -5,6 +5,7 @@ import {
   ArrowUpCircle,
   Banknote,
   ClipboardCheck,
+  LineChart,
   Plus,
   Store,
   Wallet,
@@ -478,11 +479,18 @@ function Caja() {
         actions={
           <div className="flex items-center gap-2">
             {canSeeFigures && (
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/caja/revision">
-                  <ClipboardCheck className="mr-1 h-4 w-4" /> Revisar cierres
-                </Link>
-              </Button>
+              <>
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/caja/reportes">
+                    <LineChart className="mr-1 h-4 w-4" /> Reportes
+                  </Link>
+                </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/caja/revision">
+                    <ClipboardCheck className="mr-1 h-4 w-4" /> Revisar cierres
+                  </Link>
+                </Button>
+              </>
             )}
             <Badge variant={sessionView ? "success" : "outline"}>
               {sessionView ? "Abierta" : "Cerrada"}

@@ -123,6 +123,10 @@ const ROUTE_ACCESS: Record<string, StoreRole[]> = {
   // solo entra por ROUTE_ACCESS (admin/finanzas), nunca por un acceso
   // personalizado mal entendido.
   "/caja/revision": ["admin", "finanzas"],
+  // Mismo criterio que "/caja/revision" arriba: sin casilla propia en
+  // GRANTABLE_SECTIONS, para no heredar acceso por el prefix-match de
+  // "/caja".
+  "/caja/reportes": ["admin", "finanzas"],
   "/promociones": ["admin"],
   "/productos": ["admin", "finanzas", "user", "operador"],
   "/inventario": ["admin", "finanzas", "user", "operador"],

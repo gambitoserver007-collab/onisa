@@ -1921,6 +1921,97 @@ export async function fetchPendingReviewSessions(
   });
 }
 
+// Reportes (Etapa 6): solo cortes ya AUTORIZADOS -- lo que reemplaza la
+// consolidación manual en Excel. admin/finanzas únicamente.
+export interface CashReportRow extends CashSession {
+  locationName: string;
+  tillName: string | null;
+  cardTotal: number;
+  transferTotal: number;
+  otherTotal: number;
+}
+
+export interface CashReportFilters {
+  locationId?: string;
+  tillId?: string;
+  openedBy?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export async function fetchCashReport(
+  companyId: string,
+  filters: CashReportFilters = {},
+): Promise<CashReportRow[]> {
+  let query = supabase
+    .from("cash_sessions")
+    .select(`${CASH_SESSION_COLS_FULL}, locations(name), tills(name)`)
+    .eq("company_id", companyId)
+    .eq("status", "closed")
+    .eq("review_status", "authorized")
+    .order("closed_at", { ascending: false });
+  if (filters.locationId) query = query.eq("location_id", filters.locationId);
+  if (filters.tillId) query = query.eq("till_id", filters.tillId);
+  if (filters.openedBy) query = query.eq("opened_by", filters.openedBy);
+  // closed_at es timestamptz; dateFrom/dateTo vienen como "YYYY-MM-DD" del
+  // selector de periodo -- se compara por el día completo en hora local del
+  // negocio no hace falta aquí (a diferencia de ventas): un corte casi
+  // siempre cae dentro del mismo día en el que se autorizó, y una
+  // diferencia de husos horarios de a lo más unas horas no cambia qué
+  // corte del día aparece en el reporte.
+  if (filters.dateFrom) query = query.gte("closed_at", filters.dateFrom);
+  if (filters.dateTo)
+    query = query.lte("closed_at", `${filters.dateTo}T23:59:59`);
+  const { data, error } = await query;
+  if (error) throw error;
+  const sessions = data ?? [];
+  const sessionIds = sessions.map((s) => s.id);
+
+  // Tarjeta/transferencia/otros del conteo FINAL de cada sesión (el mismo
+  // que authorize_cash_session usa como "real" -- el de mayor count_number).
+  // Ordenado ascendente y sobreescribiendo por session_id: lo último que se
+  // procese por sesión siempre es el conteo más alto (1 o, si existe, 2).
+  const latestCountBySession: Record<
+    string,
+    { cardTotal: number; transferTotal: number; otherTotal: number }
+  > = {};
+  if (sessionIds.length) {
+    const { data: counts, error: countsError } = await supabase
+      .from("till_counts")
+      .select(
+        "cash_session_id, count_number, card_total, transfer_total, other_total",
+      )
+      .in("cash_session_id", sessionIds)
+      .order("count_number", { ascending: true });
+    if (countsError) throw countsError;
+    for (const c of counts ?? []) {
+      latestCountBySession[c.cash_session_id] = {
+        cardTotal: toNumber(c.card_total),
+        transferTotal: toNumber(c.transfer_total),
+        otherTotal: toNumber(c.other_total),
+      };
+    }
+  }
+
+  return sessions.map((row) => {
+    const r = row as unknown as {
+      locations: { name: string } | null;
+      tills: { name: string } | null;
+    };
+    const totals = latestCountBySession[row.id] ?? {
+      cardTotal: 0,
+      transferTotal: 0,
+      otherTotal: 0,
+    };
+    return {
+      ...mapCashSession(row as never),
+      locationName: r.locations?.name ?? "—",
+      tillName: r.tills?.name ?? null,
+      ...totals,
+    };
+  });
+}
+
 // Bitácora (Etapa 5) -- admin/finanzas únicamente, ya acotado por RLS en
 // audit_log; no hace falta filtrar por rol aquí también.
 export interface AuditLogEntry {
