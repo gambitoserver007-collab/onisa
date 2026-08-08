@@ -14,6 +14,57 @@ export type Database = {
   };
   public: {
     Tables: {
+      audit_log: {
+        Row: {
+          action: string;
+          actor_id: string | null;
+          company_id: string;
+          created_at: string;
+          detail: Json;
+          entity_id: string;
+          entity_type: string;
+          id: string;
+          is_demo_data: boolean;
+        };
+        Insert: {
+          action: string;
+          actor_id?: string | null;
+          company_id: string;
+          created_at?: string;
+          detail?: Json;
+          entity_id: string;
+          entity_type: string;
+          id?: string;
+          is_demo_data?: boolean;
+        };
+        Update: {
+          action?: string;
+          actor_id?: string | null;
+          company_id?: string;
+          created_at?: string;
+          detail?: Json;
+          entity_id?: string;
+          entity_type?: string;
+          id?: string;
+          is_demo_data?: boolean;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "audit_log_actor_id_fkey";
+            columns: ["actor_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "audit_log_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       cash_movements: {
         Row: {
           amount: number;

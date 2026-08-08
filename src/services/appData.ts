@@ -1921,6 +1921,49 @@ export async function fetchPendingReviewSessions(
   });
 }
 
+// Bitácora (Etapa 5) -- admin/finanzas únicamente, ya acotado por RLS en
+// audit_log; no hace falta filtrar por rol aquí también.
+export interface AuditLogEntry {
+  id: string;
+  actorId: string | null;
+  action: string;
+  detail: Record<string, unknown>;
+  createdAt: string;
+}
+
+const AUDIT_ACTION_LABELS: Record<string, string> = {
+  opened: "Abrió la caja",
+  movement_added: "Registró un movimiento",
+  count_submitted: "Envió un conteo",
+  second_count_required: "Se pidió un segundo conteo",
+  closed: "Cerró la caja",
+  authorized: "Autorizó el corte",
+};
+
+export function describeAuditAction(action: string): string {
+  return AUDIT_ACTION_LABELS[action] ?? action;
+}
+
+export async function fetchAuditLog(
+  entityType: string,
+  entityId: string,
+): Promise<AuditLogEntry[]> {
+  const { data, error } = await supabase
+    .from("audit_log")
+    .select("id, actor_id, action, detail, created_at")
+    .eq("entity_type", entityType)
+    .eq("entity_id", entityId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    actorId: row.actor_id,
+    action: row.action,
+    detail: (row.detail ?? {}) as Record<string, unknown>,
+    createdAt: row.created_at,
+  }));
+}
+
 export interface CompanyProfile {
   name: string;
   countryCode: string;

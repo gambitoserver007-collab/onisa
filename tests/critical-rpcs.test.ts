@@ -992,4 +992,73 @@ describe("RPCs críticas de dinero y stock", () => {
       });
     });
   });
+
+  describe("12. Etapa 5: bitácora (audit_log)", () => {
+    it("registra abrir/contar/cerrar/autorizar, y un cajero no puede leerla", async () => {
+      const company = await makeCompany(db, "Empresa Bitácora Test");
+      const cajero = await makeUser(db, company.id, "user");
+      const admin = await makeUser(db, company.id, "admin");
+
+      let sessionId = "";
+      await asUser(db, cajero, async () => {
+        const { rows: openRows } = await db.query<{
+          open_cash_session: string;
+        }>("select open_cash_session(100, $1) as open_cash_session", [
+          company.loc1,
+        ]);
+        sessionId = openRows[0].open_cash_session;
+
+        await db.query(
+          `insert into public.cash_movements (company_id, cash_session_id, movement_type, concept, amount, location_id)
+           values ($1,$2,'ingreso','venta suelta',10,$3)`,
+          [company.id, sessionId, company.loc1],
+        );
+
+        // 100 fondo + 10 ingreso = 110: cuadra al primer conteo.
+        await submitTillCount(db, sessionId, [
+          { denomination: 100, quantity: 1 },
+          { denomination: 10, quantity: 1 },
+        ]);
+        await finishTillCount(db, sessionId);
+      });
+
+      // El cajero no puede leer la bitácora de su propia sesión (RLS la
+      // filtra por completo -- no da error, simplemente no devuelve filas).
+      await asUser(db, cajero, async () => {
+        const { rows } = await db.query(
+          "select id from public.audit_log where entity_id=$1",
+          [sessionId],
+        );
+        expect(rows).toHaveLength(0);
+      });
+
+      let auditActions: string[] = [];
+      await asUser(db, admin, async () => {
+        await authorizeCashSession(db, sessionId);
+
+        const { rows } = await db.query<{ action: string }>(
+          "select action from public.audit_log where entity_id=$1 order by created_at asc",
+          [sessionId],
+        );
+        auditActions = rows.map((r) => r.action);
+      });
+
+      expect(auditActions).toEqual([
+        "opened",
+        "movement_added",
+        "count_submitted",
+        "closed",
+        "authorized",
+      ]);
+
+      // El detalle de 'authorized' sí trae las cifras completas -- es
+      // seguro porque solo admin/finanzas pueden leer audit_log.
+      const { rows: authRow } = await db.query<{ detail: unknown }>(
+        "select detail from public.audit_log where entity_id=$1 and action='authorized'",
+        [sessionId],
+      );
+      const detail = authRow[0].detail as { classification: string };
+      expect(detail.classification).toBe("cuadrado");
+    });
+  });
 });

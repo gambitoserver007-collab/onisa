@@ -5023,6 +5023,9 @@ begin
      auth.uid(), now())
   returning id into v_session_id;
 
+  perform public.log_audit(v_company_id, 'cash_session', v_session_id, 'opened',
+    jsonb_build_object('till_id', v_till_id, 'opening_amount', p_opening_amount));
+
   return v_session_id;
 end;
 $$;
@@ -5607,6 +5610,13 @@ begin
     update public.cash_sessions set count_cutoff_at = v_cutoff where id = p_session_id;
   end if;
 
+  -- El detalle sí lleva el total contado (audit_log solo lo lee admin/
+  -- finanzas -- no es una fuga del arqueo ciego, que es sobre lo que ve
+  -- LA CAJERA en la respuesta de esta misma función, no sobre lo que
+  -- guarda el servidor para auditoría).
+  perform public.log_audit(v_company_id, 'cash_session', p_session_id, 'count_submitted',
+    jsonb_build_object('count_number', v_count_number, 'counted_cash_total', v_counted_total));
+
   return jsonb_build_object(
     'count_id', v_count_id,
     'count_number', v_count_number,
@@ -5683,8 +5693,11 @@ begin
     where id = p_session_id and status = 'open';
     get diagnostics v_rows = row_count;
     if v_rows = 0 then raise exception 'Esta caja ya está cerrada.'; end if;
+    perform public.log_audit(v_company_id, 'cash_session', p_session_id, 'closed',
+      jsonb_build_object('had_second_count', v_has_count2));
     return jsonb_build_object('session_id', p_session_id, 'status', 'closed', 'second_count_required', false);
   else
+    perform public.log_audit(v_company_id, 'cash_session', p_session_id, 'second_count_required', '{}'::jsonb);
     return jsonb_build_object('session_id', p_session_id, 'status', 'open', 'second_count_required', true);
   end if;
 end;
@@ -5762,6 +5775,12 @@ begin
   get diagnostics v_rows = row_count;
   if v_rows = 0 then raise exception 'Este corte ya fue autorizado.'; end if;
 
+  perform public.log_audit(v_company_id, 'cash_session', p_session_id, 'authorized',
+    jsonb_build_object(
+      'expected_amount', v_expected, 'real_amount', v_real,
+      'difference', v_diff, 'classification', v_classification
+    ));
+
   return jsonb_build_object(
     'session_id', p_session_id,
     'expected_amount', v_expected,
@@ -5774,3 +5793,82 @@ $function$;
 
 revoke all on function public.authorize_cash_session(uuid, text) from public, anon;
 grant execute on function public.authorize_cash_session(uuid, text) to authenticated;
+
+-- ============================================================
+-- Módulo de arqueo de caja — Etapa 5: bitácora.
+--
+-- Tabla genérica (no solo para caja -- entity_type/entity_id la hacen
+-- reutilizable para lo que haga falta después) para registrar quién hizo
+-- qué y cuándo. Nadie escribe aquí directo: todo pasa por log_audit(),
+-- que ya llaman open_cash_session/submit_till_count/finish_till_count/
+-- authorize_cash_session, y por el trigger de cash_movements de abajo.
+-- Lectura restringida a admin/finanzas -- can_select_company() por sí solo
+-- no alcanza aquí porque el detalle de una autorización trae las cifras
+-- completas del arqueo, que un cajero nunca debe poder leer.
+-- ============================================================
+
+create table if not exists public.audit_log (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  actor_id uuid references public.profiles(id) on delete set null,
+  entity_type text not null,
+  entity_id uuid not null,
+  action text not null,
+  detail jsonb not null default '{}'::jsonb,
+  is_demo_data boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists audit_log_entity_idx on public.audit_log(entity_type, entity_id);
+create index if not exists audit_log_company_idx on public.audit_log(company_id, created_at desc);
+
+grant select on public.audit_log to authenticated;
+grant all on public.audit_log to service_role;
+alter table public.audit_log enable row level security;
+
+drop policy if exists "audit_log select scoped" on public.audit_log;
+create policy "audit_log select scoped" on public.audit_log for select to authenticated
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and public.current_user_role()::text in ('admin', 'finanzas')
+  );
+-- Sin política de insert/update/delete para "authenticated": solo vía
+-- log_audit() (SECURITY DEFINER) o el trigger de cash_movements.
+
+create or replace function public.log_audit(
+  p_company_id uuid,
+  p_entity_type text,
+  p_entity_id uuid,
+  p_action text,
+  p_detail jsonb default '{}'::jsonb
+) returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  insert into public.audit_log (company_id, actor_id, entity_type, entity_id, action, detail)
+  values (p_company_id, auth.uid(), p_entity_type, p_entity_id, p_action, coalesce(p_detail, '{}'::jsonb));
+end;
+$$;
+
+revoke all on function public.log_audit(uuid, text, uuid, text, jsonb) from public, anon, authenticated;
+
+-- cash_movements (ingreso/egreso manual) no es un RPC -- se inserta directo
+-- desde el frontend bajo su propia política RLS -- así que se audita con
+-- un trigger en vez de una llamada a log_audit() dentro de una función.
+create or replace function public.log_audit_cash_movement()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  perform public.log_audit(new.company_id, 'cash_session', new.cash_session_id, 'movement_added',
+    jsonb_build_object('movement_type', new.movement_type, 'concept', new.concept, 'amount', new.amount));
+  return new;
+end;
+$$;
+
+drop trigger if exists cash_movements_log_audit on public.cash_movements;
+create trigger cash_movements_log_audit after insert on public.cash_movements
+  for each row execute function public.log_audit_cash_movement();

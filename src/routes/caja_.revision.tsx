@@ -30,10 +30,13 @@ import { ALL_LOCATIONS } from "@/lib/currentLocation";
 import { useDemoSession } from "@/hooks/useDemoSession";
 import {
   authorizeCashSession,
+  describeAuditAction,
+  fetchAuditLog,
   fetchPendingReviewSessions,
   fetchProfileNames,
   fetchTillCounts,
   getErrorMessage,
+  type AuditLogEntry,
   type PendingReviewSession,
   type TillCount,
 } from "@/services/appData";
@@ -57,6 +60,7 @@ function CajaRevision() {
 
   const [detail, setDetail] = useState<PendingReviewSession | null>(null);
   const [counts, setCounts] = useState<TillCount[]>([]);
+  const [auditEntries, setAuditEntries] = useState<AuditLogEntry[]>([]);
   const [countsLoading, setCountsLoading] = useState(false);
   const [notes, setNotes] = useState("");
   const [authorizing, setAuthorizing] = useState(false);
@@ -91,7 +95,12 @@ function CajaRevision() {
     setNotes("");
     setCountsLoading(true);
     try {
-      setCounts(await fetchTillCounts(item.id));
+      const [tc, log] = await Promise.all([
+        fetchTillCounts(item.id),
+        fetchAuditLog("cash_session", item.id),
+      ]);
+      setCounts(tc);
+      setAuditEntries(log);
     } catch (error) {
       toast.error(getErrorMessage(error, "No se pudo cargar el detalle."));
     } finally {
@@ -288,6 +297,25 @@ function CajaRevision() {
                   </div>
                 ))}
               </div>
+
+              {auditEntries.length > 0 && (
+                <div className="space-y-1.5 rounded-2xl border border-border/70 p-3">
+                  <span className="text-sm font-bold">Historial</span>
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    {auditEntries.map((entry) => (
+                      <div key={entry.id} className="flex justify-between">
+                        <span>
+                          <span className="text-foreground">
+                            {nameOf(entry.actorId)}
+                          </span>{" "}
+                          — {describeAuditAction(entry.action)}
+                        </span>
+                        <span>{fmtDateTime(entry.createdAt)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-1">
                 <label className="text-sm text-muted-foreground">
