@@ -39,7 +39,7 @@ import { Route as AdminMetodosPagoRouteImport } from './routes/admin.metodos-pag
 import { Route as AdminPaisesRouteImport } from './routes/admin.paises'
 import { Route as AdminPerfilRouteImport } from './routes/admin.perfil'
 import { Route as AdminPlanesRouteImport } from './routes/admin.planes'
-import { Route as CajaRevisionRouteImport } from './routes/caja.revision'
+import { Route as CajaRevisionRouteImport } from './routes/caja_.revision'
 import { Route as ComprasIndexRouteImport } from './routes/compras.index'
 import { Route as ComprasNuevaRouteImport } from './routes/compras.nueva'
 import { Route as InventarioIndexRouteImport } from './routes/inventario.index'
@@ -202,9 +202,9 @@ const AdminPlanesRoute = AdminPlanesRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const CajaRevisionRoute = CajaRevisionRouteImport.update({
-  id: '/revision',
-  path: '/revision',
-  getParentRoute: () => CajaRoute,
+  id: '/caja_/revision',
+  path: '/caja/revision',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ComprasIndexRoute = ComprasIndexRouteImport.update({
   id: '/compras/',
@@ -251,7 +251,7 @@ const Char91DotmcpChar93InvokeToolToolRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/backup': typeof BackupRoute
-  '/caja': typeof CajaRouteWithChildren
+  '/caja': typeof CajaRoute
   '/categorias': typeof CategoriasRoute
   '/clientes': typeof ClientesRoute
   '/configuracion': typeof ConfiguracionRoute
@@ -292,7 +292,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/backup': typeof BackupRoute
-  '/caja': typeof CajaRouteWithChildren
+  '/caja': typeof CajaRoute
   '/categorias': typeof CategoriasRoute
   '/clientes': typeof ClientesRoute
   '/configuracion': typeof ConfiguracionRoute
@@ -334,7 +334,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/backup': typeof BackupRoute
-  '/caja': typeof CajaRouteWithChildren
+  '/caja': typeof CajaRoute
   '/categorias': typeof CategoriasRoute
   '/clientes': typeof ClientesRoute
   '/configuracion': typeof ConfiguracionRoute
@@ -361,7 +361,7 @@ export interface FileRoutesById {
   '/admin/paises': typeof AdminPaisesRoute
   '/admin/perfil': typeof AdminPerfilRoute
   '/admin/planes': typeof AdminPlanesRoute
-  '/caja/revision': typeof CajaRevisionRoute
+  '/caja_/revision': typeof CajaRevisionRoute
   '/compras/nueva': typeof ComprasNuevaRoute
   '/inventario/kardex': typeof InventarioKardexRoute
   '/ventas/$id': typeof VentasIdRoute
@@ -486,7 +486,7 @@ export interface FileRouteTypes {
     | '/admin/paises'
     | '/admin/perfil'
     | '/admin/planes'
-    | '/caja/revision'
+    | '/caja_/revision'
     | '/compras/nueva'
     | '/inventario/kardex'
     | '/ventas/$id'
@@ -501,7 +501,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BackupRoute: typeof BackupRoute
-  CajaRoute: typeof CajaRouteWithChildren
+  CajaRoute: typeof CajaRoute
   CategoriasRoute: typeof CategoriasRoute
   ClientesRoute: typeof ClientesRoute
   ConfiguracionRoute: typeof ConfiguracionRoute
@@ -528,6 +528,7 @@ export interface RootRouteChildren {
   AdminPaisesRoute: typeof AdminPaisesRoute
   AdminPerfilRoute: typeof AdminPerfilRoute
   AdminPlanesRoute: typeof AdminPlanesRoute
+  CajaRevisionRoute: typeof CajaRevisionRoute
   ComprasNuevaRoute: typeof ComprasNuevaRoute
   InventarioKardexRoute: typeof InventarioKardexRoute
   VentasIdRoute: typeof VentasIdRoute
@@ -751,12 +752,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminPlanesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/caja/revision': {
-      id: '/caja/revision'
-      path: '/revision'
+    '/caja_/revision': {
+      id: '/caja_/revision'
+      path: '/caja/revision'
       fullPath: '/caja/revision'
       preLoaderRoute: typeof CajaRevisionRouteImport
-      parentRoute: typeof CajaRoute
+      parentRoute: typeof rootRouteImport
     }
     '/compras/': {
       id: '/compras/'
@@ -817,20 +818,10 @@ declare module '@tanstack/react-router' {
   }
 }
 
-interface CajaRouteChildren {
-  CajaRevisionRoute: typeof CajaRevisionRoute
-}
-
-const CajaRouteChildren: CajaRouteChildren = {
-  CajaRevisionRoute: CajaRevisionRoute,
-}
-
-const CajaRouteWithChildren = CajaRoute._addFileChildren(CajaRouteChildren)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BackupRoute: BackupRoute,
-  CajaRoute: CajaRouteWithChildren,
+  CajaRoute: CajaRoute,
   CategoriasRoute: CategoriasRoute,
   ClientesRoute: ClientesRoute,
   ConfiguracionRoute: ConfiguracionRoute,
@@ -858,6 +849,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminPaisesRoute: AdminPaisesRoute,
   AdminPerfilRoute: AdminPerfilRoute,
   AdminPlanesRoute: AdminPlanesRoute,
+  CajaRevisionRoute: CajaRevisionRoute,
   ComprasNuevaRoute: ComprasNuevaRoute,
   InventarioKardexRoute: InventarioKardexRoute,
   VentasIdRoute: VentasIdRoute,

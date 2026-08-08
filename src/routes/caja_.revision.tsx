@@ -38,7 +38,7 @@ import {
   type TillCount,
 } from "@/services/appData";
 
-export const Route = createFileRoute("/caja/revision")({
+export const Route = createFileRoute("/caja_/revision")({
   component: CajaRevision,
 });
 
