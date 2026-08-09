@@ -5872,3 +5872,22 @@ $$;
 drop trigger if exists cash_movements_log_audit on public.cash_movements;
 create trigger cash_movements_log_audit after insert on public.cash_movements
   for each row execute function public.log_audit_cash_movement();
+
+-- ============================================================
+-- SKU en productos + comisión de tarjeta configurable por empresa.
+--
+-- Ambas son columnas simples sobre tablas que ya se editan por
+-- insert/update directo desde el frontend (createProduct/updateProduct,
+-- updateCompanySettings) -- las políticas RLS existentes ("products write
+-- scoped"/"companies write scoped", admin/operador de la empresa) ya
+-- cubren la escritura, no hace falta ningún RPC ni política nueva.
+-- ============================================================
+
+alter table public.products add column if not exists sku text;
+create unique index if not exists products_company_sku_unique
+  on public.products(company_id, sku)
+  where sku is not null and deleted_at is null;
+
+-- Mismo tipo que tax_rate (numeric(5,4)); 0.03 = 3%, el valor que ya
+-- describió el usuario como punto de partida.
+alter table public.companies add column if not exists card_commission_rate numeric(5,4) not null default 0.03;

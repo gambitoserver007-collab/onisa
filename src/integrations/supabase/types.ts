@@ -289,6 +289,7 @@ export type Database = {
         Row: {
           address: string | null;
           business_type: string;
+          card_commission_rate: number;
           contact_email: string | null;
           country_code: string;
           created_at: string;
@@ -313,6 +314,7 @@ export type Database = {
         Insert: {
           address?: string | null;
           business_type?: string;
+          card_commission_rate?: number;
           contact_email?: string | null;
           country_code?: string;
           created_at?: string;
@@ -337,6 +339,7 @@ export type Database = {
         Update: {
           address?: string | null;
           business_type?: string;
+          card_commission_rate?: number;
           contact_email?: string | null;
           country_code?: string;
           created_at?: string;
@@ -762,6 +765,7 @@ export type Database = {
           name: string;
           price: number;
           price_includes_tax: boolean;
+          sku: string | null;
           stock: number;
           supplier_id: string | null;
           unit: string;
@@ -783,6 +787,7 @@ export type Database = {
           name: string;
           price?: number;
           price_includes_tax?: boolean;
+          sku?: string | null;
           stock?: number;
           supplier_id?: string | null;
           unit?: string;
@@ -804,6 +809,7 @@ export type Database = {
           name?: string;
           price?: number;
           price_includes_tax?: boolean;
+          sku?: string | null;
           stock?: number;
           supplier_id?: string | null;
           unit?: string;

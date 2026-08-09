@@ -24,6 +24,8 @@ export interface DemoSession {
   phone?: string;
   taxName?: string;
   taxRate?: number;
+  /** % de comisión de pago con tarjeta (fracción, ej. 0.03 = 3%), para la calculadora de precio. */
+  cardCommissionRate?: number;
   isDemo: boolean;
   demoMode?: "none" | "read_only";
   demoAccountId?: string;
@@ -45,6 +47,8 @@ export interface Product {
   name: string;
   category: string;
   barcode: string;
+  /** SKU / código interno, distinto del código de barras. */
+  sku?: string;
   cost: number;
   price: number;
   stock: number;

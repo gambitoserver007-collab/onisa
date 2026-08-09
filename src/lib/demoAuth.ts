@@ -119,6 +119,11 @@ function createSessionFromUser(
       typeof company?.tax_rate === "number" && Number.isFinite(company.tax_rate)
         ? company.tax_rate
         : market.taxRate,
+    cardCommissionRate:
+      typeof (company as { card_commission_rate?: number } | null)
+        ?.card_commission_rate === "number"
+        ? (company as { card_commission_rate?: number }).card_commission_rate
+        : 0.03,
     isDemo: profileDemo || demoFallback,
     demoMode: profile?.demo_mode ?? (demoFallback ? "read_only" : "none"),
     demoAccountId: Object.values(DEMO_ACCOUNTS).find(

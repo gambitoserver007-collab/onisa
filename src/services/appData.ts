@@ -65,6 +65,8 @@ export interface ProductLocationStock {
 export interface CreateProductInput {
   name: string;
   barcode?: string;
+  /** SKU / código interno, distinto del código de barras. */
+  sku?: string;
   categoryId?: string;
   /** Proveedor habitual del producto (a quién se le compra). */
   supplierId?: string | null;
@@ -107,6 +109,8 @@ export interface UpdateCompanySettingsInput {
   logoUrl?: string | null;
   /** Rubro/perfil de la empresa; omitir para no cambiarlo. */
   businessType?: string;
+  /** % de comisión de pago con tarjeta (fracción, ej. 0.03 = 3%). */
+  cardCommissionRate?: number;
 }
 
 // Single-row platform branding (SaaS name + logo). Seeded by the installer.
@@ -212,6 +216,7 @@ function mapProduct(
       ? (categoryById.get(row.category_id) ?? "Sin categoría")
       : "Sin categoría",
     barcode: row.barcode ?? "",
+    sku: (row as { sku?: string | null }).sku ?? undefined,
     cost: toNumber(row.cost),
     price: toNumber(row.price),
     stock: toNumber(row.stock),
@@ -348,7 +353,7 @@ export async function fetchCompanyCatalog(
   const productsQuery = supabase
     .from("products")
     .select(
-      "id, company_id, category_id, supplier_id, name, barcode, cost, price, stock, unit, image_url, price_includes_tax, has_variants, variant_attributes, active, is_demo_data, created_at, updated_at, deleted_at",
+      "id, company_id, category_id, supplier_id, name, barcode, sku, cost, price, stock, unit, image_url, price_includes_tax, has_variants, variant_attributes, active, is_demo_data, created_at, updated_at, deleted_at",
     )
     .is("deleted_at", null)
     .eq("active", true);
@@ -1369,6 +1374,7 @@ export async function createProduct(
       company_id: companyId,
       name,
       barcode: input.barcode?.trim() || null,
+      sku: input.sku?.trim() || null,
       category_id: input.categoryId || null,
       supplier_id: input.supplierId || null,
       cost: input.cost,
@@ -1407,6 +1413,7 @@ export async function updateProduct(
   const updates: Record<string, unknown> = {
     name,
     barcode: input.barcode?.trim() || null,
+    sku: input.sku?.trim() || null,
     category_id: input.categoryId || null,
     supplier_id: input.supplierId ?? null,
     cost: input.cost,
@@ -2100,6 +2107,8 @@ export async function updateCompanySettings(
   if (input.logoUrl !== undefined) updates.logo_url = input.logoUrl || null;
   if (input.businessType !== undefined)
     updates.business_type = input.businessType;
+  if (input.cardCommissionRate !== undefined)
+    updates.card_commission_rate = input.cardCommissionRate;
   const { data, error } = await supabase
     .from("companies")
     .update(updates as never)
@@ -2219,6 +2228,10 @@ export function mapCompanyToBusinessSettings(
     sampleAddress: row.address || market.sampleAddress,
     taxName: row.tax_name,
     taxRate: toNumber(row.tax_rate, market.taxRate),
+    cardCommissionRate: toNumber(
+      (row as { card_commission_rate?: number }).card_commission_rate,
+      0.03,
+    ),
     logoUrl: (row as { logo_url?: string | null }).logo_url ?? undefined,
     businessType:
       (row as { business_type?: string | null }).business_type ?? undefined,

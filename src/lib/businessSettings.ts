@@ -21,6 +21,8 @@ export interface BusinessSettings {
   sampleAddress: string;
   taxName: string;
   taxRate: number;
+  /** % de comisión de pago con tarjeta (fracción, ej. 0.03 = 3%). */
+  cardCommissionRate: number;
   currencyLabel: string;
   /** Optional store logo (data URL or image URL). */
   logoUrl?: string;
@@ -48,6 +50,9 @@ export function createBusinessSettingsFromMarket(
     sampleAddress: market.sampleAddress,
     taxName: market.taxName,
     taxRate: market.taxRate,
+    // No depende del país (es una configuración propia de cada empresa) --
+    // mismo valor por defecto que la columna companies.card_commission_rate.
+    cardCommissionRate: 0.03,
     currencyLabel: getCurrencyLabel(market),
   };
 }
@@ -81,6 +86,11 @@ function normalizeBusinessSettings(
       typeof settings?.taxRate === "number" && Number.isFinite(settings.taxRate)
         ? settings.taxRate
         : base.taxRate,
+    cardCommissionRate:
+      typeof settings?.cardCommissionRate === "number" &&
+      Number.isFinite(settings.cardCommissionRate)
+        ? settings.cardCommissionRate
+        : base.cardCommissionRate,
     currencyLabel:
       settings?.currencyLabel ||
       getCurrencyLabel({
@@ -169,6 +179,7 @@ export function syncBusinessSettingsWithSession(session: DemoSession) {
     sampleAddress: session.sampleAddress,
     taxName: session.taxName,
     taxRate: session.taxRate,
+    cardCommissionRate: session.cardCommissionRate,
     logoUrl: session.logoUrl,
     businessType: session.businessType,
   });

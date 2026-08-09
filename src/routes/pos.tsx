@@ -237,7 +237,9 @@ function POS() {
           (deferredCategory === "all" ||
             product.category === deferredCategory) &&
           (product.name.toLowerCase().includes(deferredQuery.toLowerCase()) ||
-            product.barcode.includes(deferredQuery)),
+            product.barcode.includes(deferredQuery) ||
+            (product.sku?.toLowerCase().includes(deferredQuery.toLowerCase()) ??
+              false)),
       ),
     [locatedProducts, deferredQuery, deferredCategory],
   );

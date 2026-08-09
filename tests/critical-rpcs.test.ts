@@ -1061,4 +1061,75 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(detail.classification).toBe("cuadrado");
     });
   });
+
+  describe("12. SKU en productos y comisión de tarjeta configurable", () => {
+    it("sku es único por empresa, pero permite null repetido y el mismo sku en otra empresa", async () => {
+      const companyA = await makeCompany(db, "Empresa SKU A");
+      const companyB = await makeCompany(db, "Empresa SKU B");
+      const admin = await makeUser(db, companyA.id, "admin");
+
+      await asUser(db, admin, async () => {
+        await db.query(
+          "insert into public.products (company_id, name, cost, price, sku) values ($1,'Producto 1',1,2,'SKU-1')",
+          [companyA.id],
+        );
+        // Mismo sku, misma empresa -> falla.
+        await expect(
+          db.query(
+            "insert into public.products (company_id, name, cost, price, sku) values ($1,'Producto 2',1,2,'SKU-1')",
+            [companyA.id],
+          ),
+        ).rejects.toThrow();
+
+        // sku null, varias veces, misma empresa -> no hay conflicto.
+        await db.query(
+          "insert into public.products (company_id, name, cost, price) values ($1,'Producto sin sku 1',1,2)",
+          [companyA.id],
+        );
+        await db.query(
+          "insert into public.products (company_id, name, cost, price) values ($1,'Producto sin sku 2',1,2)",
+          [companyA.id],
+        );
+      });
+
+      // Mismo sku, OTRA empresa -> permitido (único es por empresa, no global).
+      const adminB = await makeUser(db, companyB.id, "admin");
+      await asUser(db, adminB, async () => {
+        await db.query(
+          "insert into public.products (company_id, name, cost, price, sku) values ($1,'Producto B',1,2,'SKU-1')",
+          [companyB.id],
+        );
+      });
+
+      const { rows } = await db.query<{ count: string }>(
+        "select count(*) from public.products where company_id=$1 and sku='SKU-1'",
+        [companyB.id],
+      );
+      expect(Number(rows[0].count)).toBe(1);
+    });
+
+    it("card_commission_rate tiene 0.03 por defecto y admin puede actualizarlo", async () => {
+      const company = await makeCompany(db, "Empresa Comisión Test");
+      const admin = await makeUser(db, company.id, "admin");
+
+      const { rows: before } = await db.query<{ card_commission_rate: number }>(
+        "select card_commission_rate from public.companies where id=$1",
+        [company.id],
+      );
+      expect(Number(before[0].card_commission_rate)).toBe(0.03);
+
+      await asUser(db, admin, async () => {
+        await db.query(
+          "update public.companies set card_commission_rate=0.045 where id=$1",
+          [company.id],
+        );
+      });
+
+      const { rows: after } = await db.query<{ card_commission_rate: number }>(
+        "select card_commission_rate from public.companies where id=$1",
+        [company.id],
+      );
+      expect(Number(after[0].card_commission_rate)).toBe(0.045);
+    });
+  });
 });

@@ -61,7 +61,8 @@ function ProductosPage() {
       products.filter(
         (product) =>
           product.name.toLowerCase().includes(query.toLowerCase()) ||
-          product.barcode.includes(query),
+          product.barcode.includes(query) ||
+          (product.sku?.toLowerCase().includes(query.toLowerCase()) ?? false),
       ),
     [products, query],
   );
@@ -209,7 +210,12 @@ function ProductosPage() {
                           )}
                         </TableCell>
                         <TableCell className="font-mono text-xs">
-                          {product.barcode}
+                          <div>{product.barcode}</div>
+                          {product.sku && (
+                            <div className="text-muted-foreground">
+                              SKU: {product.sku}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           {formatMoney(product.cost)}

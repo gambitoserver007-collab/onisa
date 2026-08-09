@@ -53,6 +53,11 @@ function Configuracion() {
   const [businessType, setBusinessType] = useState(
     settings.businessType ?? DEFAULT_BUSINESS_TYPE,
   );
+  // Se guarda como fracción (0.03) pero se captura/muestra como porcentaje
+  // (3), igual que taxRatePct en admin.paises.tsx.
+  const [cardCommissionPct, setCardCommissionPct] = useState(
+    String(Math.round(settings.cardCommissionRate * 10000) / 100),
+  );
   const [customPaymentMethod, setCustomPaymentMethod] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const selectedMarket = getMarketByCountryCode(countryCode);
@@ -89,6 +94,12 @@ function Configuracion() {
     if (settings.businessType) setBusinessType(settings.businessType);
   }, [settings.businessType]);
 
+  useEffect(() => {
+    setCardCommissionPct(
+      String(Math.round(settings.cardCommissionRate * 10000) / 100),
+    );
+  }, [settings.cardCommissionRate]);
+
   const handleSave = async () => {
     if (isDemo) {
       blockDemoAction();
@@ -96,6 +107,19 @@ function Configuracion() {
     }
 
     if (!session) return;
+
+    const cardCommissionRate = Number(cardCommissionPct) / 100;
+    if (
+      !Number.isFinite(cardCommissionRate) ||
+      cardCommissionRate < 0 ||
+      cardCommissionRate > 1
+    ) {
+      toast.error(
+        "La comisión de tarjeta debe ser un porcentaje entre 0 y 100.",
+      );
+      return;
+    }
+
     setIsSaving(true);
 
     try {
@@ -105,6 +129,7 @@ function Configuracion() {
         address,
         phone,
         businessType,
+        cardCommissionRate,
       });
       saveBusinessSettings(mapCompanyToBusinessSettings(company));
       // Refresh the session so the "complete your data" reminder updates immediately.
@@ -225,6 +250,21 @@ function Configuracion() {
                 value={phone}
                 onChange={(event) => setPhone(event.target.value)}
               />
+            </div>
+            <div className="space-y-1">
+              <Label>% Comisión de pago con tarjeta</Label>
+              <Input
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={cardCommissionPct}
+                onChange={(event) => setCardCommissionPct(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Se usa en la calculadora de precio de productos, junto con el{" "}
+                {selectedMarket.taxName ?? "IVA"}.
+              </p>
             </div>
             <DemoGuardedButton
               variant="brand"

@@ -20,6 +20,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { LogoUploader } from "@/components/settings/LogoUploader";
+import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useCompanyCatalog } from "@/hooks/useCompanyCatalog";
 import { useDemoSession } from "@/hooks/useDemoSession";
 import { useBusinessProfile } from "@/hooks/useBusinessProfile";
@@ -94,15 +95,22 @@ export function ProductFormSheet({
   const { products, categories, suppliers, session } = useCompanyCatalog();
   const { isDemo } = useDemoSession();
   const { usesVariants, profile } = useBusinessProfile();
+  const { settings } = useBusinessSettings();
   const [isSaving, setIsSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [barcode, setBarcode] = useState("");
+  const [sku, setSku] = useState("");
   const [categoryId, setCategoryId] = useState("none");
   const [newCategory, setNewCategory] = useState("");
   const [supplierId, setSupplierId] = useState(NONE_SUPPLIER);
   const [cost, setCost] = useState("");
   const [price, setPrice] = useState("");
+  // % de utilidad deseado: calculadora de precio (Costo, % Utilidad, comisión
+  // de tarjeta + IVA configurados en Configuración) -> llena Precio en vivo.
+  // No se guarda en el producto -- es solo la fórmula de un momento; el
+  // precio resultante sí se guarda, y se puede seguir editando a mano.
+  const [marginPct, setMarginPct] = useState("");
   const [unit, setUnit] = useState("");
   const [unitMode, setUnitMode] = useState<"select" | "custom">("select");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -165,15 +173,33 @@ export function ProductFormSheet({
     setBarcode(code);
   };
 
+  // Calculadora de precio: Precio = (Costo / (1 - %Utilidad)) * (1 +
+  // %ComisiónTarjeta * (1 + IVA)). Se recalcula en vivo con Costo/%Utilidad;
+  // editar Precio a mano después no toca el % de utilidad (es de un solo
+  // sentido, a propósito).
+  useEffect(() => {
+    if (!marginPct.trim()) return;
+    const costNum = Number(cost);
+    const marginFrac = Number(marginPct) / 100;
+    if (!Number.isFinite(costNum) || costNum < 0) return;
+    if (!Number.isFinite(marginFrac) || marginFrac < 0 || marginFrac >= 1)
+      return;
+    const base = costNum / (1 - marginFrac);
+    const commissionFrac = settings.cardCommissionRate * (1 + settings.taxRate);
+    setPrice((base * (1 + commissionFrac)).toFixed(2));
+  }, [cost, marginPct, settings.cardCommissionRate, settings.taxRate]);
+
   const resetForm = useCallback(() => {
     setEditingId(null);
     setName("");
     setBarcode("");
+    setSku("");
     setCategoryId("none");
     setNewCategory("");
     setSupplierId(defaultSupplierId ?? NONE_SUPPLIER);
     setCost("");
     setPrice("");
+    setMarginPct("");
     setUnit(
       units.find((u) => u.name === "Unidad")?.name ?? units[0]?.name ?? "",
     );
@@ -191,11 +217,13 @@ export function ProductFormSheet({
       setEditingId(product.id);
       setName(product.name);
       setBarcode(product.barcode ?? "");
+      setSku(product.sku ?? "");
       setCategoryId(product.categoryId ?? "none");
       setNewCategory("");
       setSupplierId(product.supplierId ?? NONE_SUPPLIER);
       setCost(String(product.cost));
       setPrice(String(product.price));
+      setMarginPct("");
       setUnit(product.unit);
       setUnitMode(
         units.some((u) => u.name === product.unit) ? "select" : "custom",
@@ -357,6 +385,7 @@ export function ProductFormSheet({
       const input = {
         name,
         barcode,
+        sku,
         categoryId: resolvedCategoryId,
         supplierId: supplierId === NONE_SUPPLIER ? null : supplierId,
         cost: Number(cost),
@@ -505,6 +534,14 @@ export function ProductFormSheet({
             </div>
           </div>
           <div className="space-y-1">
+            <Label>SKU</Label>
+            <Input
+              value={sku}
+              onChange={(event) => setSku(event.target.value)}
+              placeholder="Código interno (opcional)"
+            />
+          </div>
+          <div className="space-y-1">
             <Label>Categoría</Label>
             <Select value={categoryId} onValueChange={setCategoryId}>
               <SelectTrigger>
@@ -585,6 +622,24 @@ export function ProductFormSheet({
                 Lo que le cobras al cliente.
               </p>
             </div>
+          </div>
+          <div className="space-y-1">
+            <Label>% Utilidad (opcional)</Label>
+            <Input
+              type="number"
+              min="0"
+              max="99"
+              step="0.01"
+              value={marginPct}
+              onChange={(event) => setMarginPct(event.target.value)}
+              placeholder="Ej. 30"
+            />
+            <p className="text-xs text-muted-foreground">
+              Con Costo + % Utilidad, calcula el Precio solo (incluye la
+              comisión de tarjeta de Configuración +{" "}
+              {(settings.taxRate * 100).toFixed(0)}% de IVA). Puedes seguir
+              editando el Precio a mano después.
+            </p>
           </div>
           <div className="flex items-center justify-between rounded-lg border p-3">
             <div className="pr-3">
