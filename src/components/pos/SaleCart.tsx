@@ -72,6 +72,8 @@ export interface SaleCartProps {
   onMethodChange: (value: PaymentMethod) => void;
   onIncrement: (productId: string) => void;
   onDecrement: (productId: string) => void;
+  /** Captura la cantidad a mano (ej. 100 copias) sin dar +1 cien veces. */
+  onSetQty?: (productId: string, qty: number) => void;
   onRemove: (productId: string) => void;
   onCheckout: () => void;
   onCreateCustomer?: (input: {
@@ -108,6 +110,7 @@ function SaleCartContent({
   onMethodChange,
   onIncrement,
   onDecrement,
+  onSetQty,
   onRemove,
   onCheckout,
   onCreateCustomer,
@@ -129,6 +132,18 @@ function SaleCartContent({
   const [ncSaving, setNcSaving] = useState(false);
   const [customerQuery, setCustomerQuery] = useState("");
   const selectedCustomer = customers.find((item) => item.id === customer);
+
+  // Cantidad editable a mano (ej. 100 copias) -- solo una línea a la vez,
+  // ya que solo puede haber un input con foco.
+  const [editingQtyId, setEditingQtyId] = useState<string | null>(null);
+  const [editingQtyValue, setEditingQtyValue] = useState("");
+  const commitQty = (lineId: string) => {
+    const parsed = parseInt(editingQtyValue, 10);
+    if (onSetQty && Number.isFinite(parsed) && parsed > 0) {
+      onSetQty(lineId, parsed);
+    }
+    setEditingQtyId(null);
+  };
 
   // Buscador del carrito: para encontrar y quitar un producto entre muchos.
   // Aparece solo cuando hay varios ítems (no estorba en ventas pequeñas).
@@ -430,9 +445,38 @@ function SaleCartContent({
                     <Minus className="h-3.5 w-3.5" />
                   )}
                 </button>
-                <span className="w-6 text-center text-sm font-bold tabular-nums">
-                  {item.qty}
-                </span>
+                {onSetQty && editingQtyId === lineId ? (
+                  <input
+                    type="number"
+                    autoFocus
+                    min={1}
+                    inputMode="numeric"
+                    value={editingQtyValue}
+                    onChange={(e) => setEditingQtyValue(e.target.value)}
+                    onBlur={() => commitQty(lineId)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitQty(lineId);
+                      if (e.key === "Escape") setEditingQtyId(null);
+                    }}
+                    className="w-10 rounded-md border border-input bg-background text-center text-sm font-bold tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    disabled={!onSetQty}
+                    onClick={() => {
+                      setEditingQtyValue(String(item.qty));
+                      setEditingQtyId(lineId);
+                    }}
+                    className={cn(
+                      "w-6 text-center text-sm font-bold tabular-nums",
+                      onSetQty &&
+                        "cursor-text underline decoration-dotted underline-offset-2",
+                    )}
+                  >
+                    {item.qty}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => onIncrement(lineId)}

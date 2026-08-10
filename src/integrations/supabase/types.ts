@@ -564,6 +564,7 @@ export type Database = {
           company_id: string;
           created_at: string;
           created_by: string | null;
+          end_date: string | null;
           event_date: string;
           id: string;
           is_demo_data: boolean;
@@ -575,6 +576,7 @@ export type Database = {
           company_id: string;
           created_at?: string;
           created_by?: string | null;
+          end_date?: string | null;
           event_date: string;
           id?: string;
           is_demo_data?: boolean;
@@ -586,6 +588,7 @@ export type Database = {
           company_id?: string;
           created_at?: string;
           created_by?: string | null;
+          end_date?: string | null;
           event_date?: string;
           id?: string;
           is_demo_data?: boolean;

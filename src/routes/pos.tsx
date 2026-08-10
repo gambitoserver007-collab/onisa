@@ -435,6 +435,24 @@ function POS() {
     );
   };
 
+  // Capturar la cantidad a mano (ej. 100 copias) sin dar +1 cien veces.
+  const setQty = (lineId: string, qty: number) => {
+    if (!Number.isFinite(qty) || qty <= 0) return;
+    setCart((currentCart) =>
+      currentCart.map((item) => {
+        if (lineKey(item) !== lineId) return item;
+        const stock = item.variantId
+          ? (variantStockByVariant.get(item.variantId) ?? qty)
+          : (productById.get(item.productId)?.stock ?? qty);
+        if (qty > stock) {
+          toast.error(`Solo hay ${stock} en stock.`);
+          return { ...item, qty: stock };
+        }
+        return { ...item, qty: Math.floor(qty) };
+      }),
+    );
+  };
+
   const remove = (lineId: string) => {
     setCart((currentCart) =>
       currentCart.filter((item) => lineKey(item) !== lineId),
@@ -585,6 +603,10 @@ function POS() {
     },
     onDecrement: (lineId: string) => {
       decrement(lineId);
+      refocusScanner();
+    },
+    onSetQty: (lineId: string, qty: number) => {
+      setQty(lineId, qty);
       refocusScanner();
     },
     onRemove: remove,

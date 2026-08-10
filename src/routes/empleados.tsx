@@ -264,6 +264,7 @@ function Empleados() {
   const [teEmployeeId, setTeEmployeeId] = useState("");
   const [teType, setTeType] = useState<"absence" | "vacation">("absence");
   const [teDate, setTeDate] = useState(localDateKey(new Date()));
+  const [teEndDate, setTeEndDate] = useState(localDateKey(new Date()));
   const [teNote, setTeNote] = useState("");
   const [isSavingTe, setIsSavingTe] = useState(false);
 
@@ -276,12 +277,17 @@ function Empleados() {
       toast.error("Elige un empleado.");
       return;
     }
+    if (teType === "vacation" && teEndDate < teDate) {
+      toast.error("La fecha de regreso no puede ser antes de la salida.");
+      return;
+    }
     setIsSavingTe(true);
     try {
       await createTimeEvent(session, {
         profileId: teEmployeeId,
         type: teType,
         date: teDate,
+        endDate: teType === "vacation" ? teEndDate : undefined,
         note: teNote,
       });
       toast.success("Registro guardado.");
@@ -657,7 +663,7 @@ function Empleados() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="grid gap-2 sm:grid-cols-4">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
                 <div className="space-y-1">
                   <Label>Empleado</Label>
                   <Select value={teEmployeeId} onValueChange={setTeEmployeeId}>
@@ -691,13 +697,26 @@ function Empleados() {
                   </Select>
                 </div>
                 <div className="space-y-1">
-                  <Label>Fecha</Label>
+                  <Label>
+                    {teType === "vacation" ? "Fecha de salida" : "Fecha"}
+                  </Label>
                   <Input
                     type="date"
                     value={teDate}
                     onChange={(e) => setTeDate(e.target.value)}
                   />
                 </div>
+                {teType === "vacation" && (
+                  <div className="space-y-1">
+                    <Label>Fecha de regreso</Label>
+                    <Input
+                      type="date"
+                      min={teDate}
+                      value={teEndDate}
+                      onChange={(e) => setTeEndDate(e.target.value)}
+                    />
+                  </div>
+                )}
                 <div className="space-y-1">
                   <Label>Nota (opcional)</Label>
                   <Input
@@ -747,7 +766,11 @@ function Empleados() {
                           <TableCell>
                             {TIME_EVENT_LABELS[te.type] ?? te.type}
                           </TableCell>
-                          <TableCell>{te.date}</TableCell>
+                          <TableCell>
+                            {te.type === "vacation" && te.endDate
+                              ? `${te.date} → ${te.endDate}`
+                              : te.date}
+                          </TableCell>
                           <TableCell>{te.note ?? "—"}</TableCell>
                           <TableCell className="text-right">
                             <Button

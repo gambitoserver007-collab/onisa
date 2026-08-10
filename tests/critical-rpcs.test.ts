@@ -1581,5 +1581,34 @@ describe("RPCs críticas de dinero y stock", () => {
         ).rejects.toThrow(/row-level security/i);
       });
     });
+
+    it("employee_time_events: una vacación guarda fecha de salida y de regreso; una falta solo un día", async () => {
+      const { company, admin, employee } = await setupEmployeeCompany();
+      await asUser(db, admin, async () => {
+        await db.query(
+          `insert into public.employee_time_events (company_id, profile_id, type, event_date, end_date, created_by)
+           values ($1, $2, 'vacation', '2026-08-10', '2026-08-20', $2)`,
+          [company.id, employee],
+        );
+        await db.query(
+          `insert into public.employee_time_events (company_id, profile_id, type, event_date, created_by)
+           values ($1, $2, 'absence', '2026-08-05', $2)`,
+          [company.id, employee],
+        );
+      });
+
+      const { rows } = await db.query<{
+        type: string;
+        event_date: string;
+        end_date: string | null;
+      }>(
+        "select type, event_date, end_date from public.employee_time_events where profile_id=$1 order by event_date",
+        [employee],
+      );
+      expect(rows[0].type).toBe("absence");
+      expect(rows[0].end_date).toBeNull();
+      expect(rows[1].type).toBe("vacation");
+      expect(rows[1].end_date).not.toBeNull();
+    });
   });
 });

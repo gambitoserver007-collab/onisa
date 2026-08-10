@@ -3534,7 +3534,10 @@ export interface TimeEvent {
   id: string;
   profileId: string;
   type: "absence" | "vacation";
+  /** Fecha única (falta) o fecha de salida (vacación). */
   date: string;
+  /** Fecha de regreso -- solo aplica a vacaciones; null en faltas. */
+  endDate: string | null;
   note: string | null;
   createdAt: string;
 }
@@ -3544,7 +3547,7 @@ export async function fetchTimeEvents(
 ): Promise<TimeEvent[]> {
   let query = supabase
     .from("employee_time_events")
-    .select("id, profile_id, type, event_date, note, created_at")
+    .select("id, profile_id, type, event_date, end_date, note, created_at")
     .order("event_date", { ascending: false })
     .limit(200);
   if (companyId) query = query.eq("company_id", companyId);
@@ -3555,6 +3558,7 @@ export async function fetchTimeEvents(
     profileId: row.profile_id,
     type: row.type as "absence" | "vacation",
     date: row.event_date,
+    endDate: (row as { end_date?: string | null }).end_date ?? null,
     note: row.note,
     createdAt: row.created_at,
   }));
@@ -3566,6 +3570,8 @@ export async function createTimeEvent(
     profileId: string;
     type: "absence" | "vacation";
     date: string;
+    /** Fecha de regreso -- requerido para vacaciones, ignorado en faltas. */
+    endDate?: string;
     note?: string;
   },
 ) {
@@ -3575,6 +3581,7 @@ export async function createTimeEvent(
     profile_id: input.profileId,
     type: input.type,
     event_date: input.date,
+    end_date: input.type === "vacation" ? (input.endDate ?? null) : null,
     note: input.note?.trim() || null,
     created_by: session.userId ?? null,
   } as never);

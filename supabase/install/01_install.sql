@@ -6079,7 +6079,10 @@ create or replace function public.set_employee_pin(
 ) returns void
 language plpgsql
 security definer
-set search_path to 'public'
+-- crypt()/gen_salt() viven en pgcrypto -- en Supabase esa extension casi
+-- siempre queda instalada en el esquema "extensions" (no en "public"), asi
+-- que hace falta agregarlo al search_path para encontrarlas.
+set search_path to 'public', 'extensions'
 as $$
 declare
   v_company_id uuid;
@@ -6120,7 +6123,7 @@ grant execute on function public.set_employee_pin(uuid, text) to authenticated;
 create or replace function public.clear_employee_pin(p_profile_id uuid) returns void
 language plpgsql
 security definer
-set search_path to 'public'
+set search_path to 'public', 'extensions'
 as $$
 declare
   v_company_id uuid;
@@ -6157,7 +6160,7 @@ create or replace function public.punch_employee(
 ) returns jsonb
 language plpgsql
 security definer
-set search_path to 'public'
+set search_path to 'public', 'extensions'
 as $$
 declare
   v_company_id uuid;
@@ -6237,3 +6240,8 @@ $$;
 
 revoke execute on function public.punch_employee(text, uuid, text) from public, anon;
 grant execute on function public.punch_employee(text, uuid, text) to authenticated;
+
+-- Rango de fechas para vacaciones (salida/regreso) -- una falta sigue siendo
+-- un solo día (event_date), una vacación usa event_date como salida y
+-- end_date como regreso.
+alter table public.employee_time_events add column if not exists end_date date;
