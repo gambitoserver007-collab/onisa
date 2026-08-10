@@ -1695,4 +1695,350 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(rows[1].end_date).not.toBeNull();
     });
   });
+
+  describe("16. Promociones automáticas por cantidad (create_sale)", () => {
+    async function makePromotion(
+      companyId: string,
+      opts: {
+        scopeType: "product" | "category" | "none";
+        productId?: string | null;
+        categoryId?: string | null;
+        minQty?: number | null;
+        valueText?: string | null;
+        promotionType?: string;
+        active?: boolean;
+        startsAt?: string | null;
+        endsAt?: string | null;
+      },
+    ): Promise<string> {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.promotions
+           (company_id, name, promotion_type, scope_type, product_id, category_id, min_qty, value_text, active, starts_at, ends_at)
+         values ($1, 'Promo test', $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         returning id`,
+        [
+          companyId,
+          opts.promotionType ?? "discount",
+          opts.scopeType,
+          opts.productId ?? null,
+          opts.categoryId ?? null,
+          opts.minQty ?? null,
+          opts.valueText ?? null,
+          opts.active ?? true,
+          opts.startsAt ?? null,
+          opts.endsAt ?? null,
+        ],
+      );
+      return rows[0].id;
+    }
+
+    it("aplica el descuento automático cuando la cantidad de un producto llega al mínimo", async () => {
+      const company = await makeCompany(db, "Empresa Promo Producto");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Copias",
+        3,
+        10,
+        1000,
+      );
+      await makePromotion(company.id, {
+        scopeType: "product",
+        productId: product,
+        minQty: 20,
+        valueText: "50%",
+      });
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 20, unit_price: 10 }],
+          company.loc1,
+        ),
+      );
+
+      expect(result.total).toBe(100);
+      expect(result.promo_discount).toBe(100);
+      expect(result.discount_total).toBe(100);
+    });
+
+    it("no aplica el descuento si la cantidad no alcanza el mínimo", async () => {
+      const company = await makeCompany(db, "Empresa Promo Bajo Minimo");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Copias",
+        3,
+        10,
+        1000,
+      );
+      await makePromotion(company.id, {
+        scopeType: "product",
+        productId: product,
+        minQty: 20,
+        valueText: "50%",
+      });
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 19, unit_price: 10 }],
+          company.loc1,
+        ),
+      );
+
+      expect(result.total).toBe(190);
+      expect(result.promo_discount).toBe(0);
+    });
+
+    it("una promoción por categoría suma cantidades de varios productos de esa categoría", async () => {
+      const company = await makeCompany(db, "Empresa Promo Categoria");
+      const admin = await makeUser(db, company.id, "admin");
+      const { rows: catRows } = await db.query<{ id: string }>(
+        "insert into public.categories (company_id, name) values ($1, 'Copias') returning id",
+        [company.id],
+      );
+      const categoryId = catRows[0].id;
+      const productA = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Copias BN",
+        3,
+        10,
+        1000,
+      );
+      const productB = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Copias Color",
+        6,
+        20,
+        1000,
+      );
+      await db.query(
+        "update public.products set category_id=$1 where id in ($2,$3)",
+        [categoryId, productA, productB],
+      );
+      await makePromotion(company.id, {
+        scopeType: "category",
+        categoryId,
+        minQty: 20,
+        valueText: "50%",
+      });
+
+      // 10 de A + 10 de B = 20 en la categoría -- ninguno solo llega al
+      // mínimo, pero juntos sí.
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [
+            { product_id: productA, qty: 10, unit_price: 10 },
+            { product_id: productB, qty: 10, unit_price: 20 },
+          ],
+          company.loc1,
+        ),
+      );
+
+      expect(result.total).toBe(150); // (10*5) + (10*10)
+      expect(result.promo_discount).toBe(150); // (10*5) + (10*10) ahorrado
+    });
+
+    it("una promoción inactiva o fuera de rango de fechas no se aplica", async () => {
+      const company = await makeCompany(db, "Empresa Promo Inactiva");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Copias",
+        3,
+        10,
+        1000,
+      );
+      await makePromotion(company.id, {
+        scopeType: "product",
+        productId: product,
+        minQty: 20,
+        valueText: "50%",
+        active: false,
+      });
+      await makePromotion(company.id, {
+        scopeType: "product",
+        productId: product,
+        minQty: 20,
+        valueText: "50%",
+        startsAt: "2099-01-01",
+      });
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 30, unit_price: 10 }],
+          company.loc1,
+        ),
+      );
+
+      expect(result.promo_discount).toBe(0);
+      expect(result.total).toBe(300);
+    });
+
+    it("si compiten dos promociones sobre el mismo producto, gana la de mayor porcentaje (no se acumulan)", async () => {
+      const company = await makeCompany(db, "Empresa Promo Competencia");
+      const admin = await makeUser(db, company.id, "admin");
+      const { rows: catRows } = await db.query<{ id: string }>(
+        "insert into public.categories (company_id, name) values ($1, 'Copias') returning id",
+        [company.id],
+      );
+      const categoryId = catRows[0].id;
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Copias",
+        3,
+        10,
+        1000,
+      );
+      await db.query("update public.products set category_id=$1 where id=$2", [
+        categoryId,
+        product,
+      ]);
+      await makePromotion(company.id, {
+        scopeType: "category",
+        categoryId,
+        minQty: 1,
+        valueText: "30%",
+      });
+      await makePromotion(company.id, {
+        scopeType: "product",
+        productId: product,
+        minQty: 20,
+        valueText: "50%",
+      });
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 20, unit_price: 10 }],
+          company.loc1,
+        ),
+      );
+
+      // Gana el 50% (mayor descuento), no se suma al 30%.
+      expect(result.total).toBe(100);
+      expect(result.promo_discount).toBe(100);
+    });
+
+    it("promociones 2x1 o combo no se aplican solas (solo 'discount' se automatiza)", async () => {
+      const company = await makeCompany(db, "Empresa Promo 2x1");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Copias",
+        3,
+        10,
+        1000,
+      );
+      await makePromotion(company.id, {
+        scopeType: "product",
+        productId: product,
+        minQty: 1,
+        valueText: null,
+        promotionType: "2x1",
+      });
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 10, unit_price: 10 }],
+          company.loc1,
+        ),
+      );
+
+      expect(result.promo_discount).toBe(0);
+      expect(result.total).toBe(100);
+    });
+
+    it("la promoción automática funciona junto con el canje de puntos de lealtad", async () => {
+      const company = await makeCompany(db, "Empresa Promo Lealtad");
+      const admin = await makeUser(db, company.id, "admin");
+      await setLoyaltySettings(db, company.id, {
+        enabled: true,
+        pointValue: 1,
+        earnRate: 0,
+      });
+      const customer = await makeCustomer(db, company.id, "Cliente Promo", 30);
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Copias",
+        3,
+        10,
+        1000,
+      );
+      await makePromotion(company.id, {
+        scopeType: "product",
+        productId: product,
+        minQty: 20,
+        valueText: "50%",
+      });
+
+      // 20 * 10 = 200 -> promo 50% -> 100 -> canje 30 puntos ($30) -> 70.
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 20, unit_price: 10 }],
+          company.loc1,
+          undefined,
+          { customerId: customer, pointsRedeemed: 30 },
+        ),
+      );
+
+      expect(result.promo_discount).toBe(100);
+      expect(result.points_redeemed).toBe(30);
+      expect(result.total).toBe(70);
+      expect(result.discount_total).toBe(130);
+    });
+
+    it("regresión: subtotal + tax sigue siendo igual a total en una venta con promoción automática", async () => {
+      const company = await makeCompany(db, "Empresa Promo Regresion");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Copias",
+        3,
+        10,
+        1000,
+      );
+      await makePromotion(company.id, {
+        scopeType: "product",
+        productId: product,
+        minQty: 20,
+        valueText: "50%",
+      });
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 20, unit_price: 10 }],
+          company.loc1,
+        ),
+      );
+
+      expect(Math.round((result.subtotal + result.tax) * 100) / 100).toBe(
+        result.total,
+      );
+    });
+  });
 });

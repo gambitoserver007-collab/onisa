@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import type { CartItem, Customer, DocumentType, Sale } from "@/types";
+import type { Promotion } from "@/services/appData";
 import {
   PAYMENT_METHOD_KIND_LABELS,
   type PaymentMethodDefinition,
@@ -91,6 +92,9 @@ export interface SaleCartProps {
   /** Máximo de puntos canjeables en esta venta (saldo del cliente y total, lo que sea menor). */
   maxRedeemablePoints?: number;
   onPointsToRedeemChange?: (value: number) => void;
+  /** Promociones automáticas que ya califican con lo que hay en el carrito
+   * (solo aviso -- el descuento real lo calcula y valida el servidor). */
+  qualifyingPromotions?: Promotion[];
 }
 
 function SaleCartContent({
@@ -119,6 +123,7 @@ function SaleCartContent({
   loyaltyDiscount = 0,
   maxRedeemablePoints = 0,
   onPointsToRedeemChange,
+  qualifyingPromotions = [],
 }: SaleCartProps) {
   const { formatMoney, settings } = useBusinessSettings();
   const itemCount = cart.reduce((sum, item) => sum + item.qty, 0);
@@ -489,6 +494,16 @@ function SaleCartContent({
           );
         })}
       </div>
+
+      {qualifyingPromotions.length > 0 && (
+        <div className="shrink-0 space-y-1 rounded-2xl border border-primary/30 bg-primary/5 p-2.5 text-xs">
+          {qualifyingPromotions.map((promo) => (
+            <p key={promo.id} className="font-medium text-primary">
+              🎉 Promoción aplicada: {promo.name} ({promo.valueText})
+            </p>
+          ))}
+        </div>
+      )}
 
       <div className="shrink-0 space-y-2.5 rounded-2xl bg-muted/50 p-3.5 text-sm">
         <div className="flex justify-between text-muted-foreground">

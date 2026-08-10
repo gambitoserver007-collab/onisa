@@ -29,7 +29,9 @@ import {
   fetchLocationStock,
   fetchLocationVariantStock,
   fetchProductVariants,
+  fetchPromotions,
   getErrorMessage,
+  type Promotion,
 } from "@/services/appData";
 import type { CartItem, Product, ProductVariant, Sale } from "@/types";
 
@@ -65,6 +67,7 @@ function POS() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customer, setCustomer] = useState("");
   const [pointsToRedeem, setPointsToRedeem] = useState(0);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [docType, setDocType] = useState<SaleDocumentType>("");
   const [method, setMethod] = useState<PaymentMethod>("Efectivo");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
@@ -232,6 +235,62 @@ function POS() {
     () => new Map(locatedProducts.map((product) => [product.id, product])),
     [locatedProducts],
   );
+
+  // Promociones automáticas por cantidad: solo para mostrar un aviso ("ya
+  // calificas") mientras se arma el carrito -- el descuento real siempre lo
+  // calcula y valida create_sale server-side, esto es solo una vista previa.
+  useEffect(() => {
+    if (!session?.companyId) return;
+    let active = true;
+    void fetchPromotions(session.companyId)
+      .then((data) => {
+        if (active) setPromotions(data);
+      })
+      .catch(() => {
+        /* aviso opcional -- si falla, simplemente no se muestra */
+      });
+    return () => {
+      active = false;
+    };
+  }, [session?.companyId]);
+
+  const qualifyingPromotions = useMemo(() => {
+    if (!promotions.length || !cart.length) return [];
+    const now = new Date();
+    const qtyByProduct = new Map<string, number>();
+    const qtyByCategory = new Map<string, number>();
+    for (const item of cart) {
+      qtyByProduct.set(
+        item.productId,
+        (qtyByProduct.get(item.productId) ?? 0) + item.qty,
+      );
+      const categoryId = productById.get(item.productId)?.categoryId;
+      if (categoryId) {
+        qtyByCategory.set(
+          categoryId,
+          (qtyByCategory.get(categoryId) ?? 0) + item.qty,
+        );
+      }
+    }
+    return promotions.filter((promo) => {
+      if (
+        promo.type !== "discount" ||
+        promo.scopeType === "none" ||
+        !promo.active
+      )
+        return false;
+      if (promo.startsAt && new Date(promo.startsAt) > now) return false;
+      if (promo.endsAt && new Date(promo.endsAt) < now) return false;
+      const minQty = promo.minQty ?? 0;
+      if (promo.scopeType === "product" && promo.productId) {
+        return (qtyByProduct.get(promo.productId) ?? 0) >= minQty;
+      }
+      if (promo.scopeType === "category" && promo.categoryId) {
+        return (qtyByCategory.get(promo.categoryId) ?? 0) >= minQty;
+      }
+      return false;
+    });
+  }, [promotions, cart, productById]);
 
   // Diferimos búsqueda y categoría: el menú/buscador responden al instante y la
   // grilla se recalcula sin bloquear la UI (cambiar de categoría se siente fluido).
@@ -572,6 +631,11 @@ function POS() {
       await reload();
       await reloadLocationStock();
       setSuccess({ amount, id: saleId });
+      if (sale?.promoDiscount && sale.promoDiscount > 0) {
+        toast.success(
+          `Promoción aplicada: ahorraste ${formatMoney(sale.promoDiscount)}.`,
+        );
+      }
       setTimeout(() => {
         navigate({ to: "/ventas/$id", params: { id: saleId } });
       }, 1700);
@@ -617,6 +681,7 @@ function POS() {
     loyaltyDiscount,
     maxRedeemablePoints,
     onPointsToRedeemChange: setPointsToRedeem,
+    qualifyingPromotions,
   };
 
   // Sin sucursal concreta (admin con "Todas las tiendas") no se puede vender:

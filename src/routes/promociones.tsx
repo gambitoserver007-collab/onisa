@@ -34,6 +34,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
+import { useCompanyCatalog } from "@/hooks/useCompanyCatalog";
 import { useDemoSession } from "@/hooks/useDemoSession";
 import { blockDemoAction } from "@/lib/demoMode";
 import {
@@ -43,6 +44,7 @@ import {
   setPromotionActive,
   updatePromotion,
   type Promotion,
+  type PromotionScopeType,
   type PromotionType,
   getErrorMessage,
 } from "@/services/appData";
@@ -55,9 +57,12 @@ const TYPE_LABELS: Record<string, string> = {
   combo: "Combo",
 };
 
+const SCOPE_NONE = "none";
+
 function Promos() {
   const { formatMoney } = useBusinessSettings();
   const { isDemo, session, isReady } = useDemoSession();
+  const { products, categories } = useCompanyCatalog();
   const [promos, setPromos] = useState<Promotion[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -68,6 +73,10 @@ function Promos() {
   const [value, setValue] = useState("");
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
+  const [scopeType, setScopeType] = useState<PromotionScopeType>(SCOPE_NONE);
+  const [scopeProductId, setScopeProductId] = useState("");
+  const [scopeCategoryId, setScopeCategoryId] = useState("");
+  const [minQty, setMinQty] = useState("");
 
   const reload = useCallback(async () => {
     setIsLoading(true);
@@ -94,6 +103,10 @@ function Promos() {
     setValue("");
     setStartsAt("");
     setEndsAt("");
+    setScopeType(SCOPE_NONE);
+    setScopeProductId("");
+    setScopeCategoryId("");
+    setMinQty("");
     setOpen(true);
   };
 
@@ -110,6 +123,10 @@ function Promos() {
     );
     setStartsAt(promo.startsAt?.slice(0, 10) ?? "");
     setEndsAt(promo.endsAt?.slice(0, 10) ?? "");
+    setScopeType(promo.scopeType);
+    setScopeProductId(promo.productId ?? "");
+    setScopeCategoryId(promo.categoryId ?? "");
+    setMinQty(promo.minQty != null ? String(promo.minQty) : "");
     setOpen(true);
   };
 
@@ -119,6 +136,22 @@ function Promos() {
       return;
     }
     if (!session) return;
+    if (type === "discount" && scopeType === "product" && !scopeProductId) {
+      toast.error("Elige el producto al que aplica.");
+      return;
+    }
+    if (type === "discount" && scopeType === "category" && !scopeCategoryId) {
+      toast.error("Elige la categoría a la que aplica.");
+      return;
+    }
+    if (
+      type === "discount" &&
+      scopeType !== SCOPE_NONE &&
+      !(Number(minQty) > 0)
+    ) {
+      toast.error("Ingresa la cantidad mínima para que se aplique sola.");
+      return;
+    }
     setIsSaving(true);
     try {
       const numeric = Number(value);
@@ -129,6 +162,10 @@ function Promos() {
         valueAmount: type === "combo" ? numeric || 0 : null,
         startsAt: startsAt || null,
         endsAt: endsAt || null,
+        scopeType,
+        productId: scopeType === "product" ? scopeProductId : null,
+        categoryId: scopeType === "category" ? scopeCategoryId : null,
+        minQty: scopeType === SCOPE_NONE ? null : Number(minQty) || null,
       };
       if (editing) {
         await updatePromotion(editing.id, input);
@@ -182,6 +219,18 @@ function Promos() {
     if (promo.type === "combo") return formatMoney(promo.valueAmount ?? 0);
     if (promo.type === "discount") return promo.valueText ?? "-";
     return "-";
+  };
+
+  const applicationOf = (promo: Promotion) => {
+    if (promo.scopeType === "product") {
+      const p = products.find((item) => item.id === promo.productId);
+      return `${p?.name ?? "producto"} · mín. ${promo.minQty ?? 0}`;
+    }
+    if (promo.scopeType === "category") {
+      const c = categories.find((item) => item.id === promo.categoryId);
+      return `${c?.name ?? "categoría"} · mín. ${promo.minQty ?? 0}`;
+    }
+    return null;
   };
 
   return (
@@ -265,6 +314,91 @@ function Promos() {
                 />
               </div>
             </div>
+            {type === "discount" && (
+              <div className="space-y-3 rounded-lg border p-3">
+                <div className="space-y-1">
+                  <Label>Aplicación automática</Label>
+                  <Select
+                    value={scopeType}
+                    onValueChange={(v) => setScopeType(v as PromotionScopeType)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={SCOPE_NONE}>
+                        Solo informativa (no se aplica sola)
+                      </SelectItem>
+                      <SelectItem value="product">
+                        Automática por producto
+                      </SelectItem>
+                      <SelectItem value="category">
+                        Automática por categoría
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {scopeType === "product" && (
+                  <div className="space-y-1">
+                    <Label>Producto</Label>
+                    <Select
+                      value={scopeProductId}
+                      onValueChange={setScopeProductId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Elige un producto" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {products.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {scopeType === "category" && (
+                  <div className="space-y-1">
+                    <Label>Categoría</Label>
+                    <Select
+                      value={scopeCategoryId}
+                      onValueChange={setScopeCategoryId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Elige una categoría" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categories.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {scopeType !== SCOPE_NONE && (
+                  <div className="space-y-1">
+                    <Label>Cantidad mínima en el carrito</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={minQty}
+                      onChange={(event) => setMinQty(event.target.value)}
+                      placeholder="Ej. 20"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Se aplica sola en el POS cuando la cantidad de{" "}
+                      {scopeType === "category"
+                        ? "la categoría"
+                        : "el producto"}{" "}
+                      en el carrito llegue a este mínimo.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button
@@ -288,6 +422,7 @@ function Promos() {
                   <TableHead>Valor</TableHead>
                   <TableHead>Inicio</TableHead>
                   <TableHead>Fin</TableHead>
+                  <TableHead>Aplicación</TableHead>
                   <TableHead>Activa</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
@@ -296,7 +431,7 @@ function Promos() {
                 {isLoading && (
                   <TableRow>
                     <TableCell
-                      colSpan={7}
+                      colSpan={8}
                       className="py-8 text-center text-muted-foreground"
                     >
                       Cargando promociones...
@@ -305,7 +440,7 @@ function Promos() {
                 )}
                 {!isLoading && promos.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7}>
+                    <TableCell colSpan={8}>
                       <EmptyState
                         emoji="🏷️"
                         title="Sin promociones"
@@ -328,6 +463,17 @@ function Promos() {
                         {promo.startsAt?.slice(0, 10) ?? "-"}
                       </TableCell>
                       <TableCell>{promo.endsAt?.slice(0, 10) ?? "-"}</TableCell>
+                      <TableCell>
+                        {applicationOf(promo) ? (
+                          <Badge variant="default">
+                            Auto: {applicationOf(promo)}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            Informativa
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Switch

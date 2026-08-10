@@ -1081,6 +1081,7 @@ export type Database = {
       promotions: {
         Row: {
           active: boolean;
+          category_id: string | null;
           company_id: string;
           created_at: string;
           deleted_at: string | null;
@@ -1088,8 +1089,11 @@ export type Database = {
           id: string;
           is_demo_data: boolean;
           location_id: string | null;
+          min_qty: number | null;
           name: string;
+          product_id: string | null;
           promotion_type: string;
+          scope_type: string;
           starts_at: string | null;
           updated_at: string;
           value_amount: number | null;
@@ -1097,6 +1101,7 @@ export type Database = {
         };
         Insert: {
           active?: boolean;
+          category_id?: string | null;
           company_id: string;
           created_at?: string;
           deleted_at?: string | null;
@@ -1104,8 +1109,11 @@ export type Database = {
           id?: string;
           is_demo_data?: boolean;
           location_id?: string | null;
+          min_qty?: number | null;
           name: string;
+          product_id?: string | null;
           promotion_type: string;
+          scope_type?: string;
           starts_at?: string | null;
           updated_at?: string;
           value_amount?: number | null;
@@ -1113,6 +1121,7 @@ export type Database = {
         };
         Update: {
           active?: boolean;
+          category_id?: string | null;
           company_id?: string;
           created_at?: string;
           deleted_at?: string | null;
@@ -1120,8 +1129,11 @@ export type Database = {
           id?: string;
           is_demo_data?: boolean;
           location_id?: string | null;
+          min_qty?: number | null;
           name?: string;
+          product_id?: string | null;
           promotion_type?: string;
+          scope_type?: string;
           starts_at?: string | null;
           updated_at?: string;
           value_amount?: number | null;

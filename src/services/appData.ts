@@ -786,6 +786,7 @@ export async function createSaleFromCart({
     tax?: number;
     total?: number;
     discount_total?: number;
+    promo_discount?: number;
     points_earned?: number;
     points_redeemed?: number;
   };
@@ -800,6 +801,7 @@ export async function createSaleFromCart({
     igv: payload.tax ?? sale.igv,
     total: payload.total ?? sale.total,
     discountTotal: payload.discount_total ?? 0,
+    promoDiscount: payload.promo_discount ?? 0,
     pointsEarned: payload.points_earned ?? 0,
     pointsRedeemed: payload.points_redeemed ?? 0,
   };
@@ -2700,6 +2702,7 @@ function documentNumber(prefix: string) {
 // ---- Promociones ----
 
 export type PromotionType = "discount" | "2x1" | "combo";
+export type PromotionScopeType = "none" | "product" | "category";
 
 export interface Promotion {
   id: string;
@@ -2710,6 +2713,12 @@ export interface Promotion {
   startsAt: string | null;
   endsAt: string | null;
   active: boolean;
+  /** Condición de aplicación automática. 'none' = solo informativa (como antes). */
+  scopeType: PromotionScopeType;
+  productId: string | null;
+  categoryId: string | null;
+  /** Cantidad mínima en el carrito para que se aplique sola. Solo tiene efecto con scopeType != 'none' y type='discount'. */
+  minQty: number | null;
 }
 
 export interface PromotionInput {
@@ -2719,6 +2728,10 @@ export interface PromotionInput {
   valueAmount?: number | null;
   startsAt?: string | null;
   endsAt?: string | null;
+  scopeType?: PromotionScopeType;
+  productId?: string | null;
+  categoryId?: string | null;
+  minQty?: number | null;
 }
 
 export async function fetchPromotions(
@@ -2727,7 +2740,7 @@ export async function fetchPromotions(
   const query = supabase
     .from("promotions")
     .select(
-      "id, name, promotion_type, value_text, value_amount, starts_at, ends_at, active",
+      "id, name, promotion_type, value_text, value_amount, starts_at, ends_at, active, scope_type, product_id, category_id, min_qty",
     )
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
@@ -2744,7 +2757,27 @@ export async function fetchPromotions(
     startsAt: row.starts_at,
     endsAt: row.ends_at,
     active: row.active,
+    scopeType:
+      ((row as { scope_type?: string }).scope_type as PromotionScopeType) ??
+      "none",
+    productId: (row as { product_id?: string | null }).product_id ?? null,
+    categoryId: (row as { category_id?: string | null }).category_id ?? null,
+    minQty:
+      (row as { min_qty?: number | null }).min_qty == null
+        ? null
+        : toNumber((row as { min_qty?: number | null }).min_qty),
   }));
+}
+
+function promotionScopeFields(input: PromotionInput) {
+  const scopeType: PromotionScopeType =
+    input.type === "discount" ? (input.scopeType ?? "none") : "none";
+  return {
+    scope_type: scopeType,
+    product_id: scopeType === "product" ? (input.productId ?? null) : null,
+    category_id: scopeType === "category" ? (input.categoryId ?? null) : null,
+    min_qty: scopeType === "none" ? null : (input.minQty ?? null),
+  };
 }
 
 export async function createPromotion(
@@ -2762,6 +2795,7 @@ export async function createPromotion(
     starts_at: input.startsAt || null,
     ends_at: input.endsAt || null,
     active: true,
+    ...promotionScopeFields(input),
   });
   if (error) throw error;
 }
@@ -2782,6 +2816,7 @@ export async function updatePromotion(
       starts_at: input.startsAt || null,
       ends_at: input.endsAt || null,
       updated_at: new Date().toISOString(),
+      ...promotionScopeFields(input),
     })
     .eq("id", promotionId);
   if (error) throw error;

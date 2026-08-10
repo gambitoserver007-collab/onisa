@@ -190,6 +190,7 @@ export async function createSale(
   tax: number;
   total: number;
   discount_total: number;
+  promo_discount: number;
   points_earned: number;
   points_redeemed: number;
 }> {
@@ -209,6 +210,7 @@ export async function createSale(
     tax: number;
     total: number;
     discount_total: number;
+    promo_discount: number;
     points_earned: number;
     points_redeemed: number;
   };
