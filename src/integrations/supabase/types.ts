@@ -505,6 +505,111 @@ export type Database = {
           },
         ];
       };
+      employee_attendance: {
+        Row: {
+          check_in_at: string;
+          check_out_at: string | null;
+          company_id: string;
+          created_at: string;
+          id: string;
+          is_demo_data: boolean;
+          is_late: boolean;
+          location_id: string | null;
+          profile_id: string;
+          status: string;
+        };
+        Insert: {
+          check_in_at?: string;
+          check_out_at?: string | null;
+          company_id: string;
+          created_at?: string;
+          id?: string;
+          is_demo_data?: boolean;
+          is_late?: boolean;
+          location_id?: string | null;
+          profile_id: string;
+          status?: string;
+        };
+        Update: {
+          check_in_at?: string;
+          check_out_at?: string | null;
+          company_id?: string;
+          created_at?: string;
+          id?: string;
+          is_demo_data?: boolean;
+          is_late?: boolean;
+          location_id?: string | null;
+          profile_id?: string;
+          status?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "employee_attendance_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "employee_attendance_profile_id_fkey";
+            columns: ["profile_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      employee_time_events: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          created_by: string | null;
+          event_date: string;
+          id: string;
+          is_demo_data: boolean;
+          note: string | null;
+          profile_id: string;
+          type: string;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          event_date: string;
+          id?: string;
+          is_demo_data?: boolean;
+          note?: string | null;
+          profile_id: string;
+          type: string;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          event_date?: string;
+          id?: string;
+          is_demo_data?: boolean;
+          note?: string | null;
+          profile_id?: string;
+          type?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "employee_time_events_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "employee_time_events_profile_id_fkey";
+            columns: ["profile_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       locations: {
         Row: {
           address: string | null;
@@ -908,6 +1013,7 @@ export type Database = {
           is_demo: boolean;
           is_platform_admin: boolean;
           location_id: string | null;
+          pin_hash: string | null;
           role: Database["public"]["Enums"]["app_role"];
           updated_at: string;
         };
@@ -923,6 +1029,7 @@ export type Database = {
           is_demo?: boolean;
           is_platform_admin?: boolean;
           location_id?: string | null;
+          pin_hash?: string | null;
           role?: Database["public"]["Enums"]["app_role"];
           updated_at?: string;
         };
@@ -938,6 +1045,7 @@ export type Database = {
           is_demo?: boolean;
           is_platform_admin?: boolean;
           location_id?: string | null;
+          pin_hash?: string | null;
           role?: Database["public"]["Enums"]["app_role"];
           updated_at?: string;
         };
@@ -1528,6 +1636,7 @@ export type Database = {
         Row: {
           company_id: string;
           created_at: string;
+          created_by: string | null;
           id: string;
           is_demo_data: boolean;
           location_id: string | null;
@@ -1542,6 +1651,7 @@ export type Database = {
         Insert: {
           company_id: string;
           created_at?: string;
+          created_by?: string | null;
           id?: string;
           is_demo_data?: boolean;
           location_id?: string | null;
@@ -1556,6 +1666,7 @@ export type Database = {
         Update: {
           company_id?: string;
           created_at?: string;
+          created_by?: string | null;
           id?: string;
           is_demo_data?: boolean;
           location_id?: string | null;
@@ -1926,6 +2037,10 @@ export type Database = {
         Returns: boolean;
       };
       can_write_company: { Args: { p_company_id: string }; Returns: boolean };
+      clear_employee_pin: {
+        Args: { p_profile_id: string };
+        Returns: undefined;
+      };
       compute_cash_session_expected: {
         Args: { p_session_id: string };
         Returns: number;
@@ -2006,6 +2121,10 @@ export type Database = {
           revenue: number;
         }[];
       };
+      punch_employee: {
+        Args: { p_location_id?: string; p_pin: string; p_tz?: string };
+        Returns: Json;
+      };
       sales_by_category: {
         Args: {
           p_from?: string;
@@ -2038,6 +2157,10 @@ export type Database = {
           method: string;
           total: number;
         }[];
+      };
+      set_employee_pin: {
+        Args: { p_pin: string; p_profile_id: string };
+        Returns: undefined;
       };
       soft_delete_product: {
         Args: { p_product_id: string };

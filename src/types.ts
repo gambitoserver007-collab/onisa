@@ -116,6 +116,8 @@ export interface Sale {
   customer: string;
   /** Id del cliente (para cruzar con su documento/cédula al buscar). */
   customerId?: string | null;
+  /** Id del perfil que registró la venta (para ventas por empleado). */
+  createdBy?: string | null;
   items: {
     productId: string;
     name: string;

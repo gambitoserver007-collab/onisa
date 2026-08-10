@@ -271,6 +271,7 @@ function mapSale(row: SaleRow, items: SaleItemRow[]): Sale {
     method: toPaymentMethod(row.payment_method),
     customer: row.customer_name,
     customerId: row.customer_id ?? null,
+    createdBy: (row as { created_by?: string | null }).created_by ?? null,
     items: items.map((item) => ({
       productId: item.product_id ?? item.id,
       name: item.product_name,
@@ -1268,6 +1269,8 @@ export interface StockMovementRow {
   qty: number;
   referenceType: string | null;
   notes: string | null;
+  /** Id del perfil que hizo el ajuste (para mermas por empleado). Solo se graba en ajustes manuales. */
+  createdBy: string | null;
 }
 
 // Movimientos de inventario reales (Kardex): ventas, compras, transferencias y
@@ -1280,7 +1283,7 @@ export async function fetchStockMovements(
   let query: any = supabase
     .from("stock_movements")
     .select(
-      "id, created_at, product_id, location_id, movement_type, qty, reference_type, notes, products!inner(name), locations(name)",
+      "id, created_at, product_id, location_id, movement_type, qty, reference_type, notes, created_by, products!inner(name), locations(name)",
     )
     .order("created_at", { ascending: false })
     .limit(200);
@@ -1298,6 +1301,7 @@ export async function fetchStockMovements(
       qty: number;
       reference_type: string | null;
       notes: string | null;
+      created_by: string | null;
       products?: { name?: string };
       locations?: { name?: string } | null;
     }) => ({
@@ -1311,6 +1315,7 @@ export async function fetchStockMovements(
       qty: toNumber(row.qty),
       referenceType: row.reference_type,
       notes: row.notes,
+      createdBy: row.created_by,
     }),
   );
 }
@@ -3188,6 +3193,8 @@ export interface TeamMember {
   allowedSections: string[] | null;
   /** Acceso al Panel SaaS (solo aplica a administradores). */
   isPlatformAdmin: boolean;
+  /** Si ya tiene un PIN de checador asignado (nunca se expone el PIN/hash real). */
+  hasPin: boolean;
 }
 
 export interface CreateTeamUserInput {
@@ -3322,7 +3329,7 @@ export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
   const query = supabase
     .from("profiles")
     .select(
-      "id, full_name, email, role, is_active, location_id, is_platform_admin, created_at",
+      "id, full_name, email, role, is_active, location_id, is_platform_admin, pin_hash, created_at",
     )
     .order("created_at", { ascending: true });
   const { data, error } = await (companyId
@@ -3333,6 +3340,7 @@ export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
     id: row.id,
     name: row.full_name,
     email: row.email,
+    hasPin: Boolean((row as { pin_hash?: string | null }).pin_hash),
     role: row.role,
     active: row.is_active,
     locationId: (row as { location_id?: string | null }).location_id ?? null,
@@ -3428,6 +3436,157 @@ export async function fetchAllowedSections(
   } catch {
     return null;
   }
+}
+
+// ---- Módulo de empleados: checador por PIN, asistencia, faltas/vacaciones ----
+
+export interface AttendanceEntry {
+  id: string;
+  profileId: string;
+  locationId: string | null;
+  checkInAt: string;
+  checkOutAt: string | null;
+  isLate: boolean;
+  status: "open" | "closed";
+}
+
+export async function fetchAttendance(
+  companyId?: string,
+): Promise<AttendanceEntry[]> {
+  let query = supabase
+    .from("employee_attendance")
+    .select(
+      "id, profile_id, location_id, check_in_at, check_out_at, is_late, status",
+    )
+    .order("check_in_at", { ascending: false })
+    .limit(200);
+  if (companyId) query = query.eq("company_id", companyId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    profileId: row.profile_id,
+    locationId: row.location_id,
+    checkInAt: row.check_in_at,
+    checkOutAt: row.check_out_at,
+    isLate: row.is_late,
+    status: row.status as "open" | "closed",
+  }));
+}
+
+/** Registra el PIN capturado en el checador: hace check-in o check-out según
+ * si el empleado dueño de ese PIN ya tiene una entrada abierta hoy. El PIN se
+ * valida solo server-side (crypt/pgcrypto); nunca se compara en el cliente. */
+export async function punchEmployee(
+  pin: string,
+  locationId?: string | null,
+): Promise<{
+  action: "check_in" | "check_out";
+  profileId: string;
+  fullName: string;
+  isLate?: boolean;
+  at: string;
+}> {
+  let tz = "UTC";
+  try {
+    tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    /* usa UTC por defecto */
+  }
+  const { data, error } = await supabase.rpc("punch_employee", {
+    p_pin: pin,
+    p_location_id: locationId ?? undefined,
+    p_tz: tz,
+  });
+  if (error) throw error;
+  const payload = (data ?? {}) as {
+    action: "check_in" | "check_out";
+    profile_id: string;
+    full_name: string;
+    is_late?: boolean;
+    at: string;
+  };
+  return {
+    action: payload.action,
+    profileId: payload.profile_id,
+    fullName: payload.full_name,
+    isLate: payload.is_late,
+    at: payload.at,
+  };
+}
+
+export async function setEmployeePin(profileId: string, pin: string) {
+  const { error } = await supabase.rpc("set_employee_pin", {
+    p_profile_id: profileId,
+    p_pin: pin,
+  });
+  if (error) throw error;
+}
+
+export async function clearEmployeePin(profileId: string) {
+  const { error } = await supabase.rpc("clear_employee_pin", {
+    p_profile_id: profileId,
+  });
+  if (error) throw error;
+}
+
+export interface TimeEvent {
+  id: string;
+  profileId: string;
+  type: "absence" | "vacation";
+  date: string;
+  note: string | null;
+  createdAt: string;
+}
+
+export async function fetchTimeEvents(
+  companyId?: string,
+): Promise<TimeEvent[]> {
+  let query = supabase
+    .from("employee_time_events")
+    .select("id, profile_id, type, event_date, note, created_at")
+    .order("event_date", { ascending: false })
+    .limit(200);
+  if (companyId) query = query.eq("company_id", companyId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    profileId: row.profile_id,
+    type: row.type as "absence" | "vacation",
+    date: row.event_date,
+    note: row.note,
+    createdAt: row.created_at,
+  }));
+}
+
+export async function createTimeEvent(
+  session: DemoSession,
+  input: {
+    profileId: string;
+    type: "absence" | "vacation";
+    date: string;
+    note?: string;
+  },
+) {
+  const companyId = requireCompanyId(session);
+  const { error } = await supabase.from("employee_time_events").insert({
+    company_id: companyId,
+    profile_id: input.profileId,
+    type: input.type,
+    event_date: input.date,
+    note: input.note?.trim() || null,
+    created_by: session.userId ?? null,
+  } as never);
+  if (error) throw error;
+}
+
+export async function deleteTimeEvent(id: string) {
+  const { error } = await supabase
+    .from("employee_time_events")
+    .delete()
+    .eq("id", id);
+  if (error) throw error;
 }
 
 // ---- Backup (export real) ----

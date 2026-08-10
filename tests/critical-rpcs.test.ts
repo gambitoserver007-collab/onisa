@@ -1391,4 +1391,195 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(Number(row.subtotal) + Number(row.tax)).toBe(100);
     });
   });
+
+  describe("14. Módulo de empleados: PIN, checador, asistencia, faltas/vacaciones", () => {
+    async function setupEmployeeCompany() {
+      const company = await makeCompany(db, "Empresa Empleados Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const employee = await makeUser(db, company.id, "user");
+      return { company, admin, employee };
+    }
+
+    it("admin asigna PIN a un empleado; el mismo PIN no se puede repetir en la empresa", async () => {
+      const { company, admin, employee } = await setupEmployeeCompany();
+      const employee2 = await makeUser(db, company.id, "user");
+
+      await asUser(db, admin, async () => {
+        await db.query("select set_employee_pin($1, '1234')", [employee]);
+        await expect(
+          db.query("select set_employee_pin($1, '1234')", [employee2]),
+        ).rejects.toThrow(/ya esta en uso/i);
+      });
+    });
+
+    it("el PIN debe ser numérico de 4 a 6 dígitos", async () => {
+      const { admin, employee } = await setupEmployeeCompany();
+      await asUser(db, admin, async () => {
+        await expect(
+          db.query("select set_employee_pin($1, 'abcd')", [employee]),
+        ).rejects.toThrow(/numerico/i);
+        await expect(
+          db.query("select set_employee_pin($1, '123')", [employee]),
+        ).rejects.toThrow(/numerico/i);
+      });
+    });
+
+    it("solo un admin puede asignar o quitar el PIN de un empleado", async () => {
+      const { admin, employee } = await setupEmployeeCompany();
+      await asUser(db, admin, async () => {
+        await db.query("select set_employee_pin($1, '4321')", [employee]);
+      });
+      await asUser(db, employee, async () => {
+        await expect(
+          db.query("select set_employee_pin($1, '9999')", [employee]),
+        ).rejects.toThrow(/no tienes permiso/i);
+        await expect(
+          db.query("select clear_employee_pin($1)", [employee]),
+        ).rejects.toThrow(/no tienes permiso/i);
+      });
+    });
+
+    it("punch_employee: primer PIN correcto hace check-in, el segundo hace check-out", async () => {
+      const { company, admin, employee } = await setupEmployeeCompany();
+      await asUser(db, admin, async () => {
+        await db.query("select set_employee_pin($1, '1111')", [employee]);
+
+        const { rows: inRows } = await db.query<{ punch_employee: unknown }>(
+          "select punch_employee('1111', $1) as punch_employee",
+          [company.loc1],
+        );
+        const checkIn = inRows[0].punch_employee as {
+          action: string;
+          profile_id: string;
+        };
+        expect(checkIn.action).toBe("check_in");
+        expect(checkIn.profile_id).toBe(employee);
+
+        const { rows: outRows } = await db.query<{ punch_employee: unknown }>(
+          "select punch_employee('1111', $1) as punch_employee",
+          [company.loc1],
+        );
+        const checkOut = outRows[0].punch_employee as { action: string };
+        expect(checkOut.action).toBe("check_out");
+      });
+
+      const { rows } = await db.query<{
+        status: string;
+        check_out_at: string | null;
+      }>(
+        "select status, check_out_at from public.employee_attendance where profile_id=$1",
+        [employee],
+      );
+      expect(rows[0].status).toBe("closed");
+      expect(rows[0].check_out_at).not.toBeNull();
+    });
+
+    it("punch_employee marca retardo comparando la hora de entrada contra el horario de la sucursal", async () => {
+      const { company, admin, employee } = await setupEmployeeCompany();
+      // Abre "00:01" -- prácticamente cualquier check-in del día es tarde.
+      await db.query(
+        "update public.locations set opening_hours='00:01 - 23:59' where id=$1",
+        [company.loc1],
+      );
+      await asUser(db, admin, async () => {
+        await db.query("select set_employee_pin($1, '2222')", [employee]);
+        const { rows } = await db.query<{ punch_employee: unknown }>(
+          "select punch_employee('2222', $1) as punch_employee",
+          [company.loc1],
+        );
+        const checkIn = rows[0].punch_employee as { is_late: boolean };
+        expect(checkIn.is_late).toBe(true);
+      });
+    });
+
+    it("PIN incorrecto es rechazado", async () => {
+      const { company, admin, employee } = await setupEmployeeCompany();
+      await asUser(db, admin, async () => {
+        await db.query("select set_employee_pin($1, '3333')", [employee]);
+        await expect(
+          db.query("select punch_employee('0000', $1) as punch_employee", [
+            company.loc1,
+          ]),
+        ).rejects.toThrow(/pin no reconocido/i);
+      });
+    });
+
+    it("el PIN de un empleado de otra empresa no funciona (aislamiento entre empresas)", async () => {
+      const { admin: adminA } = await setupEmployeeCompany();
+      const { company: companyB, employee: employeeB } =
+        await setupEmployeeCompany();
+      const adminB2 = await makeUser(db, companyB.id, "admin");
+      await asUser(db, adminB2, async () => {
+        await db.query("select set_employee_pin($1, '7777')", [employeeB]);
+      });
+
+      await asUser(db, adminA, async () => {
+        await expect(
+          db.query("select punch_employee('7777') as punch_employee"),
+        ).rejects.toThrow(/pin no reconocido/i);
+      });
+    });
+
+    it("solo un admin puede operar el checador", async () => {
+      const { admin, employee } = await setupEmployeeCompany();
+      await asUser(db, admin, async () => {
+        await db.query("select set_employee_pin($1, '8888')", [employee]);
+      });
+      await asUser(db, employee, async () => {
+        await expect(
+          db.query("select punch_employee('8888') as punch_employee"),
+        ).rejects.toThrow(/no tienes permiso/i);
+      });
+    });
+
+    it("adjust_stock graba quién hizo el ajuste (created_by), para calcular mermas por empleado", async () => {
+      const { company, admin } = await setupEmployeeCompany();
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Merma",
+        5,
+        10,
+        20,
+      );
+      await asUser(db, admin, async () => {
+        await db.query("select adjust_stock($1, $2, -3, 'merma de prueba')", [
+          product,
+          company.loc1,
+        ]);
+      });
+      const { rows } = await db.query<{ created_by: string }>(
+        "select created_by from public.stock_movements where product_id=$1 and movement_type='adjustment'",
+        [product],
+      );
+      expect(rows[0].created_by).toBe(admin);
+    });
+
+    it("employee_time_events: solo el admin puede registrar faltas/vacaciones", async () => {
+      const { company, admin, employee } = await setupEmployeeCompany();
+      await asUser(db, admin, async () => {
+        await db.query(
+          `insert into public.employee_time_events (company_id, profile_id, type, event_date, note, created_by)
+           values ($1, $2, 'absence', current_date, 'Cita medica', $3)`,
+          [company.id, employee, admin],
+        );
+      });
+      const { rows } = await db.query<{ count: string }>(
+        "select count(*) from public.employee_time_events where profile_id=$1",
+        [employee],
+      );
+      expect(Number(rows[0].count)).toBe(1);
+
+      await asUser(db, employee, async () => {
+        await expect(
+          db.query(
+            `insert into public.employee_time_events (company_id, profile_id, type, event_date, created_by)
+             values ($1, $2, 'vacation', current_date, $2)`,
+            [company.id, employee],
+          ),
+        ).rejects.toThrow(/row-level security/i);
+      });
+    });
+  });
 });

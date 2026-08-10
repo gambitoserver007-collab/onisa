@@ -138,6 +138,7 @@ const ROUTE_ACCESS: Record<string, StoreRole[]> = {
   "/ganancias": ["admin", "finanzas"],
   "/perfil": ["admin", "finanzas", "user", "operador"],
   "/usuarios": ["admin"],
+  "/empleados": ["admin"],
   "/puntos-de-venta": ["admin"],
   "/suscripcion": ["admin"],
   "/configuracion": ["admin"],

@@ -17,6 +17,7 @@ import { Route as ClientesRouteImport } from './routes/clientes'
 import { Route as ConfiguracionRouteImport } from './routes/configuracion'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as DevolucionesRouteImport } from './routes/devoluciones'
+import { Route as EmpleadosRouteImport } from './routes/empleados'
 import { Route as EtiquetasRouteImport } from './routes/etiquetas'
 import { Route as GananciasRouteImport } from './routes/ganancias'
 import { Route as LoginRouteImport } from './routes/login'
@@ -88,6 +89,11 @@ const DashboardRoute = DashboardRouteImport.update({
 const DevolucionesRoute = DevolucionesRouteImport.update({
   id: '/devoluciones',
   path: '/devoluciones',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmpleadosRoute = EmpleadosRouteImport.update({
+  id: '/empleados',
+  path: '/empleados',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EtiquetasRoute = EtiquetasRouteImport.update({
@@ -263,6 +269,7 @@ export interface FileRoutesByFullPath {
   '/configuracion': typeof ConfiguracionRoute
   '/dashboard': typeof DashboardRoute
   '/devoluciones': typeof DevolucionesRoute
+  '/empleados': typeof EmpleadosRoute
   '/etiquetas': typeof EtiquetasRoute
   '/ganancias': typeof GananciasRoute
   '/login': typeof LoginRoute
@@ -305,6 +312,7 @@ export interface FileRoutesByTo {
   '/configuracion': typeof ConfiguracionRoute
   '/dashboard': typeof DashboardRoute
   '/devoluciones': typeof DevolucionesRoute
+  '/empleados': typeof EmpleadosRoute
   '/etiquetas': typeof EtiquetasRoute
   '/ganancias': typeof GananciasRoute
   '/login': typeof LoginRoute
@@ -348,6 +356,7 @@ export interface FileRoutesById {
   '/configuracion': typeof ConfiguracionRoute
   '/dashboard': typeof DashboardRoute
   '/devoluciones': typeof DevolucionesRoute
+  '/empleados': typeof EmpleadosRoute
   '/etiquetas': typeof EtiquetasRoute
   '/ganancias': typeof GananciasRoute
   '/login': typeof LoginRoute
@@ -392,6 +401,7 @@ export interface FileRouteTypes {
     | '/configuracion'
     | '/dashboard'
     | '/devoluciones'
+    | '/empleados'
     | '/etiquetas'
     | '/ganancias'
     | '/login'
@@ -434,6 +444,7 @@ export interface FileRouteTypes {
     | '/configuracion'
     | '/dashboard'
     | '/devoluciones'
+    | '/empleados'
     | '/etiquetas'
     | '/ganancias'
     | '/login'
@@ -476,6 +487,7 @@ export interface FileRouteTypes {
     | '/configuracion'
     | '/dashboard'
     | '/devoluciones'
+    | '/empleados'
     | '/etiquetas'
     | '/ganancias'
     | '/login'
@@ -519,6 +531,7 @@ export interface RootRouteChildren {
   ConfiguracionRoute: typeof ConfiguracionRoute
   DashboardRoute: typeof DashboardRoute
   DevolucionesRoute: typeof DevolucionesRoute
+  EmpleadosRoute: typeof EmpleadosRoute
   EtiquetasRoute: typeof EtiquetasRoute
   GananciasRoute: typeof GananciasRoute
   LoginRoute: typeof LoginRoute
@@ -609,6 +622,13 @@ declare module '@tanstack/react-router' {
       path: '/devoluciones'
       fullPath: '/devoluciones'
       preLoaderRoute: typeof DevolucionesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/empleados': {
+      id: '/empleados'
+      path: '/empleados'
+      fullPath: '/empleados'
+      preLoaderRoute: typeof EmpleadosRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/etiquetas': {
@@ -847,6 +867,7 @@ const rootRouteChildren: RootRouteChildren = {
   ConfiguracionRoute: ConfiguracionRoute,
   DashboardRoute: DashboardRoute,
   DevolucionesRoute: DevolucionesRoute,
+  EmpleadosRoute: EmpleadosRoute,
   EtiquetasRoute: EtiquetasRoute,
   GananciasRoute: GananciasRoute,
   LoginRoute: LoginRoute,

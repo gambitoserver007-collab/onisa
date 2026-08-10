@@ -4,6 +4,7 @@
 // triggers, SECURITY DEFINER y todo -- sin necesitar Docker ni un Supabase
 // real. Se usa como base de las pruebas en critical-rpcs.test.ts.
 import { PGlite } from "@electric-sql/pglite";
+import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -41,17 +42,13 @@ const AUTH_BOOTSTRAP_SQL = `
  * entre pruebas.
  */
 export async function createTestDb(): Promise<PGlite> {
-  const db = new PGlite();
+  // pgcrypto se carga como extension real de PGlite (necesario para
+  // crypt()/gen_salt(), usados por pin_hash de empleados) -- a diferencia de
+  // gen_random_uuid(), que ya es nativo del core desde PG13 y no lo necesita.
+  const db = new PGlite({ extensions: { pgcrypto } });
   await db.exec(AUTH_BOOTSTRAP_SQL);
 
-  let sql = readFileSync(INSTALL_SQL_PATH, "utf-8");
-  // PGlite no trae el contrib pgcrypto compilado; gen_random_uuid() ya es
-  // nativo del core desde PG13, así que basta con omitir esta línea SOLO
-  // para las pruebas (el archivo real no se toca).
-  sql = sql.replaceAll(
-    "create extension if not exists pgcrypto;",
-    "-- (omitido en pruebas: pgcrypto no disponible en PGlite)",
-  );
+  const sql = readFileSync(INSTALL_SQL_PATH, "utf-8");
   await db.exec(sql);
   return db;
 }

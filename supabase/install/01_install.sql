@@ -4147,9 +4147,9 @@ begin
   end if;
 
   insert into public.stock_movements (company_id, location_id, product_id,
-                                      movement_type, qty, reference_type, notes)
+                                      movement_type, qty, reference_type, notes, created_by)
   values (v_company_id, p_location_id, p_product_id, 'adjustment', v_qty,
-          'adjustment', coalesce(nullif(btrim(coalesce(p_notes,'')),''), 'Ajuste manual'));
+          'adjustment', coalesce(nullif(btrim(coalesce(p_notes,'')),''), 'Ajuste manual'), auth.uid());
 
   select coalesce(sum(stock),0) into v_total
   from public.product_locations
@@ -5994,3 +5994,246 @@ create policy "loyalty_ledger select scoped" on public.loyalty_ledger for select
 -- el saldo de puntos es dinero-equivalente (se puede canjear como
 -- descuento real), así que solo se escribe vía create_sale (SECURITY
 -- DEFINER) -- mismo principio que till_counts en el módulo de arqueo.
+
+-- ============================================================
+-- Fase 4: módulo de empleados -- checador por PIN (sin hardware externo),
+-- asistencia, faltas/vacaciones, y ventas/mermas por empleado.
+--
+-- El checador vive dentro de /empleados, ruta solo-admin: el dispositivo
+-- que opera el pad de PIN está siempre en la sesión de un admin de la
+-- tienda; los empleados solo capturan su PIN, nunca inician sesión propia
+-- para checar. Por eso punch_employee/set_employee_pin exigen
+-- can_admin_company() del LLAMANTE (la sesión real), y luego resuelven
+-- al empleado dueño del PIN server-side -- mismo principio de "nunca
+-- confiar en el cliente" que ya siguen create_sale/adjust_stock: el PIN
+-- nunca se compara en el cliente, y el hash nunca sale de la base.
+-- ============================================================
+
+alter table public.profiles add column if not exists pin_hash text;
+
+alter table public.stock_movements add column if not exists created_by uuid references public.profiles(id) on delete set null;
+
+create table if not exists public.employee_attendance (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  location_id uuid references public.locations(id) on delete set null,
+  check_in_at timestamptz not null default now(),
+  check_out_at timestamptz,
+  is_late boolean not null default false,
+  status text not null default 'open' check (status in ('open', 'closed')),
+  is_demo_data boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists employee_attendance_company_idx on public.employee_attendance(company_id);
+create index if not exists employee_attendance_profile_idx on public.employee_attendance(profile_id);
+
+grant select on public.employee_attendance to authenticated;
+grant all on public.employee_attendance to service_role;
+alter table public.employee_attendance enable row level security;
+
+drop policy if exists "employee_attendance select scoped" on public.employee_attendance;
+create policy "employee_attendance select scoped" on public.employee_attendance for select to authenticated
+  using (public.can_select_company(company_id, is_demo_data));
+drop policy if exists "employee_attendance write scoped admin" on public.employee_attendance;
+create policy "employee_attendance write scoped admin" on public.employee_attendance for all to authenticated
+  using (public.can_admin_company(company_id)) with check (public.can_admin_company(company_id));
+-- La app SIEMPRE escribe vía punch_employee (SECURITY DEFINER, valida PIN y
+-- calcula retardo) -- la política de write de arriba es el mismo respaldo
+-- de aislamiento por empresa que ya tienen cash_sessions/sales, no la vía
+-- real de escritura.
+
+create table if not exists public.employee_time_events (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  type text not null check (type in ('absence', 'vacation')),
+  event_date date not null,
+  note text,
+  created_by uuid references public.profiles(id) on delete set null,
+  is_demo_data boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists employee_time_events_company_idx on public.employee_time_events(company_id);
+create index if not exists employee_time_events_profile_idx on public.employee_time_events(profile_id);
+
+grant select, insert, update, delete on public.employee_time_events to authenticated;
+grant all on public.employee_time_events to service_role;
+alter table public.employee_time_events enable row level security;
+
+drop policy if exists "employee_time_events select scoped" on public.employee_time_events;
+create policy "employee_time_events select scoped" on public.employee_time_events for select to authenticated
+  using (public.can_select_company(company_id, is_demo_data));
+drop policy if exists "employee_time_events write scoped admin" on public.employee_time_events;
+create policy "employee_time_events write scoped admin" on public.employee_time_events for all to authenticated
+  using (public.can_admin_company(company_id)) with check (public.can_admin_company(company_id));
+-- Sin RPC: una falta/vacación es captura manual y planeada del admin, no
+-- un movimiento de dinero/stock que necesite validación transaccional --
+-- la RLS de admin de arriba ya es suficiente, igual que profile_locations.
+
+-- set_employee_pin / clear_employee_pin: asignar o quitar el PIN de checador
+-- de un empleado. Solo el admin de la MISMA empresa del empleado.
+create or replace function public.set_employee_pin(
+  p_profile_id uuid,
+  p_pin text
+) returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_target_company_id uuid;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null or not public.can_admin_company(v_company_id) then
+    raise exception 'No tienes permiso para asignar el PIN.';
+  end if;
+  if p_pin is null or p_pin !~ '^[0-9]{4,6}$' then
+    raise exception 'El PIN debe ser numerico, de 4 a 6 digitos.';
+  end if;
+
+  select company_id into v_target_company_id from public.profiles where id = p_profile_id;
+  if v_target_company_id is null or v_target_company_id <> v_company_id then
+    raise exception 'Empleado no encontrado.';
+  end if;
+
+  -- Un PIN duplicado dentro de la misma empresa haría que punch_employee no
+  -- pudiera distinguir a qué empleado pertenece.
+  if exists (
+    select 1 from public.profiles
+    where company_id = v_company_id and id <> p_profile_id and pin_hash is not null
+      and pin_hash = crypt(p_pin, pin_hash)
+  ) then
+    raise exception 'Ese PIN ya esta en uso por otro empleado.';
+  end if;
+
+  update public.profiles set pin_hash = crypt(p_pin, gen_salt('bf')), updated_at = now()
+  where id = p_profile_id;
+end;
+$$;
+
+revoke execute on function public.set_employee_pin(uuid, text) from public, anon;
+grant execute on function public.set_employee_pin(uuid, text) to authenticated;
+
+create or replace function public.clear_employee_pin(p_profile_id uuid) returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_target_company_id uuid;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null or not public.can_admin_company(v_company_id) then
+    raise exception 'No tienes permiso para quitar el PIN.';
+  end if;
+
+  select company_id into v_target_company_id from public.profiles where id = p_profile_id;
+  if v_target_company_id is null or v_target_company_id <> v_company_id then
+    raise exception 'Empleado no encontrado.';
+  end if;
+
+  update public.profiles set pin_hash = null, updated_at = now()
+  where id = p_profile_id;
+end;
+$$;
+
+revoke execute on function public.clear_employee_pin(uuid) from public, anon;
+grant execute on function public.clear_employee_pin(uuid) to authenticated;
+
+-- punch_employee: pad de PIN del checador. Si el empleado no tiene una
+-- entrada abierta hoy, registra un check-in (con retardo automático vs.
+-- locations.opening_hours); si ya la tiene, la cierra (check-out). El PIN
+-- se compara solo server-side (crypt/pgcrypto) -- nunca se expone qué
+-- empleado corresponde a un PIN antes de validarlo.
+create or replace function public.punch_employee(
+  p_pin text,
+  p_location_id uuid default null,
+  p_tz text default 'UTC'
+) returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_profile record;
+  v_location_id uuid;
+  v_open record;
+  v_is_late boolean := false;
+  v_open_hours text;
+  v_open_time time;
+  v_new_id uuid;
+  v_check_in_at timestamptz;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.'; end if;
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null or not public.can_admin_company(v_company_id) then
+    raise exception 'No tienes permiso para operar el checador.';
+  end if;
+  if p_pin is null or length(btrim(p_pin)) = 0 then
+    raise exception 'Ingresa un PIN.';
+  end if;
+
+  select id, full_name, location_id into v_profile
+    from public.profiles
+    where company_id = v_company_id
+      and is_active = true
+      and pin_hash is not null
+      and pin_hash = crypt(p_pin, pin_hash)
+    limit 1;
+
+  if v_profile.id is null then
+    raise exception 'PIN no reconocido.';
+  end if;
+
+  select * into v_open from public.employee_attendance
+    where company_id = v_company_id and profile_id = v_profile.id and status = 'open'
+    order by check_in_at desc
+    limit 1;
+
+  if v_open.id is not null then
+    update public.employee_attendance
+      set check_out_at = now(), status = 'closed'
+      where id = v_open.id;
+    return jsonb_build_object(
+      'action', 'check_out',
+      'profile_id', v_profile.id,
+      'full_name', v_profile.full_name,
+      'at', now()
+    );
+  end if;
+
+  v_location_id := coalesce(p_location_id, v_profile.location_id);
+
+  if v_location_id is not null then
+    select opening_hours into v_open_hours from public.locations where id = v_location_id;
+    if v_open_hours ~ '^\s*([0-9]{1,2}:[0-9]{2})' then
+      v_open_time := (regexp_match(v_open_hours, '^\s*([0-9]{1,2}:[0-9]{2})'))[1]::time;
+      if (now() at time zone coalesce(p_tz, 'UTC'))::time > v_open_time then
+        v_is_late := true;
+      end if;
+    end if;
+  end if;
+
+  insert into public.employee_attendance (company_id, profile_id, location_id, is_late)
+  values (v_company_id, v_profile.id, v_location_id, v_is_late)
+  returning id, check_in_at into v_new_id, v_check_in_at;
+
+  return jsonb_build_object(
+    'action', 'check_in',
+    'profile_id', v_profile.id,
+    'full_name', v_profile.full_name,
+    'is_late', v_is_late,
+    'at', v_check_in_at
+  );
+end;
+$$;
+
+revoke execute on function public.punch_employee(text, uuid, text) from public, anon;
+grant execute on function public.punch_employee(text, uuid, text) to authenticated;
