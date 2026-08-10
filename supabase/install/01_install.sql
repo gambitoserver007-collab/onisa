@@ -5142,7 +5142,8 @@ create or replace function public.create_sale(
   p_items jsonb,
   p_location_id uuid default null,
   p_client_request_id uuid default null,
-  p_till_id uuid default null
+  p_till_id uuid default null,
+  p_points_redeemed integer default 0
 ) returns jsonb
 language plpgsql
 security definer
@@ -5160,6 +5161,16 @@ declare
   v_plan_sales_limit integer;
   v_sales_this_month integer;
   v_open_sessions integer;
+  -- Puntos de lealtad (Fase 3): nunca bloquean la venta -- si algo no
+  -- cuadra (sin cliente, deshabilitado, saldo insuficiente), simplemente
+  -- no se canjea/gana nada, la venta sigue su curso normal.
+  v_loyalty_enabled boolean;
+  v_point_value numeric(10,4);
+  v_earn_rate numeric(10,4);
+  v_customer_balance numeric;
+  v_points_redeemed_actual numeric := 0;
+  v_points_earned numeric := 0;
+  v_discount numeric(12,2) := 0;
 begin
   if auth.uid() is null then raise exception 'No autenticado.'; end if;
   if public.current_user_is_demo() then raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.'; end if;
@@ -5174,6 +5185,7 @@ begin
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
   end if;
   if p_items is null or jsonb_array_length(p_items) = 0 then raise exception 'El carrito esta vacio.'; end if;
+  if coalesce(p_points_redeemed, 0) < 0 then raise exception 'Puntos invalidos.'; end if;
 
   if p_client_request_id is not null then
     select id, subtotal, tax, total into v_existing
@@ -5239,7 +5251,9 @@ begin
     end if;
   end if;
 
-  select tax_rate, document_types into v_tax_rate, v_doc_types from public.companies where id = v_company_id;
+  select tax_rate, document_types, loyalty_enabled, loyalty_point_value, loyalty_earn_rate
+    into v_tax_rate, v_doc_types, v_loyalty_enabled, v_point_value, v_earn_rate
+    from public.companies where id = v_company_id;
   v_tax_rate := coalesce(v_tax_rate, 0.18);
   select (dt ->> 'charges_iva')::boolean into v_charges_iva from jsonb_array_elements(coalesce(v_doc_types,'[]'::jsonb)) dt
     where lower(dt ->> 'name') = lower(coalesce(p_document_type,'')) limit 1;
@@ -5335,19 +5349,63 @@ begin
   end loop;
 
   v_subtotal := v_total - v_tax;
-  update public.sales set subtotal = v_subtotal, tax = v_tax, total = v_total where id = v_sale_id;
+
+  -- Puntos de lealtad (Fase 3): nunca bloquean la venta. El descuento por
+  -- canje se resta del TOTAL final (no de subtotal/tax, que siguen
+  -- reflejando el valor real de los articulos vendidos para reportes de
+  -- ganancia) -- asi sales.total sigue siendo exactamente "lo que se
+  -- cobro", que es lo que ya suman compute_cash_session_expected,
+  -- sales_by_payment_method y los reportes de caja, sin ningun cambio.
+  if p_customer_id is not null and coalesce(v_loyalty_enabled, false) then
+    select loyalty_points into v_customer_balance
+      from public.customers where id = p_customer_id and company_id = v_company_id
+      for update;
+
+    if coalesce(p_points_redeemed, 0) > 0 and coalesce(v_point_value, 0) > 0 then
+      v_points_redeemed_actual := least(
+        p_points_redeemed::numeric,
+        coalesce(v_customer_balance, 0),
+        floor(v_total / v_point_value)
+      );
+      if v_points_redeemed_actual > 0 then
+        v_discount := round(v_points_redeemed_actual * v_point_value, 2);
+        insert into public.loyalty_ledger (company_id, customer_id, sale_id, points, type, created_by)
+        values (v_company_id, p_customer_id, v_sale_id, -v_points_redeemed_actual, 'redeemed', auth.uid());
+      end if;
+    end if;
+
+    v_total := v_total - v_discount;
+
+    if coalesce(v_earn_rate, 0) > 0 then
+      v_points_earned := floor(v_total / v_earn_rate);
+      if v_points_earned > 0 then
+        insert into public.loyalty_ledger (company_id, customer_id, sale_id, points, type, created_by)
+        values (v_company_id, p_customer_id, v_sale_id, v_points_earned, 'earned', auth.uid());
+      end if;
+    end if;
+
+    update public.customers
+      set loyalty_points = coalesce(loyalty_points, 0) + v_points_earned - v_points_redeemed_actual,
+          updated_at = now()
+      where id = p_customer_id;
+  end if;
+
+  update public.sales set subtotal = v_subtotal, tax = v_tax, total = v_total, discount_total = v_discount where id = v_sale_id;
 
   return jsonb_build_object(
     'sale_id', v_sale_id,
     'subtotal', v_subtotal,
     'tax', v_tax,
-    'total', v_total
+    'total', v_total,
+    'discount_total', v_discount,
+    'points_earned', v_points_earned,
+    'points_redeemed', v_points_redeemed_actual
   );
 end;
 $function$;
 
-revoke execute on function public.create_sale(uuid, text, text, jsonb, uuid, uuid, uuid) from public, anon;
-grant execute on function public.create_sale(uuid, text, text, jsonb, uuid, uuid, uuid) to authenticated, service_role;
+revoke execute on function public.create_sale(uuid, text, text, jsonb, uuid, uuid, uuid, integer) from public, anon;
+grant execute on function public.create_sale(uuid, text, text, jsonb, uuid, uuid, uuid, integer) to authenticated, service_role;
 
 -- ============================================================
 -- Módulo de arqueo de caja — Etapas 3+4: conteo ciego por denominación,
@@ -5891,3 +5949,48 @@ create unique index if not exists products_company_sku_unique
 -- Mismo tipo que tax_rate (numeric(5,4)); 0.03 = 3%, el valor que ya
 -- describió el usuario como punto de partida.
 alter table public.companies add column if not exists card_commission_rate numeric(5,4) not null default 0.03;
+
+-- ============================================================
+-- Fase 3: puntos de lealtad -- ganar por venta, canjear como descuento.
+--
+-- create_sale (arriba) ya quedó actualizado para resolver el canje/ganancia
+-- dentro de la misma transacción de la venta. sales.total pasa a ser el
+-- monto NETO ya cobrado (post-descuento) -- discount_total es solo
+-- informativo -- así que compute_cash_session_expected, sales_by_payment_
+-- method y los reportes de caja (que ya suman sales.total) no necesitan
+-- ningún cambio.
+-- ============================================================
+
+alter table public.companies add column if not exists loyalty_enabled boolean not null default false;
+alter table public.companies add column if not exists loyalty_point_value numeric(10,4) not null default 0;
+alter table public.companies add column if not exists loyalty_earn_rate numeric(10,4) not null default 0;
+
+alter table public.customers add column if not exists loyalty_points numeric not null default 0;
+
+alter table public.sales add column if not exists discount_total numeric(12,2) not null default 0;
+
+create table if not exists public.loyalty_ledger (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  customer_id uuid not null references public.customers(id) on delete cascade,
+  sale_id uuid references public.sales(id) on delete set null,
+  points numeric not null,
+  type text not null check (type in ('earned', 'redeemed', 'adjustment')),
+  created_by uuid references public.profiles(id) on delete set null,
+  is_demo_data boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists loyalty_ledger_customer_idx on public.loyalty_ledger(customer_id);
+create index if not exists loyalty_ledger_company_idx on public.loyalty_ledger(company_id);
+
+grant select on public.loyalty_ledger to authenticated;
+grant all on public.loyalty_ledger to service_role;
+alter table public.loyalty_ledger enable row level security;
+
+drop policy if exists "loyalty_ledger select scoped" on public.loyalty_ledger;
+create policy "loyalty_ledger select scoped" on public.loyalty_ledger for select to authenticated
+  using (public.can_select_company(company_id, is_demo_data));
+-- A propósito sin política de insert/update/delete para "authenticated":
+-- el saldo de puntos es dinero-equivalente (se puede canjear como
+-- descuento real), así que solo se escribe vía create_sale (SECURITY
+-- DEFINER) -- mismo principio que till_counts en el módulo de arqueo.

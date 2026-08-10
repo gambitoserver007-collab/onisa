@@ -303,6 +303,9 @@ export type Database = {
           is_demo_data: boolean;
           locale: string;
           logo_url: string | null;
+          loyalty_earn_rate: number;
+          loyalty_enabled: boolean;
+          loyalty_point_value: number;
           name: string;
           phone: string | null;
           plan_id: string | null;
@@ -328,6 +331,9 @@ export type Database = {
           is_demo_data?: boolean;
           locale?: string;
           logo_url?: string | null;
+          loyalty_earn_rate?: number;
+          loyalty_enabled?: boolean;
+          loyalty_point_value?: number;
           name: string;
           phone?: string | null;
           plan_id?: string | null;
@@ -353,6 +359,9 @@ export type Database = {
           is_demo_data?: boolean;
           locale?: string;
           logo_url?: string | null;
+          loyalty_earn_rate?: number;
+          loyalty_enabled?: boolean;
+          loyalty_point_value?: number;
           name?: string;
           phone?: string | null;
           plan_id?: string | null;
@@ -453,6 +462,7 @@ export type Database = {
           email: string | null;
           id: string;
           is_demo_data: boolean;
+          loyalty_points: number;
           name: string;
           phone: string | null;
           updated_at: string;
@@ -466,6 +476,7 @@ export type Database = {
           email?: string | null;
           id?: string;
           is_demo_data?: boolean;
+          loyalty_points?: number;
           name: string;
           phone?: string | null;
           updated_at?: string;
@@ -479,6 +490,7 @@ export type Database = {
           email?: string | null;
           id?: string;
           is_demo_data?: boolean;
+          loyalty_points?: number;
           name?: string;
           phone?: string | null;
           updated_at?: string;
@@ -1415,6 +1427,7 @@ export type Database = {
           customer_id: string | null;
           customer_name: string;
           deleted_at: string | null;
+          discount_total: number;
           document_type: string;
           id: string;
           is_demo_data: boolean;
@@ -1436,6 +1449,7 @@ export type Database = {
           customer_id?: string | null;
           customer_name?: string;
           deleted_at?: string | null;
+          discount_total?: number;
           document_type?: string;
           id?: string;
           is_demo_data?: boolean;
@@ -1457,6 +1471,7 @@ export type Database = {
           customer_id?: string | null;
           customer_name?: string;
           deleted_at?: string | null;
+          discount_total?: number;
           document_type?: string;
           id?: string;
           is_demo_data?: boolean;
@@ -1943,6 +1958,7 @@ export type Database = {
           p_items: Json;
           p_location_id?: string;
           p_payment_method: string;
+          p_points_redeemed?: number;
           p_till_id?: string;
         };
         Returns: Json;

@@ -124,6 +124,19 @@ function createSessionFromUser(
         ?.card_commission_rate === "number"
         ? (company as { card_commission_rate?: number }).card_commission_rate
         : 0.03,
+    loyaltyEnabled:
+      (company as { loyalty_enabled?: boolean } | null)?.loyalty_enabled ??
+      false,
+    loyaltyPointValue:
+      typeof (company as { loyalty_point_value?: number } | null)
+        ?.loyalty_point_value === "number"
+        ? (company as { loyalty_point_value?: number }).loyalty_point_value
+        : 0,
+    loyaltyEarnRate:
+      typeof (company as { loyalty_earn_rate?: number } | null)
+        ?.loyalty_earn_rate === "number"
+        ? (company as { loyalty_earn_rate?: number }).loyalty_earn_rate
+        : 0,
     isDemo: profileDemo || demoFallback,
     demoMode: profile?.demo_mode ?? (demoFallback ? "read_only" : "none"),
     demoAccountId: Object.values(DEMO_ACCOUNTS).find(

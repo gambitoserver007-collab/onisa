@@ -111,6 +111,12 @@ export interface UpdateCompanySettingsInput {
   businessType?: string;
   /** % de comisión de pago con tarjeta (fracción, ej. 0.03 = 3%). */
   cardCommissionRate?: number;
+  /** Si el programa de puntos de lealtad está activo. */
+  loyaltyEnabled?: boolean;
+  /** Cuánto vale 1 punto en la moneda de la empresa (ej. 1 = $1). */
+  loyaltyPointValue?: number;
+  /** Cuánto gasto equivale a 1 punto ganado. */
+  loyaltyEarnRate?: number;
 }
 
 // Single-row platform branding (SaaS name + logo). Seeded by the installer.
@@ -239,6 +245,10 @@ function mapCustomer(row: CustomerRow): Customer {
     name: row.name,
     doc: row.document_number ?? "-",
     phone: row.phone ?? "-",
+    loyaltyPoints: toNumber(
+      (row as { loyalty_points?: number }).loyalty_points,
+      0,
+    ),
   };
 }
 
@@ -360,7 +370,7 @@ export async function fetchCompanyCatalog(
   const customersQuery = supabase
     .from("customers")
     .select(
-      "id, company_id, name, document_number, phone, email, is_demo_data, created_at, updated_at, deleted_at",
+      "id, company_id, name, document_number, phone, email, loyalty_points, is_demo_data, created_at, updated_at, deleted_at",
     )
     .is("deleted_at", null);
   const suppliersQuery = supabase
@@ -732,6 +742,7 @@ export async function createSaleFromCart({
   companyId,
   locationId,
   clientRequestId,
+  pointsRedeemed,
 }: {
   customerId: string | null;
   documentType: Sale["type"];
@@ -746,6 +757,9 @@ export async function createSaleFromCart({
    * dos veces.
    */
   clientRequestId?: string | null;
+  /** Puntos de lealtad que el cajero pide canjear; el servidor los revalida
+   * y los topa al saldo real del cliente y al total de la venta. */
+  pointsRedeemed?: number;
 }) {
   const { data, error } = await supabase.rpc("create_sale", {
     p_customer_id: (customerId ?? null) as unknown as string,
@@ -759,6 +773,7 @@ export async function createSaleFromCart({
     })),
     p_location_id: locationId ?? undefined,
     p_client_request_id: clientRequestId ?? undefined,
+    p_points_redeemed: pointsRedeemed || 0,
   });
 
   if (error) throw error;
@@ -769,6 +784,9 @@ export async function createSaleFromCart({
     subtotal?: number;
     tax?: number;
     total?: number;
+    discount_total?: number;
+    points_earned?: number;
+    points_redeemed?: number;
   };
   const saleId = payload.sale_id ?? (typeof data === "string" ? data : null);
   if (!saleId) throw new Error("Supabase no devolvió el ID de la venta.");
@@ -780,6 +798,9 @@ export async function createSaleFromCart({
     subtotal: payload.subtotal ?? sale.subtotal,
     igv: payload.tax ?? sale.igv,
     total: payload.total ?? sale.total,
+    discountTotal: payload.discount_total ?? 0,
+    pointsEarned: payload.points_earned ?? 0,
+    pointsRedeemed: payload.points_redeemed ?? 0,
   };
 }
 
@@ -2109,6 +2130,12 @@ export async function updateCompanySettings(
     updates.business_type = input.businessType;
   if (input.cardCommissionRate !== undefined)
     updates.card_commission_rate = input.cardCommissionRate;
+  if (input.loyaltyEnabled !== undefined)
+    updates.loyalty_enabled = input.loyaltyEnabled;
+  if (input.loyaltyPointValue !== undefined)
+    updates.loyalty_point_value = input.loyaltyPointValue;
+  if (input.loyaltyEarnRate !== undefined)
+    updates.loyalty_earn_rate = input.loyaltyEarnRate;
   const { data, error } = await supabase
     .from("companies")
     .update(updates as never)
@@ -2231,6 +2258,16 @@ export function mapCompanyToBusinessSettings(
     cardCommissionRate: toNumber(
       (row as { card_commission_rate?: number }).card_commission_rate,
       0.03,
+    ),
+    loyaltyEnabled:
+      (row as { loyalty_enabled?: boolean }).loyalty_enabled ?? false,
+    loyaltyPointValue: toNumber(
+      (row as { loyalty_point_value?: number }).loyalty_point_value,
+      0,
+    ),
+    loyaltyEarnRate: toNumber(
+      (row as { loyalty_earn_rate?: number }).loyalty_earn_rate,
+      0,
     ),
     logoUrl: (row as { logo_url?: string | null }).logo_url ?? undefined,
     businessType:

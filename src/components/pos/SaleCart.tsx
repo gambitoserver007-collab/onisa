@@ -80,6 +80,15 @@ export interface SaleCartProps {
     phone?: string;
     address?: string;
   }) => Promise<void>;
+  /** Si el programa de puntos de lealtad está activo para esta empresa. */
+  loyaltyEnabled?: boolean;
+  /** Puntos que se van a canjear en esta venta (ya topados al saldo/total). */
+  pointsToRedeem?: number;
+  /** Descuento resultante de canjear `pointsToRedeem` (en moneda). */
+  loyaltyDiscount?: number;
+  /** Máximo de puntos canjeables en esta venta (saldo del cliente y total, lo que sea menor). */
+  maxRedeemablePoints?: number;
+  onPointsToRedeemChange?: (value: number) => void;
 }
 
 function SaleCartContent({
@@ -102,9 +111,15 @@ function SaleCartContent({
   onRemove,
   onCheckout,
   onCreateCustomer,
+  loyaltyEnabled = false,
+  pointsToRedeem = 0,
+  loyaltyDiscount = 0,
+  maxRedeemablePoints = 0,
+  onPointsToRedeemChange,
 }: SaleCartProps) {
   const { formatMoney, settings } = useBusinessSettings();
   const itemCount = cart.reduce((sum, item) => sum + item.qty, 0);
+  const finalTotal = Math.max(0, total - loyaltyDiscount);
 
   const [newOpen, setNewOpen] = useState(false);
   const [ncName, setNcName] = useState("");
@@ -206,7 +221,51 @@ function SaleCartContent({
                 <X className="h-4 w-4" />
               </button>
             </div>
-          ) : (
+          ) : null}
+          {selectedCustomer && loyaltyEnabled && (
+            <div className="space-y-1.5 rounded-xl border border-dashed border-primary/30 bg-primary/5 p-2.5">
+              <p className="text-xs text-muted-foreground">
+                Saldo de puntos:{" "}
+                <span className="font-semibold text-foreground">
+                  {selectedCustomer.loyaltyPoints ?? 0}
+                </span>
+              </p>
+              {maxRedeemablePoints > 0 && (
+                <div className="flex items-center gap-2">
+                  <Label className="shrink-0 text-xs">Canjear puntos</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={maxRedeemablePoints}
+                    step={1}
+                    value={pointsToRedeem || ""}
+                    placeholder="0"
+                    onChange={(event) => {
+                      const raw = Number(event.target.value);
+                      const clamped = Number.isFinite(raw)
+                        ? Math.max(
+                            0,
+                            Math.min(maxRedeemablePoints, Math.floor(raw)),
+                          )
+                        : 0;
+                      onPointsToRedeemChange?.(clamped);
+                    }}
+                    className="h-8 rounded-lg text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onPointsToRedeemChange?.(maxRedeemablePoints)
+                    }
+                    className="shrink-0 text-xs font-semibold text-primary hover:underline"
+                  >
+                    Máx.
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {!selectedCustomer && (
             // Sin cliente (Público general): buscador visible; la lista aparece al escribir.
             <Command className="overflow-visible rounded-xl border border-input bg-background">
               <CommandInput
@@ -400,10 +459,16 @@ function SaleCartContent({
             {formatMoney(igv)}
           </span>
         </div>
+        {loyaltyDiscount > 0 && (
+          <div className="flex justify-between text-primary">
+            <span>Descuento por {pointsToRedeem} puntos</span>
+            <span className="font-medium">-{formatMoney(loyaltyDiscount)}</span>
+          </div>
+        )}
         <div className="flex items-center justify-between border-t border-border/60 pt-2.5">
           <span className="font-semibold">Total</span>
           <span className="text-2xl font-black text-gradient">
-            {formatMoney(total)}
+            {formatMoney(finalTotal)}
           </span>
         </div>
       </div>
@@ -419,7 +484,7 @@ function SaleCartContent({
           "Cobrando..."
         ) : (
           <>
-            <ShoppingBag className="h-5 w-5" /> Cobrar {formatMoney(total)}
+            <ShoppingBag className="h-5 w-5" /> Cobrar {formatMoney(finalTotal)}
           </>
         )}
       </Button>
@@ -505,7 +570,9 @@ export function MobileSaleCart(props: SaleCartProps) {
               Carrito · {itemCount} ítems
             </p>
             <p className="truncate text-xl font-black">
-              {formatMoney(props.total)}
+              {formatMoney(
+                Math.max(0, props.total - (props.loyaltyDiscount ?? 0)),
+              )}
             </p>
           </div>
           <SheetTrigger asChild>

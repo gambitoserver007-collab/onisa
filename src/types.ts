@@ -26,6 +26,12 @@ export interface DemoSession {
   taxRate?: number;
   /** % de comisión de pago con tarjeta (fracción, ej. 0.03 = 3%), para la calculadora de precio. */
   cardCommissionRate?: number;
+  /** Si el programa de puntos de lealtad está activo para esta empresa. */
+  loyaltyEnabled?: boolean;
+  /** Cuánto vale 1 punto en la moneda de la empresa (ej. 1 = $1 por punto). */
+  loyaltyPointValue?: number;
+  /** Cuánto gasto (en la moneda de la empresa) equivale a 1 punto ganado. */
+  loyaltyEarnRate?: number;
   isDemo: boolean;
   demoMode?: "none" | "read_only";
   demoAccountId?: string;
@@ -96,6 +102,8 @@ export interface Customer {
   name: string;
   doc: string;
   phone: string;
+  /** Saldo de puntos de lealtad acumulados, canjeables como descuento en el POS. */
+  loyaltyPoints?: number;
 }
 export interface Sale {
   id: string;

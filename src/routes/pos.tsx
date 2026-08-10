@@ -64,6 +64,7 @@ function POS() {
   const [category, setCategory] = useState("all");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customer, setCustomer] = useState("");
+  const [pointsToRedeem, setPointsToRedeem] = useState(0);
   const [docType, setDocType] = useState<SaleDocumentType>("");
   const [method, setMethod] = useState<PaymentMethod>("Efectivo");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
@@ -188,6 +189,12 @@ function POS() {
       setCustomer("");
     }
   }, [customer, customers]);
+
+  // Cambiar de cliente invalida cualquier canje de puntos que se había
+  // preparado para el cliente anterior.
+  useEffect(() => {
+    setPointsToRedeem(0);
+  }, [customer]);
 
   useEffect(() => {
     if (!activeMethods.length) return;
@@ -483,6 +490,29 @@ function POS() {
     };
   }, [cart, docType, documentTypes, settings.taxRate]);
 
+  const selectedCustomer = customers.find((entry) => entry.id === customer);
+  const loyaltyEnabled = !!settings.loyaltyEnabled;
+  const maxRedeemablePoints =
+    loyaltyEnabled && selectedCustomer && settings.loyaltyPointValue > 0
+      ? Math.max(
+          0,
+          Math.floor(
+            Math.min(
+              selectedCustomer.loyaltyPoints ?? 0,
+              total / settings.loyaltyPointValue,
+            ),
+          ),
+        )
+      : 0;
+  const loyaltyDiscount =
+    Math.round(pointsToRedeem * settings.loyaltyPointValue * 100) / 100;
+
+  // El cliente/carrito cambió: el tope de canje pudo bajar (o desaparecer);
+  // nunca dejar pointsToRedeem por encima del nuevo máximo.
+  useEffect(() => {
+    setPointsToRedeem((current) => Math.min(current, maxRedeemablePoints));
+  }, [maxRedeemablePoints]);
+
   const checkout = async () => {
     if (cart.length === 0) {
       toast.error("El carrito está vacío.");
@@ -505,7 +535,6 @@ function POS() {
     const clientRequestId = pendingSaleRef.current.key;
 
     try {
-      const amount = total;
       const validCustomer = customers.some((entry) => entry.id === customer);
       const sale = await createSaleFromCart({
         customerId: validCustomer ? customer : null,
@@ -515,10 +544,13 @@ function POS() {
         companyId: session?.companyId,
         locationId: posLocationId,
         clientRequestId,
+        pointsRedeemed: validCustomer ? pointsToRedeem : 0,
       });
       const saleId = sale?.id ?? "reciente";
+      const amount = sale?.total ?? Math.max(0, total - loyaltyDiscount);
       pendingSaleRef.current = null;
       setCart([]);
+      setPointsToRedeem(0);
       await reload();
       await reloadLocationStock();
       setSuccess({ amount, id: saleId });
@@ -558,6 +590,11 @@ function POS() {
     onRemove: remove,
     onCheckout: checkout,
     onCreateCustomer: handleCreateCustomer,
+    loyaltyEnabled,
+    pointsToRedeem,
+    loyaltyDiscount,
+    maxRedeemablePoints,
+    onPointsToRedeemChange: setPointsToRedeem,
   };
 
   // Sin sucursal concreta (admin con "Todas las tiendas") no se puede vender:

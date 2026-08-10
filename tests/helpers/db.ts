@@ -186,17 +186,73 @@ export async function createSale(
   items: CartLine[],
   locationId: string,
   clientRequestId?: string,
-): Promise<{ sale_id: string; subtotal: number; tax: number; total: number }> {
+  opts: { customerId?: string | null; pointsRedeemed?: number } = {},
+): Promise<{
+  sale_id: string;
+  subtotal: number;
+  tax: number;
+  total: number;
+  discount_total: number;
+  points_earned: number;
+  points_redeemed: number;
+}> {
   const { rows } = await db.query<{ create_sale: unknown }>(
-    "select create_sale(null, 'Ticket', 'Efectivo', $1::jsonb, $2, $3) as create_sale",
-    [JSON.stringify(items), locationId, clientRequestId ?? null],
+    "select create_sale($1, 'Ticket', 'Efectivo', $2::jsonb, $3, $4, null, $5) as create_sale",
+    [
+      opts.customerId ?? null,
+      JSON.stringify(items),
+      locationId,
+      clientRequestId ?? null,
+      opts.pointsRedeemed ?? 0,
+    ],
   );
   return rows[0].create_sale as {
     sale_id: string;
     subtotal: number;
     tax: number;
     total: number;
+    discount_total: number;
+    points_earned: number;
+    points_redeemed: number;
   };
+}
+
+export async function makeCustomer(
+  db: PGlite,
+  companyId: string,
+  name: string,
+  loyaltyPoints = 0,
+): Promise<string> {
+  const id = randomUUID();
+  await db.query(
+    "insert into public.customers (id, company_id, name, loyalty_points) values ($1,$2,$3,$4)",
+    [id, companyId, name, loyaltyPoints],
+  );
+  return id;
+}
+
+export async function setLoyaltySettings(
+  db: PGlite,
+  companyId: string,
+  opts: { enabled: boolean; pointValue: number; earnRate: number },
+): Promise<void> {
+  await db.query(
+    `update public.companies
+       set loyalty_enabled = $2, loyalty_point_value = $3, loyalty_earn_rate = $4
+     where id = $1`,
+    [companyId, opts.enabled, opts.pointValue, opts.earnRate],
+  );
+}
+
+export async function getCustomerLoyaltyPoints(
+  db: PGlite,
+  customerId: string,
+): Promise<number> {
+  const { rows } = await db.query<{ loyalty_points: string }>(
+    "select loyalty_points from public.customers where id = $1",
+    [customerId],
+  );
+  return Number(rows[0].loyalty_points);
 }
 
 export async function submitTillCount(

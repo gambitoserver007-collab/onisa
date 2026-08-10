@@ -58,6 +58,13 @@ function Configuracion() {
   const [cardCommissionPct, setCardCommissionPct] = useState(
     String(Math.round(settings.cardCommissionRate * 10000) / 100),
   );
+  const [loyaltyEnabled, setLoyaltyEnabled] = useState(settings.loyaltyEnabled);
+  const [loyaltyPointValue, setLoyaltyPointValue] = useState(
+    String(settings.loyaltyPointValue || ""),
+  );
+  const [loyaltyEarnRate, setLoyaltyEarnRate] = useState(
+    String(settings.loyaltyEarnRate || ""),
+  );
   const [customPaymentMethod, setCustomPaymentMethod] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const selectedMarket = getMarketByCountryCode(countryCode);
@@ -100,6 +107,16 @@ function Configuracion() {
     );
   }, [settings.cardCommissionRate]);
 
+  useEffect(() => {
+    setLoyaltyEnabled(settings.loyaltyEnabled);
+    setLoyaltyPointValue(String(settings.loyaltyPointValue || ""));
+    setLoyaltyEarnRate(String(settings.loyaltyEarnRate || ""));
+  }, [
+    settings.loyaltyEnabled,
+    settings.loyaltyPointValue,
+    settings.loyaltyEarnRate,
+  ]);
+
   const handleSave = async () => {
     if (isDemo) {
       blockDemoAction();
@@ -120,6 +137,33 @@ function Configuracion() {
       return;
     }
 
+    const loyaltyPointValueNum = loyaltyPointValue.trim()
+      ? Number(loyaltyPointValue)
+      : 0;
+    const loyaltyEarnRateNum = loyaltyEarnRate.trim()
+      ? Number(loyaltyEarnRate)
+      : 0;
+    if (
+      !Number.isFinite(loyaltyPointValueNum) ||
+      loyaltyPointValueNum < 0 ||
+      !Number.isFinite(loyaltyEarnRateNum) ||
+      loyaltyEarnRateNum < 0
+    ) {
+      toast.error(
+        "Los valores de puntos de lealtad deben ser números positivos.",
+      );
+      return;
+    }
+    if (
+      loyaltyEnabled &&
+      (loyaltyPointValueNum <= 0 || loyaltyEarnRateNum <= 0)
+    ) {
+      toast.error(
+        "Para activar los puntos de lealtad, define cuánto vale un punto y cuánto gasto equivale a 1 punto.",
+      );
+      return;
+    }
+
     setIsSaving(true);
 
     try {
@@ -130,6 +174,9 @@ function Configuracion() {
         phone,
         businessType,
         cardCommissionRate,
+        loyaltyEnabled,
+        loyaltyPointValue: loyaltyPointValueNum,
+        loyaltyEarnRate: loyaltyEarnRateNum,
       });
       saveBusinessSettings(mapCompanyToBusinessSettings(company));
       // Refresh the session so the "complete your data" reminder updates immediately.
@@ -265,6 +312,45 @@ function Configuracion() {
                 Se usa en la calculadora de precio de productos, junto con el{" "}
                 {selectedMarket.taxName ?? "IVA"}.
               </p>
+            </div>
+            <div className="space-y-3 rounded-lg border p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">Puntos de lealtad</p>
+                  <p className="text-xs text-muted-foreground">
+                    Los clientes ganan puntos por venta y los canjean como
+                    descuento en el POS.
+                  </p>
+                </div>
+                <Switch
+                  checked={loyaltyEnabled}
+                  onCheckedChange={setLoyaltyEnabled}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label>Valor de 1 punto ($)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={loyaltyPointValue}
+                    onChange={(event) =>
+                      setLoyaltyPointValue(event.target.value)
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>$ gastados = 1 punto</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={loyaltyEarnRate}
+                    onChange={(event) => setLoyaltyEarnRate(event.target.value)}
+                  />
+                </div>
+              </div>
             </div>
             <DemoGuardedButton
               variant="brand"

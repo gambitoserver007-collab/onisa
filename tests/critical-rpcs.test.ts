@@ -15,10 +15,13 @@ import {
   createSale,
   createTestDb,
   finishTillCount,
+  getCustomerLoyaltyPoints,
   makeCompany,
+  makeCustomer,
   makePlan,
   makeProduct,
   makeUser,
+  setLoyaltySettings,
   submitTillCount,
   type TestCompany,
 } from "./helpers/db";
@@ -1130,6 +1133,262 @@ describe("RPCs críticas de dinero y stock", () => {
         [company.id],
       );
       expect(Number(after[0].card_commission_rate)).toBe(0.045);
+    });
+  });
+
+  describe("13. Puntos de lealtad (ganar/canjear en create_sale)", () => {
+    async function setupLoyaltyCompany() {
+      const company = await makeCompany(db, "Empresa Lealtad Test");
+      const admin = await makeUser(db, company.id, "admin");
+      // price_includes_tax=true por defecto -> total de línea = price*qty
+      // exacto, sin que la tasa de IVA complique la aritmética de puntos.
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Lealtad",
+        50,
+        100,
+        1000,
+      );
+      return { company, admin, product };
+    }
+
+    it("con loyalty_enabled=false (default) no gana ni permite canjear puntos, aunque haya cliente y saldo", async () => {
+      const { company, admin, product } = await setupLoyaltyCompany();
+      const customer = await makeCustomer(
+        db,
+        company.id,
+        "Cliente Sin Lealtad",
+        50,
+      );
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 100 }],
+          company.loc1,
+          undefined,
+          { customerId: customer, pointsRedeemed: 30 },
+        ),
+      );
+
+      expect(result.discount_total).toBe(0);
+      expect(result.points_earned).toBe(0);
+      expect(result.points_redeemed).toBe(0);
+      expect(result.total).toBe(100);
+      expect(await getCustomerLoyaltyPoints(db, customer)).toBe(50);
+    });
+
+    it("gana puntos por venta según loyalty_earn_rate cuando hay cliente", async () => {
+      const { company, admin, product } = await setupLoyaltyCompany();
+      await setLoyaltySettings(db, company.id, {
+        enabled: true,
+        pointValue: 1,
+        earnRate: 10,
+      });
+      const customer = await makeCustomer(db, company.id, "Cliente Gana");
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 100 }],
+          company.loc1,
+          undefined,
+          { customerId: customer },
+        ),
+      );
+
+      expect(result.points_earned).toBe(10);
+      expect(result.discount_total).toBe(0);
+      expect(await getCustomerLoyaltyPoints(db, customer)).toBe(10);
+    });
+
+    it("canjea puntos como descuento del total, respetando el saldo real del cliente (nunca lo que mande el cliente)", async () => {
+      const { company, admin, product } = await setupLoyaltyCompany();
+      await setLoyaltySettings(db, company.id, {
+        enabled: true,
+        pointValue: 1,
+        earnRate: 0,
+      });
+      const customer = await makeCustomer(db, company.id, "Cliente Canjea", 50);
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 100 }],
+          company.loc1,
+          undefined,
+          { customerId: customer, pointsRedeemed: 30 },
+        ),
+      );
+
+      expect(result.points_redeemed).toBe(30);
+      expect(result.discount_total).toBe(30);
+      expect(result.total).toBe(70);
+      expect(await getCustomerLoyaltyPoints(db, customer)).toBe(20);
+    });
+
+    it("el canje se limita al saldo real del cliente, no a lo que pida el cliente", async () => {
+      const { company, admin, product } = await setupLoyaltyCompany();
+      await setLoyaltySettings(db, company.id, {
+        enabled: true,
+        pointValue: 1,
+        earnRate: 0,
+      });
+      const customer = await makeCustomer(
+        db,
+        company.id,
+        "Cliente Saldo Corto",
+        5,
+      );
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 100 }],
+          company.loc1,
+          undefined,
+          { customerId: customer, pointsRedeemed: 100 },
+        ),
+      );
+
+      expect(result.points_redeemed).toBe(5);
+      expect(result.discount_total).toBe(5);
+      expect(result.total).toBe(95);
+      expect(await getCustomerLoyaltyPoints(db, customer)).toBe(0);
+    });
+
+    it("el canje se limita al total de la venta, no puede dejarla en negativo", async () => {
+      const { company, admin } = await setupLoyaltyCompany();
+      await setLoyaltySettings(db, company.id, {
+        enabled: true,
+        pointValue: 1,
+        earnRate: 0,
+      });
+      const cheapProduct = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Barato",
+        10,
+        20,
+        1000,
+      );
+      const customer = await makeCustomer(
+        db,
+        company.id,
+        "Cliente Saldo Alto",
+        1000,
+      );
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: cheapProduct, qty: 1, unit_price: 20 }],
+          company.loc1,
+          undefined,
+          { customerId: customer, pointsRedeemed: 1000 },
+        ),
+      );
+
+      expect(result.points_redeemed).toBe(20);
+      expect(result.discount_total).toBe(20);
+      expect(result.total).toBe(0);
+      expect(await getCustomerLoyaltyPoints(db, customer)).toBe(980);
+    });
+
+    it("sin cliente seleccionado no gana ni canjea puntos, aunque loyalty esté habilitado", async () => {
+      const { company, admin, product } = await setupLoyaltyCompany();
+      await setLoyaltySettings(db, company.id, {
+        enabled: true,
+        pointValue: 1,
+        earnRate: 10,
+      });
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 100 }],
+          company.loc1,
+          undefined,
+          { pointsRedeemed: 30 },
+        ),
+      );
+
+      expect(result.points_earned).toBe(0);
+      expect(result.points_redeemed).toBe(0);
+      expect(result.discount_total).toBe(0);
+      expect(result.total).toBe(100);
+    });
+
+    it("rechaza puntos a canjear negativos", async () => {
+      const { company, admin, product } = await setupLoyaltyCompany();
+      await setLoyaltySettings(db, company.id, {
+        enabled: true,
+        pointValue: 1,
+        earnRate: 10,
+      });
+      const customer = await makeCustomer(
+        db,
+        company.id,
+        "Cliente Negativo",
+        10,
+      );
+
+      await expect(
+        asUser(db, admin, () =>
+          createSale(
+            db,
+            [{ product_id: product, qty: 1, unit_price: 100 }],
+            company.loc1,
+            undefined,
+            { customerId: customer, pointsRedeemed: -5 },
+          ),
+        ),
+      ).rejects.toThrow(/puntos invalidos/i);
+    });
+
+    it("regresión: sales.total queda neto post-descuento, igual a lo que devuelve create_sale (no rompe el pipeline de arqueo/reportes que suma sales.total)", async () => {
+      const { company, admin, product } = await setupLoyaltyCompany();
+      await setLoyaltySettings(db, company.id, {
+        enabled: true,
+        pointValue: 1,
+        earnRate: 0,
+      });
+      const customer = await makeCustomer(
+        db,
+        company.id,
+        "Cliente Regresión",
+        40,
+      );
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 100 }],
+          company.loc1,
+          undefined,
+          { customerId: customer, pointsRedeemed: 40 },
+        ),
+      );
+
+      const { rows } = await db.query<{
+        total: number;
+        subtotal: number;
+        tax: number;
+        discount_total: number;
+      }>(
+        "select total, subtotal, tax, discount_total from public.sales where id=$1",
+        [result.sale_id],
+      );
+      const row = rows[0];
+      expect(Number(row.total)).toBe(60);
+      expect(Number(row.total)).toBe(result.total);
+      expect(Number(row.discount_total)).toBe(40);
+      // subtotal/tax siguen reflejando el valor real de los artículos
+      // vendidos (para reportes de ganancia), sin el descuento aplicado.
+      expect(Number(row.subtotal) + Number(row.tax)).toBe(100);
     });
   });
 });

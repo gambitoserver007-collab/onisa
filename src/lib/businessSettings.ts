@@ -23,6 +23,12 @@ export interface BusinessSettings {
   taxRate: number;
   /** % de comisión de pago con tarjeta (fracción, ej. 0.03 = 3%). */
   cardCommissionRate: number;
+  /** Si el programa de puntos de lealtad está activo. */
+  loyaltyEnabled: boolean;
+  /** Cuánto vale 1 punto en la moneda de la empresa. */
+  loyaltyPointValue: number;
+  /** Cuánto gasto equivale a 1 punto ganado. */
+  loyaltyEarnRate: number;
   currencyLabel: string;
   /** Optional store logo (data URL or image URL). */
   logoUrl?: string;
@@ -53,6 +59,10 @@ export function createBusinessSettingsFromMarket(
     // No depende del país (es una configuración propia de cada empresa) --
     // mismo valor por defecto que la columna companies.card_commission_rate.
     cardCommissionRate: 0.03,
+    // Apagado por defecto, igual que companies.loyalty_enabled.
+    loyaltyEnabled: false,
+    loyaltyPointValue: 0,
+    loyaltyEarnRate: 0,
     currencyLabel: getCurrencyLabel(market),
   };
 }
@@ -91,6 +101,20 @@ function normalizeBusinessSettings(
       Number.isFinite(settings.cardCommissionRate)
         ? settings.cardCommissionRate
         : base.cardCommissionRate,
+    loyaltyEnabled:
+      typeof settings?.loyaltyEnabled === "boolean"
+        ? settings.loyaltyEnabled
+        : base.loyaltyEnabled,
+    loyaltyPointValue:
+      typeof settings?.loyaltyPointValue === "number" &&
+      Number.isFinite(settings.loyaltyPointValue)
+        ? settings.loyaltyPointValue
+        : base.loyaltyPointValue,
+    loyaltyEarnRate:
+      typeof settings?.loyaltyEarnRate === "number" &&
+      Number.isFinite(settings.loyaltyEarnRate)
+        ? settings.loyaltyEarnRate
+        : base.loyaltyEarnRate,
     currencyLabel:
       settings?.currencyLabel ||
       getCurrencyLabel({
@@ -180,6 +204,9 @@ export function syncBusinessSettingsWithSession(session: DemoSession) {
     taxName: session.taxName,
     taxRate: session.taxRate,
     cardCommissionRate: session.cardCommissionRate,
+    loyaltyEnabled: session.loyaltyEnabled,
+    loyaltyPointValue: session.loyaltyPointValue,
+    loyaltyEarnRate: session.loyaltyEarnRate,
     logoUrl: session.logoUrl,
     businessType: session.businessType,
   });
