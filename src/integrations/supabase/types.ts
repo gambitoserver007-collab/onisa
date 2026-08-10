@@ -513,6 +513,7 @@ export type Database = {
           created_at: string;
           id: string;
           is_demo_data: boolean;
+          is_early_leave: boolean;
           is_late: boolean;
           location_id: string | null;
           profile_id: string;
@@ -525,6 +526,7 @@ export type Database = {
           created_at?: string;
           id?: string;
           is_demo_data?: boolean;
+          is_early_leave?: boolean;
           is_late?: boolean;
           location_id?: string | null;
           profile_id: string;
@@ -537,6 +539,7 @@ export type Database = {
           created_at?: string;
           id?: string;
           is_demo_data?: boolean;
+          is_early_leave?: boolean;
           is_late?: boolean;
           location_id?: string | null;
           profile_id?: string;
@@ -1018,6 +1021,8 @@ export type Database = {
           location_id: string | null;
           pin_hash: string | null;
           role: Database["public"]["Enums"]["app_role"];
+          shift_end: string | null;
+          shift_start: string | null;
           updated_at: string;
         };
         Insert: {
@@ -1034,6 +1039,8 @@ export type Database = {
           location_id?: string | null;
           pin_hash?: string | null;
           role?: Database["public"]["Enums"]["app_role"];
+          shift_end?: string | null;
+          shift_start?: string | null;
           updated_at?: string;
         };
         Update: {
@@ -1050,6 +1057,8 @@ export type Database = {
           location_id?: string | null;
           pin_hash?: string | null;
           role?: Database["public"]["Enums"]["app_role"];
+          shift_end?: string | null;
+          shift_start?: string | null;
           updated_at?: string;
         };
         Relationships: [

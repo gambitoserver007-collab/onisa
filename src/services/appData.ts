@@ -3195,6 +3195,9 @@ export interface TeamMember {
   isPlatformAdmin: boolean;
   /** Si ya tiene un PIN de checador asignado (nunca se expone el PIN/hash real). */
   hasPin: boolean;
+  /** Horario propio del checador ("HH:MM"); null = usa el horario de la sucursal. */
+  shiftStart: string | null;
+  shiftEnd: string | null;
 }
 
 export interface CreateTeamUserInput {
@@ -3329,7 +3332,7 @@ export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
   const query = supabase
     .from("profiles")
     .select(
-      "id, full_name, email, role, is_active, location_id, is_platform_admin, pin_hash, created_at",
+      "id, full_name, email, role, is_active, location_id, is_platform_admin, pin_hash, shift_start, shift_end, created_at",
     )
     .order("created_at", { ascending: true });
   const { data, error } = await (companyId
@@ -3341,6 +3344,8 @@ export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
     name: row.full_name,
     email: row.email,
     hasPin: Boolean((row as { pin_hash?: string | null }).pin_hash),
+    shiftStart: (row as { shift_start?: string | null }).shift_start ?? null,
+    shiftEnd: (row as { shift_end?: string | null }).shift_end ?? null,
     role: row.role,
     active: row.is_active,
     locationId: (row as { location_id?: string | null }).location_id ?? null,
@@ -3447,6 +3452,7 @@ export interface AttendanceEntry {
   checkInAt: string;
   checkOutAt: string | null;
   isLate: boolean;
+  isEarlyLeave: boolean;
   status: "open" | "closed";
 }
 
@@ -3456,7 +3462,7 @@ export async function fetchAttendance(
   let query = supabase
     .from("employee_attendance")
     .select(
-      "id, profile_id, location_id, check_in_at, check_out_at, is_late, status",
+      "id, profile_id, location_id, check_in_at, check_out_at, is_late, is_early_leave, status",
     )
     .order("check_in_at", { ascending: false })
     .limit(200);
@@ -3470,6 +3476,7 @@ export async function fetchAttendance(
     checkInAt: row.check_in_at,
     checkOutAt: row.check_out_at,
     isLate: row.is_late,
+    isEarlyLeave: (row as { is_early_leave?: boolean }).is_early_leave ?? false,
     status: row.status as "open" | "closed",
   }));
 }
@@ -3485,6 +3492,7 @@ export async function punchEmployee(
   profileId: string;
   fullName: string;
   isLate?: boolean;
+  isEarlyLeave?: boolean;
   at: string;
 }> {
   let tz = "UTC";
@@ -3504,6 +3512,7 @@ export async function punchEmployee(
     profile_id: string;
     full_name: string;
     is_late?: boolean;
+    is_early_leave?: boolean;
     at: string;
   };
   return {
@@ -3511,6 +3520,7 @@ export async function punchEmployee(
     profileId: payload.profile_id,
     fullName: payload.full_name,
     isLate: payload.is_late,
+    isEarlyLeave: payload.is_early_leave,
     at: payload.at,
   };
 }
@@ -3527,6 +3537,26 @@ export async function clearEmployeePin(profileId: string) {
   const { error } = await supabase.rpc("clear_employee_pin", {
     p_profile_id: profileId,
   });
+  if (error) throw error;
+}
+
+/** Horario propio del checador para un empleado ("HH:MM" o null para ambos =
+ * usar el horario de la sucursal). Escritura directa: shift_start/shift_end
+ * no son datos sensibles (no tocan rol/permisos), y la RLS "profiles update
+ * scoped" ya limita esto al admin de la misma empresa. */
+export async function updateEmployeeSchedule(
+  profileId: string,
+  shiftStart: string | null,
+  shiftEnd: string | null,
+) {
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      shift_start: shiftStart,
+      shift_end: shiftEnd,
+      updated_at: new Date().toISOString(),
+    } as never)
+    .eq("id", profileId);
   if (error) throw error;
 }
 

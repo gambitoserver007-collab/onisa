@@ -66,6 +66,7 @@ import {
   fetchTimeEvents,
   punchEmployee,
   setEmployeePin,
+  updateEmployeeSchedule,
   getErrorMessage,
   type AttendanceEntry,
   type StockMovementRow,
@@ -167,6 +168,10 @@ function Empleados() {
   const [pinValue, setPinValue] = useState("");
   const [isSavingPin, setIsSavingPin] = useState(false);
   const [clearPinTarget, setClearPinTarget] = useState<TeamMember | null>(null);
+  const [scheduleTarget, setScheduleTarget] = useState<TeamMember | null>(null);
+  const [scheduleStart, setScheduleStart] = useState("");
+  const [scheduleEnd, setScheduleEnd] = useState("");
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
 
   const todayAttendance = useMemo(
     () =>
@@ -194,7 +199,9 @@ function Empleados() {
           `${result.fullName}: entrada registrada${result.isLate ? " (con retardo)" : ""}.`,
         );
       } else {
-        toast.success(`${result.fullName}: salida registrada.`);
+        toast.success(
+          `${result.fullName}: salida registrada${result.isEarlyLeave ? " (anticipada)" : ""}.`,
+        );
       }
       await reload();
     } catch (error) {
@@ -233,6 +240,34 @@ function Empleados() {
       await reload();
     } catch (error) {
       toast.error(getErrorMessage(error, "No se pudo quitar el PIN."));
+    }
+  };
+
+  const handleSaveSchedule = async () => {
+    if (!scheduleTarget) return;
+    if (isDemo) {
+      blockDemoAction();
+      return;
+    }
+    // Ambos vacíos = usar el horario de la sucursal; si se da uno, se exige el otro.
+    if (!!scheduleStart !== !!scheduleEnd) {
+      toast.error("Define hora de entrada y de salida, o deja ambas vacías.");
+      return;
+    }
+    setIsSavingSchedule(true);
+    try {
+      await updateEmployeeSchedule(
+        scheduleTarget.id,
+        scheduleStart || null,
+        scheduleEnd || null,
+      );
+      toast.success(`Horario de ${scheduleTarget.name} actualizado.`);
+      setScheduleTarget(null);
+      await reload();
+    } catch (error) {
+      toast.error(getErrorMessage(error, "No se pudo guardar el horario."));
+    } finally {
+      setIsSavingSchedule(false);
     }
   };
 
@@ -426,7 +461,14 @@ function Empleados() {
                               </Badge>
                             )}
                           </TableCell>
-                          <TableCell>{fmtDateTime(a.checkOutAt)}</TableCell>
+                          <TableCell>
+                            {fmtDateTime(a.checkOutAt)}{" "}
+                            {a.isEarlyLeave && (
+                              <Badge variant="destructive" className="ml-1">
+                                Salida anticipada
+                              </Badge>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <Badge
                               variant={
@@ -447,7 +489,9 @@ function Empleados() {
 
           <Card className="shadow-card">
             <CardHeader>
-              <CardTitle className="text-base">PIN por empleado</CardTitle>
+              <CardTitle className="text-base">
+                PIN y horario por empleado
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
@@ -456,6 +500,7 @@ function Empleados() {
                     <TableRow>
                       <TableHead>Nombre</TableHead>
                       <TableHead>PIN</TableHead>
+                      <TableHead>Horario</TableHead>
                       <TableHead className="text-right">Acción</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -472,6 +517,18 @@ function Empleados() {
                             <Badge variant="secondary">
                               <UserX className="mr-1 h-3 w-3" /> Sin PIN
                             </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {m.shiftStart && m.shiftEnd ? (
+                            <span className="text-sm">
+                              {m.shiftStart.slice(0, 5)}–
+                              {m.shiftEnd.slice(0, 5)}
+                            </span>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">
+                              Horario de sucursal
+                            </span>
                           )}
                         </TableCell>
                         <TableCell className="text-right space-x-2">
@@ -495,6 +552,17 @@ function Empleados() {
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setScheduleTarget(m);
+                              setScheduleStart(m.shiftStart?.slice(0, 5) ?? "");
+                              setScheduleEnd(m.shiftEnd?.slice(0, 5) ?? "");
+                            }}
+                          >
+                            <Clock className="h-3.5 w-3.5" /> Horario
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -837,6 +905,59 @@ function Empleados() {
               onClick={handleSavePin}
             >
               {isSavingPin ? "Guardando..." : "Guardar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!scheduleTarget}
+        onOpenChange={(open) => !open && setScheduleTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Horario de {scheduleTarget?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label>Entrada</Label>
+              <Input
+                type="time"
+                value={scheduleStart}
+                onChange={(e) => setScheduleStart(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Salida</Label>
+              <Input
+                type="time"
+                value={scheduleEnd}
+                onChange={(e) => setScheduleEnd(e.target.value)}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Deja ambos campos vacíos para que este empleado use el horario
+            general de la sucursal.
+          </p>
+          <DialogFooter className="gap-2 sm:gap-0">
+            {(scheduleStart || scheduleEnd) && (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setScheduleStart("");
+                  setScheduleEnd("");
+                }}
+              >
+                Quitar horario propio
+              </Button>
+            )}
+            <Button
+              variant="brand"
+              disabled={isSavingSchedule}
+              onClick={handleSaveSchedule}
+            >
+              {isSavingSchedule ? "Guardando..." : "Guardar"}
             </Button>
           </DialogFooter>
         </DialogContent>

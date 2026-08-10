@@ -1492,6 +1492,90 @@ describe("RPCs críticas de dinero y stock", () => {
       });
     });
 
+    it("el horario propio del empleado tiene prioridad sobre el de la sucursal", async () => {
+      const { company, admin, employee } = await setupEmployeeCompany();
+      // Sucursal abre "00:01" (prácticamente siempre tarde), pero el
+      // empleado tiene turno propio que abre "23:58" (prácticamente nunca
+      // tarde) -- debe ganar el horario propio.
+      await db.query(
+        "update public.locations set opening_hours='00:01 - 23:59' where id=$1",
+        [company.loc1],
+      );
+      await db.query(
+        "update public.profiles set shift_start='23:58', shift_end='23:59' where id=$1",
+        [employee],
+      );
+      await asUser(db, admin, async () => {
+        await db.query("select set_employee_pin($1, '2233')", [employee]);
+        const { rows } = await db.query<{ punch_employee: unknown }>(
+          "select punch_employee('2233', $1) as punch_employee",
+          [company.loc1],
+        );
+        const checkIn = rows[0].punch_employee as { is_late: boolean };
+        expect(checkIn.is_late).toBe(false);
+      });
+    });
+
+    it("dos empleados de la misma sucursal con turnos distintos se evalúan cada uno con el suyo", async () => {
+      const {
+        company,
+        admin,
+        employee: lateEmployee,
+      } = await setupEmployeeCompany();
+      const onTimeEmployee = await makeUser(db, company.id, "user");
+      await db.query(
+        "update public.profiles set shift_start='00:01' where id=$1",
+        [lateEmployee],
+      );
+      await db.query(
+        "update public.profiles set shift_start='23:58' where id=$1",
+        [onTimeEmployee],
+      );
+      await asUser(db, admin, async () => {
+        await db.query("select set_employee_pin($1, '3344')", [lateEmployee]);
+        await db.query("select set_employee_pin($1, '4455')", [onTimeEmployee]);
+        const { rows: lateRows } = await db.query<{
+          punch_employee: unknown;
+        }>("select punch_employee('3344', $1) as punch_employee", [
+          company.loc1,
+        ]);
+        const { rows: onTimeRows } = await db.query<{
+          punch_employee: unknown;
+        }>("select punch_employee('4455', $1) as punch_employee", [
+          company.loc1,
+        ]);
+        expect(
+          (lateRows[0].punch_employee as { is_late: boolean }).is_late,
+        ).toBe(true);
+        expect(
+          (onTimeRows[0].punch_employee as { is_late: boolean }).is_late,
+        ).toBe(false);
+      });
+    });
+
+    it("punch_employee marca salida anticipada comparando contra el turno del empleado", async () => {
+      const { company, admin, employee } = await setupEmployeeCompany();
+      // Turno hasta "23:59" -- casi cualquier check-out del día es anticipado.
+      await db.query(
+        "update public.profiles set shift_start='00:00', shift_end='23:59' where id=$1",
+        [employee],
+      );
+      await asUser(db, admin, async () => {
+        await db.query("select set_employee_pin($1, '5566')", [employee]);
+        await db.query("select punch_employee('5566', $1)", [company.loc1]);
+        const { rows } = await db.query<{ punch_employee: unknown }>(
+          "select punch_employee('5566', $1) as punch_employee",
+          [company.loc1],
+        );
+        const checkOut = rows[0].punch_employee as {
+          action: string;
+          is_early_leave: boolean;
+        };
+        expect(checkOut.action).toBe("check_out");
+        expect(checkOut.is_early_leave).toBe(true);
+      });
+    });
+
     it("PIN incorrecto es rechazado", async () => {
       const { company, admin, employee } = await setupEmployeeCompany();
       await asUser(db, admin, async () => {

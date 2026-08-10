@@ -6245,3 +6245,121 @@ grant execute on function public.punch_employee(text, uuid, text) to authenticat
 -- un solo día (event_date), una vacación usa event_date como salida y
 -- end_date como regreso.
 alter table public.employee_time_events add column if not exists end_date date;
+
+-- ============================================================
+-- Horario personalizado por empleado (opcional). Si no se define, el
+-- checador cae al horario general de la sucursal (locations.opening_hours)
+-- -- así una misma sucursal puede tener varios turnos (ej. matutino
+-- 8:00-14:00 y vespertino 14:00-20:00), cada uno asignado a un empleado,
+-- sin afectar a quienes no tienen horario propio.
+-- ============================================================
+
+alter table public.profiles add column if not exists shift_start time;
+alter table public.profiles add column if not exists shift_end time;
+
+alter table public.employee_attendance add column if not exists is_early_leave boolean not null default false;
+
+-- punch_employee: ahora resuelve el horario de referencia por prioridad
+-- (horario propio del empleado > horario de la sucursal) tanto para el
+-- retardo de entrada como para la salida anticipada.
+create or replace function public.punch_employee(
+  p_pin text,
+  p_location_id uuid default null,
+  p_tz text default 'UTC'
+) returns jsonb
+language plpgsql
+security definer
+set search_path to 'public', 'extensions'
+as $$
+declare
+  v_company_id uuid;
+  v_profile record;
+  v_location_id uuid;
+  v_open record;
+  v_is_late boolean := false;
+  v_is_early_leave boolean := false;
+  v_loc_hours text;
+  v_open_time time;
+  v_close_time time;
+  v_now_time time;
+  v_new_id uuid;
+  v_check_in_at timestamptz;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.'; end if;
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null or not public.can_admin_company(v_company_id) then
+    raise exception 'No tienes permiso para operar el checador.';
+  end if;
+  if p_pin is null or length(btrim(p_pin)) = 0 then
+    raise exception 'Ingresa un PIN.';
+  end if;
+
+  select id, full_name, location_id, shift_start, shift_end into v_profile
+    from public.profiles
+    where company_id = v_company_id
+      and is_active = true
+      and pin_hash is not null
+      and pin_hash = crypt(p_pin, pin_hash)
+    limit 1;
+
+  if v_profile.id is null then
+    raise exception 'PIN no reconocido.';
+  end if;
+
+  v_location_id := coalesce(p_location_id, v_profile.location_id);
+  v_now_time := (now() at time zone coalesce(p_tz, 'UTC'))::time;
+
+  select * into v_open from public.employee_attendance
+    where company_id = v_company_id and profile_id = v_profile.id and status = 'open'
+    order by check_in_at desc
+    limit 1;
+
+  if v_open.id is not null then
+    v_close_time := v_profile.shift_end;
+    if v_close_time is null and v_location_id is not null then
+      select opening_hours into v_loc_hours from public.locations where id = v_location_id;
+      if v_loc_hours ~ '-\s*([0-9]{1,2}:[0-9]{2})' then
+        v_close_time := (regexp_match(v_loc_hours, '-\s*([0-9]{1,2}:[0-9]{2})'))[1]::time;
+      end if;
+    end if;
+    if v_close_time is not null and v_now_time < v_close_time then
+      v_is_early_leave := true;
+    end if;
+
+    update public.employee_attendance
+      set check_out_at = now(), status = 'closed', is_early_leave = v_is_early_leave
+      where id = v_open.id;
+    return jsonb_build_object(
+      'action', 'check_out',
+      'profile_id', v_profile.id,
+      'full_name', v_profile.full_name,
+      'is_early_leave', v_is_early_leave,
+      'at', now()
+    );
+  end if;
+
+  v_open_time := v_profile.shift_start;
+  if v_open_time is null and v_location_id is not null then
+    select opening_hours into v_loc_hours from public.locations where id = v_location_id;
+    if v_loc_hours ~ '^\s*([0-9]{1,2}:[0-9]{2})' then
+      v_open_time := (regexp_match(v_loc_hours, '^\s*([0-9]{1,2}:[0-9]{2})'))[1]::time;
+    end if;
+  end if;
+  if v_open_time is not null and v_now_time > v_open_time then
+    v_is_late := true;
+  end if;
+
+  insert into public.employee_attendance (company_id, profile_id, location_id, is_late)
+  values (v_company_id, v_profile.id, v_location_id, v_is_late)
+  returning id, check_in_at into v_new_id, v_check_in_at;
+
+  return jsonb_build_object(
+    'action', 'check_in',
+    'profile_id', v_profile.id,
+    'full_name', v_profile.full_name,
+    'is_late', v_is_late,
+    'at', v_check_in_at
+  );
+end;
+$$;
