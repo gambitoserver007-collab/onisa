@@ -32,6 +32,7 @@ import {
   fetchPromotions,
   getErrorMessage,
   type Promotion,
+  type SalePaymentLine,
 } from "@/services/appData";
 import type { CartItem, Product, ProductVariant, Sale } from "@/types";
 
@@ -70,6 +71,8 @@ function POS() {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [docType, setDocType] = useState<SaleDocumentType>("");
   const [method, setMethod] = useState<PaymentMethod>("Efectivo");
+  const [splitMode, setSplitMode] = useState(false);
+  const [splitPayments, setSplitPayments] = useState<SalePaymentLine[]>([]);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [success, setSuccess] = useState<{ amount: number; id: string } | null>(
     null,
@@ -601,6 +604,19 @@ function POS() {
       return;
     }
 
+    const splitAssigned =
+      Math.round(splitPayments.reduce((sum, p) => sum + p.amount, 0) * 100) /
+      100;
+    if (
+      splitMode &&
+      (splitPayments.length === 0 ||
+        splitAssigned !==
+          Math.round(Math.max(0, total - loyaltyDiscount) * 100) / 100)
+    ) {
+      toast.error("El pago dividido debe sumar exacto al total.");
+      return;
+    }
+
     setIsCheckingOut(true);
 
     // Reutiliza la misma clave si es el mismo carrito de un intento anterior
@@ -622,12 +638,15 @@ function POS() {
         locationId: posLocationId,
         clientRequestId,
         pointsRedeemed: validCustomer ? pointsToRedeem : 0,
+        payments: splitMode ? splitPayments : undefined,
       });
       const saleId = sale?.id ?? "reciente";
       const amount = sale?.total ?? Math.max(0, total - loyaltyDiscount);
       pendingSaleRef.current = null;
       setCart([]);
       setPointsToRedeem(0);
+      setSplitMode(false);
+      setSplitPayments([]);
       await reload();
       await reloadLocationStock();
       setSuccess({ amount, id: saleId });
@@ -682,6 +701,10 @@ function POS() {
     maxRedeemablePoints,
     onPointsToRedeemChange: setPointsToRedeem,
     qualifyingPromotions,
+    splitMode,
+    onSplitModeChange: setSplitMode,
+    splitPayments,
+    onSplitPaymentsChange: setSplitPayments,
   };
 
   // Sin sucursal concreta (admin con "Todas las tiendas") no se puede vender:

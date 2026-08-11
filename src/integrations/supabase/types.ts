@@ -1551,6 +1551,51 @@ export type Database = {
           },
         ];
       };
+      sale_payments: {
+        Row: {
+          amount: number;
+          company_id: string;
+          created_at: string;
+          id: string;
+          is_demo_data: boolean;
+          method: string;
+          sale_id: string;
+        };
+        Insert: {
+          amount: number;
+          company_id: string;
+          created_at?: string;
+          id?: string;
+          is_demo_data?: boolean;
+          method: string;
+          sale_id: string;
+        };
+        Update: {
+          amount?: number;
+          company_id?: string;
+          created_at?: string;
+          id?: string;
+          is_demo_data?: boolean;
+          method?: string;
+          sale_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sale_payments_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sale_payments_sale_id_fkey";
+            columns: ["sale_id"];
+            isOneToOne: false;
+            referencedRelation: "sales";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       sales: {
         Row: {
           company_id: string;
@@ -2097,6 +2142,7 @@ export type Database = {
           p_items: Json;
           p_location_id?: string;
           p_payment_method: string;
+          p_payments?: Json;
           p_points_redeemed?: number;
           p_till_id?: string;
         };

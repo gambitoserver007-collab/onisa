@@ -735,6 +735,11 @@ export async function fetchSaleById(
   );
 }
 
+export interface SalePaymentLine {
+  method: string;
+  amount: number;
+}
+
 export async function createSaleFromCart({
   customerId,
   documentType,
@@ -744,6 +749,7 @@ export async function createSaleFromCart({
   locationId,
   clientRequestId,
   pointsRedeemed,
+  payments,
 }: {
   customerId: string | null;
   documentType: Sale["type"];
@@ -761,6 +767,10 @@ export async function createSaleFromCart({
   /** Puntos de lealtad que el cajero pide canjear; el servidor los revalida
    * y los topa al saldo real del cliente y al total de la venta. */
   pointsRedeemed?: number;
+  /** Desglose de pago dividido (ej. parte efectivo, parte tarjeta). El
+   * servidor revalida que la suma coincida exacto con el total final; si se
+   * omite, se guarda un solo pago con `paymentMethod` (igual que siempre). */
+  payments?: SalePaymentLine[];
 }) {
   const { data, error } = await supabase.rpc("create_sale", {
     p_customer_id: (customerId ?? null) as unknown as string,
@@ -775,6 +785,10 @@ export async function createSaleFromCart({
     p_location_id: locationId ?? undefined,
     p_client_request_id: clientRequestId ?? undefined,
     p_points_redeemed: pointsRedeemed || 0,
+    p_payments:
+      payments && payments.length > 0
+        ? (payments as unknown as Json)
+        : undefined,
   });
 
   if (error) throw error;

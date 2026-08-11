@@ -178,12 +178,21 @@ export interface CartLine {
   unit_price: number;
 }
 
+export interface SalePaymentLine {
+  method: string;
+  amount: number;
+}
+
 export async function createSale(
   db: PGlite,
   items: CartLine[],
   locationId: string,
   clientRequestId?: string,
-  opts: { customerId?: string | null; pointsRedeemed?: number } = {},
+  opts: {
+    customerId?: string | null;
+    pointsRedeemed?: number;
+    payments?: SalePaymentLine[] | null;
+  } = {},
 ): Promise<{
   sale_id: string;
   subtotal: number;
@@ -195,13 +204,14 @@ export async function createSale(
   points_redeemed: number;
 }> {
   const { rows } = await db.query<{ create_sale: unknown }>(
-    "select create_sale($1, 'Ticket', 'Efectivo', $2::jsonb, $3, $4, null, $5) as create_sale",
+    "select create_sale($1, 'Ticket', 'Efectivo', $2::jsonb, $3, $4, null, $5, $6::jsonb) as create_sale",
     [
       opts.customerId ?? null,
       JSON.stringify(items),
       locationId,
       clientRequestId ?? null,
       opts.pointsRedeemed ?? 0,
+      opts.payments ? JSON.stringify(opts.payments) : null,
     ],
   );
   return rows[0].create_sale as {

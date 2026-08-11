@@ -2041,4 +2041,156 @@ describe("RPCs críticas de dinero y stock", () => {
       );
     });
   });
+
+  describe("17. Pago dividido (sale_payments) y arqueo por método", () => {
+    async function setupPaymentCompany() {
+      const company = await makeCompany(db, "Empresa Pago Dividido");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Pago",
+        50,
+        200,
+        1000,
+      );
+      return { company, admin, product };
+    }
+
+    it("un pago dividido que suma exacto al total se acepta y guarda el desglose", async () => {
+      const { company, admin, product } = await setupPaymentCompany();
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 200 }],
+          company.loc1,
+          undefined,
+          {
+            payments: [
+              { method: "Efectivo", amount: 60 },
+              { method: "Tarjeta", amount: 140 },
+            ],
+          },
+        ),
+      );
+      expect(result.total).toBe(200);
+
+      const { rows } = await db.query<{ method: string; amount: number }>(
+        "select method, amount from public.sale_payments where sale_id=$1 order by method",
+        [result.sale_id],
+      );
+      expect(rows).toHaveLength(2);
+      expect(rows.find((r) => r.method === "Efectivo")?.amount).toBe("60.00");
+      expect(rows.find((r) => r.method === "Tarjeta")?.amount).toBe("140.00");
+
+      const { rows: saleRows } = await db.query<{ payment_method: string }>(
+        "select payment_method from public.sales where id=$1",
+        [result.sale_id],
+      );
+      expect(saleRows[0].payment_method).toBe("Mixto");
+    });
+
+    it("un pago dividido que no cuadra con el total se rechaza", async () => {
+      const { company, admin, product } = await setupPaymentCompany();
+      await asUser(db, admin, async () => {
+        await expect(
+          createSale(
+            db,
+            [{ product_id: product, qty: 1, unit_price: 200 }],
+            company.loc1,
+            undefined,
+            {
+              payments: [
+                { method: "Efectivo", amount: 60 },
+                { method: "Tarjeta", amount: 100 },
+              ],
+            },
+          ),
+        ).rejects.toThrow(/no coincide con el total/i);
+      });
+    });
+
+    it("sin desglose de pagos se guarda una sola fila, igual que antes (regresión)", async () => {
+      const { company, admin, product } = await setupPaymentCompany();
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 200 }],
+          company.loc1,
+        ),
+      );
+      const { rows } = await db.query<{ method: string; amount: number }>(
+        "select method, amount from public.sale_payments where sale_id=$1",
+        [result.sale_id],
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0].method).toBe("Efectivo");
+      expect(rows[0].amount).toBe("200.00");
+    });
+
+    it("el arqueo solo cuenta la porción en efectivo de una venta con pago dividido", async () => {
+      const { company, admin, product } = await setupPaymentCompany();
+      await asUser(db, admin, async () => {
+        const { rows: openRows } = await db.query<{
+          open_cash_session: string;
+        }>("select open_cash_session(100, $1) as open_cash_session", [
+          company.loc1,
+        ]);
+        const sessionId = openRows[0].open_cash_session;
+
+        await createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 200 }],
+          company.loc1,
+          undefined,
+          {
+            payments: [
+              { method: "Efectivo", amount: 50 },
+              { method: "Tarjeta", amount: 150 },
+            ],
+          },
+        );
+
+        // Esperado: 100 (fondo) + 50 (solo la porción en efectivo) = 150,
+        // NO 100 + 200 (el total completo de la venta).
+        const count = await submitTillCount(db, sessionId, [
+          { denomination: 100, quantity: 1 },
+          { denomination: 50, quantity: 1 },
+        ]);
+        expect(Number(count.card_total)).toBe(150);
+
+        await finishTillCount(db, sessionId);
+        const authResult = await authorizeCashSession(db, sessionId);
+        expect(Number(authResult.expected_amount)).toBe(150);
+        expect(Number(authResult.real_amount)).toBe(150);
+        expect(authResult.classification).toBe("cuadrado");
+      });
+    });
+
+    it("sales_by_payment_method atribuye cada porción de una venta dividida a su método", async () => {
+      const { company, admin, product } = await setupPaymentCompany();
+      await asUser(db, admin, async () => {
+        await createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 200 }],
+          company.loc1,
+          undefined,
+          {
+            payments: [
+              { method: "Efectivo", amount: 70 },
+              { method: "Tarjeta", amount: 130 },
+            ],
+          },
+        );
+
+        const { rows } = await db.query<{ method: string; total: number }>(
+          "select * from sales_by_payment_method()",
+        );
+        const byMethod = new Map(rows.map((r) => [r.method, Number(r.total)]));
+        expect(byMethod.get("Efectivo")).toBe(70);
+        expect(byMethod.get("Tarjeta")).toBe(130);
+      });
+    });
+  });
 });

@@ -5,13 +5,14 @@ import {
   Search,
   ShoppingBag,
   ShoppingCart,
+  SplitSquareHorizontal,
   Trash2,
   UserPlus,
   UserRound,
   X,
 } from "lucide-react";
 import type { CartItem, Customer, DocumentType, Sale } from "@/types";
-import type { Promotion } from "@/services/appData";
+import type { Promotion, SalePaymentLine } from "@/services/appData";
 import {
   PAYMENT_METHOD_KIND_LABELS,
   type PaymentMethodDefinition,
@@ -95,6 +96,13 @@ export interface SaleCartProps {
   /** Promociones automáticas que ya califican con lo que hay en el carrito
    * (solo aviso -- el descuento real lo calcula y valida el servidor). */
   qualifyingPromotions?: Promotion[];
+  /** Si el cobro se está dividiendo entre varios métodos de pago. */
+  splitMode?: boolean;
+  onSplitModeChange?: (enabled: boolean) => void;
+  /** Líneas del pago dividido (método + monto); el servidor revalida que
+   * sumen exacto al total final. */
+  splitPayments?: SalePaymentLine[];
+  onSplitPaymentsChange?: (payments: SalePaymentLine[]) => void;
 }
 
 function SaleCartContent({
@@ -124,10 +132,19 @@ function SaleCartContent({
   maxRedeemablePoints = 0,
   onPointsToRedeemChange,
   qualifyingPromotions = [],
+  splitMode = false,
+  onSplitModeChange,
+  splitPayments = [],
+  onSplitPaymentsChange,
 }: SaleCartProps) {
   const { formatMoney, settings } = useBusinessSettings();
   const itemCount = cart.reduce((sum, item) => sum + item.qty, 0);
   const finalTotal = Math.max(0, total - loyaltyDiscount);
+  const splitAssigned =
+    Math.round(splitPayments.reduce((sum, p) => sum + p.amount, 0) * 100) / 100;
+  const splitRemaining = Math.round((finalTotal - splitAssigned) * 100) / 100;
+  const splitReady = splitPayments.length > 0 && splitRemaining === 0;
+  const canCheckout = !splitMode || splitReady;
 
   const [newOpen, setNewOpen] = useState(false);
   const [ncName, setNcName] = useState("");
@@ -344,29 +361,149 @@ function SaleCartContent({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Pago</Label>
-            <Select
-              value={method}
-              onValueChange={(value) => onMethodChange(value as PaymentMethod)}
-            >
-              <SelectTrigger className="h-11 rounded-xl">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {paymentMethods.map((item) => (
-                  <SelectItem key={item.id} value={item.label}>
-                    <span className="flex flex-col">
-                      <span>{item.label}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {PAYMENT_METHOD_KIND_LABELS[item.kind]}
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground">Pago</Label>
+              {onSplitModeChange && cart.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!splitMode) {
+                      onSplitPaymentsChange?.([
+                        {
+                          method: paymentMethods[0]?.label ?? "Efectivo",
+                          amount: finalTotal,
+                        },
+                      ]);
+                    }
+                    onSplitModeChange(!splitMode);
+                  }}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                >
+                  <SplitSquareHorizontal className="h-3 w-3" />
+                  {splitMode ? "Un método" : "Dividir"}
+                </button>
+              )}
+            </div>
+            {splitMode ? (
+              <div className="flex h-11 items-center gap-1.5 rounded-xl border border-input bg-background px-3 text-sm text-muted-foreground">
+                <SplitSquareHorizontal className="h-4 w-4 shrink-0" />
+                {splitPayments.length}{" "}
+                {splitPayments.length === 1 ? "método" : "métodos"}
+              </div>
+            ) : (
+              <Select
+                value={method}
+                onValueChange={(value) =>
+                  onMethodChange(value as PaymentMethod)
+                }
+              >
+                <SelectTrigger className="h-11 rounded-xl">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {paymentMethods.map((item) => (
+                    <SelectItem key={item.id} value={item.label}>
+                      <span className="flex flex-col">
+                        <span>{item.label}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {PAYMENT_METHOD_KIND_LABELS[item.kind]}
+                        </span>
                       </span>
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </div>
+
+        {splitMode && (
+          <div className="space-y-2 rounded-xl border border-dashed border-primary/40 bg-primary/5 p-3">
+            {splitPayments.map((line, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <Select
+                  value={line.method}
+                  onValueChange={(value) => {
+                    const next = [...splitPayments];
+                    next[idx] = { ...next[idx], method: value };
+                    onSplitPaymentsChange?.(next);
+                  }}
+                >
+                  <SelectTrigger className="h-9 flex-1 rounded-lg text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {paymentMethods.map((item) => (
+                      <SelectItem key={item.id} value={item.label}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={line.amount || ""}
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    const next = [...splitPayments];
+                    next[idx] = {
+                      ...next[idx],
+                      amount: Number.isFinite(value) ? value : 0,
+                    };
+                    onSplitPaymentsChange?.(next);
+                  }}
+                  placeholder="0.00"
+                  className="h-9 w-24 rounded-lg text-sm"
+                />
+                <button
+                  type="button"
+                  aria-label="Quitar método"
+                  onClick={() =>
+                    onSplitPaymentsChange?.(
+                      splitPayments.filter((_, i) => i !== idx),
+                    )
+                  }
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  onSplitPaymentsChange?.([
+                    ...splitPayments,
+                    {
+                      method: paymentMethods[0]?.label ?? "Efectivo",
+                      amount: Math.max(0, splitRemaining),
+                    },
+                  ])
+                }
+                className="text-xs font-semibold text-primary hover:underline"
+              >
+                + Agregar método
+              </button>
+              <span
+                className={cn(
+                  "text-xs font-semibold",
+                  splitRemaining === 0
+                    ? "text-emerald-600"
+                    : "text-destructive",
+                )}
+              >
+                {splitRemaining === 0
+                  ? "✓ Cuadra con el total"
+                  : splitRemaining > 0
+                    ? `Falta ${formatMoney(splitRemaining)}`
+                    : `Sobra ${formatMoney(Math.abs(splitRemaining))}`}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {showItemFilter && (
@@ -536,11 +673,13 @@ function SaleCartContent({
         variant="brand"
         className="w-full shrink-0"
         size="lg"
-        disabled={isCheckingOut || cart.length === 0}
+        disabled={isCheckingOut || cart.length === 0 || !canCheckout}
         onClick={onCheckout}
       >
         {isCheckingOut ? (
           "Cobrando..."
+        ) : splitMode && !splitReady ? (
+          "Ajusta el pago dividido"
         ) : (
           <>
             <ShoppingBag className="h-5 w-5" /> Cobrar {formatMoney(finalTotal)}
