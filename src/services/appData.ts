@@ -1792,7 +1792,7 @@ export interface TillCountLine {
 export interface TillCount {
   id: string;
   countNumber: 1 | 2;
-  countedBy: string;
+  countedBy: string | null;
   countedAt: string;
   countedCashTotal: number;
   cardTotal: number;

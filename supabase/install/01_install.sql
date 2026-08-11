@@ -5479,7 +5479,12 @@ create table if not exists public.till_counts (
   till_id uuid references public.tills(id) on delete set null,
   location_id uuid references public.locations(id) on delete set null,
   count_number smallint not null check (count_number in (1,2)),
-  counted_by uuid not null references public.profiles(id) on delete set null,
+  -- Nullable a propósito: "on delete set null" no puede coexistir con
+  -- "not null" -- si el que contó la caja se borra (p. ej. al restablecer
+  -- el sistema o eliminar un empleado), Postgres intenta poner NULL aquí;
+  -- con "not null" eso violaba la constraint y tumbaba el DELETE completo
+  -- del usuario en auth.users ("Database error deleting user").
+  counted_by uuid references public.profiles(id) on delete set null,
   counted_at timestamptz not null default now(),
   counted_cash_total numeric(12,2) not null default 0,
   card_total numeric(12,2) not null default 0,
@@ -5491,6 +5496,11 @@ create table if not exists public.till_counts (
 );
 create index if not exists till_counts_session_idx on public.till_counts(cash_session_id);
 create index if not exists till_counts_company_idx on public.till_counts(company_id);
+
+-- Instalaciones existentes ya crearon la tabla con counted_by NOT NULL
+-- (create table if not exists no la corrige sola): se quita aquí para que
+-- "on delete set null" pueda funcionar de verdad.
+alter table public.till_counts alter column counted_by drop not null;
 
 grant select on public.till_counts to authenticated;
 grant all on public.till_counts to service_role;

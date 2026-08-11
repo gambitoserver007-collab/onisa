@@ -2698,5 +2698,42 @@ describe("RPCs críticas de dinero y stock", () => {
       );
       expect(cashierRows).toHaveLength(1);
     });
+
+    // Regresión: al restablecer el sistema se borra a todo el equipo (menos
+    // quien ejecuta la acción) vía el mismo camino que usa /usuarios --
+    // auth.admin.deleteUser(), que en Postgres es un DELETE FROM auth.users
+    // que hace cascada hasta profiles. till_counts.counted_by tenía "not
+    // null" + "on delete set null" al mismo tiempo (contradictorio): en
+    // producción, borrar a cualquiera que hubiera contado una caja alguna
+    // vez tumbaba el DELETE completo con "Database error deleting user".
+    it("borrar la cuenta de alguien que contó una caja no falla (till_counts.counted_by queda en null)", async () => {
+      const company = await makeCompany(db, "Empresa Conteo Borrado Test");
+      const cajero = await makeUser(db, company.id, "user");
+
+      let countId = "";
+      await asUser(db, cajero, async () => {
+        const { rows: openRows } = await db.query<{
+          open_cash_session: string;
+        }>("select open_cash_session(100, $1) as open_cash_session", [
+          company.loc1,
+        ]);
+        const result = await submitTillCount(
+          db,
+          openRows[0].open_cash_session,
+          [{ denomination: 100, quantity: 1 }],
+        );
+        countId = result.count_id;
+      });
+
+      await expect(
+        db.query("delete from auth.users where id=$1", [cajero]),
+      ).resolves.toBeDefined();
+
+      const { rows } = await db.query<{ counted_by: string | null }>(
+        "select counted_by from public.till_counts where id=$1",
+        [countId],
+      );
+      expect(rows[0].counted_by).toBeNull();
+    });
   });
 });

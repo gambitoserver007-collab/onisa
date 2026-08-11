@@ -1972,7 +1972,7 @@ export type Database = {
           company_id: string;
           count_number: number;
           counted_at: string;
-          counted_by: string;
+          counted_by: string | null;
           counted_cash_total: number;
           created_at: string;
           id: string;
@@ -1988,7 +1988,7 @@ export type Database = {
           company_id: string;
           count_number: number;
           counted_at?: string;
-          counted_by: string;
+          counted_by?: string | null;
           counted_cash_total?: number;
           created_at?: string;
           id?: string;
@@ -2004,7 +2004,7 @@ export type Database = {
           company_id?: string;
           count_number?: number;
           counted_at?: string;
-          counted_by?: string;
+          counted_by?: string | null;
           counted_cash_total?: number;
           created_at?: string;
           id?: string;
