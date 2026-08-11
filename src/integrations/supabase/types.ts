@@ -2266,6 +2266,10 @@ export type Database = {
         Args: { p_location_id?: string; p_pin: string; p_tz?: string };
         Returns: Json;
       };
+      reset_company_data: {
+        Args: { p_confirm_name: string };
+        Returns: Json;
+      };
       sales_by_category: {
         Args: {
           p_from?: string;

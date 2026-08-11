@@ -3426,6 +3426,19 @@ export async function deleteTeamUser(session: DemoSession, userId: string) {
   return data;
 }
 
+/** Borra TODOS los datos operativos de la empresa (ventas, productos,
+ * clientes, promociones, caja, empleados, etc.) y regresa la configuración
+ * de la empresa a un estado de "recién creada". Exige el nombre exacto de
+ * la empresa como confirmación (igual que borrar un repositorio en GitHub).
+ * No toca cuentas de otros usuarios -- eso lo hace el caller reutilizando
+ * deleteTeamUser() antes de llamar esta función. */
+export async function resetCompanyData(confirmName: string): Promise<void> {
+  const { error } = await supabase.rpc("reset_company_data", {
+    p_confirm_name: confirmName,
+  });
+  if (error) throw error;
+}
+
 export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
   const query = supabase
     .from("profiles")

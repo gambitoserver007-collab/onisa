@@ -1,10 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Lock, Plus, Settings } from "lucide-react";
+import { AlertTriangle, Lock, Plus, Settings } from "lucide-react";
 import { toast } from "sonner";
 import { DemoGuardedButton } from "@/components/demo/DemoGuardedButton";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -36,6 +46,9 @@ import {
   mapCompanyToBusinessSettings,
   updateCompanySettings,
   getErrorMessage,
+  fetchTeam,
+  deleteTeamUser,
+  resetCompanyData,
 } from "@/services/appData";
 
 export const Route = createFileRoute("/configuracion")({
@@ -213,6 +226,36 @@ function Configuracion() {
       toast.success(`${method.label} agregado a métodos de cobro.`);
     } catch (error) {
       toast.error(getErrorMessage(error, "No se pudo agregar el método."));
+    }
+  };
+
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState("");
+  const [isResetting, setIsResetting] = useState(false);
+  const resetConfirmMatches =
+    resetConfirmText.trim() === settings.businessName.trim() &&
+    settings.businessName.trim().length > 0;
+
+  const handleResetSystem = async () => {
+    if (isDemo) {
+      blockDemoAction();
+      return;
+    }
+    if (!session || !resetConfirmMatches) return;
+
+    setIsResetting(true);
+    try {
+      const team = await fetchTeam(session.companyId ?? undefined);
+      for (const member of team) {
+        if (member.id === session.userId) continue;
+        await deleteTeamUser(session, member.id);
+      }
+      await resetCompanyData(settings.businessName.trim());
+      toast.success("Sistema restablecido. Reiniciando sesión...");
+      window.location.href = "/";
+    } catch (error) {
+      toast.error(getErrorMessage(error, "No se pudo restablecer el sistema."));
+      setIsResetting(false);
     }
   };
 
@@ -457,7 +500,89 @@ function Configuracion() {
             </div>
           </CardContent>
         </Card>
+        <Card className="shadow-card border-destructive/40 lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base text-destructive">
+              <AlertTriangle className="h-4 w-4" /> Zona de peligro
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+              <p className="text-sm font-medium">Restablecer sistema</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Borra absolutamente todo lo registrado en esta cuenta: ventas,
+                productos, clientes, proveedores, compras, devoluciones,
+                promociones, caja, empleados y puntos de lealtad. También
+                elimina a todo el equipo excepto tu propia cuenta. La empresa
+                queda como recién creada, con una sola sucursal “Principal” y su
+                “Caja 1”. Esta acción no se puede deshacer.
+              </p>
+              <DemoGuardedButton
+                variant="destructive"
+                size="sm"
+                className="mt-3"
+                onAllowedClick={() => {
+                  setResetConfirmText("");
+                  setResetDialogOpen(true);
+                }}
+              >
+                Restablecer sistema
+              </DemoGuardedButton>
+            </div>
+          </CardContent>
+        </Card>
       </div>
+
+      <AlertDialog
+        open={resetDialogOpen}
+        onOpenChange={(value) => !isResetting && setResetDialogOpen(value)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Restablecer todo el sistema?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  Se borrará permanentemente toda la información de{" "}
+                  <strong>{settings.businessName}</strong> (ventas, productos,
+                  clientes, empleados, caja, todo) y se eliminará a los demás
+                  miembros del equipo. Tu cuenta se mantiene, pero se
+                  restablecen tu sucursal, PIN y horario.
+                </p>
+                <div className="space-y-1">
+                  <Label htmlFor="reset-confirm-name">
+                    Escribe <strong>{settings.businessName}</strong> para
+                    confirmar
+                  </Label>
+                  <Input
+                    id="reset-confirm-name"
+                    value={resetConfirmText}
+                    onChange={(event) =>
+                      setResetConfirmText(event.target.value)
+                    }
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isResetting}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void handleResetSystem();
+              }}
+              disabled={!resetConfirmMatches || isResetting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isResetting ? "Restableciendo..." : "Restablecer todo"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }

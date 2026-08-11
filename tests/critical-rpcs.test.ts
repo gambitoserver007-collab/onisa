@@ -2514,4 +2514,189 @@ describe("RPCs críticas de dinero y stock", () => {
       });
     });
   });
+
+  describe("19. Restablecer sistema (reset_company_data)", () => {
+    async function setupDirtyCompany() {
+      const company = await makeCompany(db, "Empresa Sucia Test");
+      await db.query(
+        "update public.companies set tax_rate=0.99, tax_name='X', fiscal_id_label='Y', card_commission_rate=0.5, loyalty_enabled=true, loyalty_point_value=1, loyalty_earn_rate=1, name='Empresa Sucia Test' where id=$1",
+        [company.id],
+      );
+      const admin = await makeUser(db, company.id, "admin");
+      const cashier = await makeUser(db, company.id, "user");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Sucio",
+        50,
+        200,
+        100,
+      );
+      const customer = await makeCustomer(db, company.id, "Cliente Sucio");
+      await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 200 }],
+          company.loc1,
+          undefined,
+          { customerId: customer },
+        ),
+      );
+      await db.query(
+        "update public.profiles set location_id=$2, allowed_sections=$3, pin_hash='x', shift_start='08:00', shift_end='14:00' where id=$1",
+        [admin, company.loc1, ["pos"]],
+      );
+      return { company, admin, cashier, product, customer };
+    }
+
+    it("borra ventas, productos, clientes y demás datos operativos de la empresa", async () => {
+      const { company, admin } = await setupDirtyCompany();
+
+      await asUser(db, admin, () =>
+        db.query("select reset_company_data($1)", ["Empresa Sucia Test"]),
+      );
+
+      const tables = [
+        "sales",
+        "sale_items",
+        "sale_payments",
+        "products",
+        "categories",
+        "customers",
+        "product_locations",
+      ];
+      for (const table of tables) {
+        const { rows } = await db.query<{ count: string }>(
+          `select count(*)::int as count from public.${table} where company_id=$1`,
+          [company.id],
+        );
+        expect(Number(rows[0].count)).toBe(0);
+      }
+    });
+
+    it("no toca los datos de otra empresa (aislamiento entre tenants)", async () => {
+      const { admin } = await setupDirtyCompany();
+      const otherCompany = await makeCompany(db, "Empresa Intacta Test");
+      const otherAdmin = await makeUser(db, otherCompany.id, "admin");
+      await makeProduct(
+        db,
+        otherCompany.id,
+        otherCompany.loc1,
+        "Producto Intacto",
+        10,
+        20,
+        5,
+      );
+
+      await asUser(db, admin, () =>
+        db.query("select reset_company_data($1)", ["Empresa Sucia Test"]),
+      );
+
+      const { rows } = await db.query<{ count: string }>(
+        "select count(*)::int as count from public.products where company_id=$1",
+        [otherCompany.id],
+      );
+      expect(Number(rows[0].count)).toBe(1);
+      void otherAdmin;
+    });
+
+    it("solo un admin puede restablecer; un cajero es rechazado", async () => {
+      const { cashier } = await setupDirtyCompany();
+      await expect(
+        asUser(db, cashier, () =>
+          db.query("select reset_company_data($1)", ["Empresa Sucia Test"]),
+        ),
+      ).rejects.toThrow(/permiso/i);
+    });
+
+    it("rechaza la operación si el nombre de confirmación no coincide exactamente", async () => {
+      const { admin } = await setupDirtyCompany();
+      await expect(
+        asUser(db, admin, () =>
+          db.query("select reset_company_data($1)", ["nombre incorrecto"]),
+        ),
+      ).rejects.toThrow(/no coincide/i);
+    });
+
+    it("recrea la sucursal Principal con su Caja 1 después del reset", async () => {
+      const { company, admin } = await setupDirtyCompany();
+
+      await asUser(db, admin, () =>
+        db.query("select reset_company_data($1)", ["Empresa Sucia Test"]),
+      );
+
+      const { rows: locRows } = await db.query<{ id: string; name: string }>(
+        "select id, name from public.locations where company_id=$1",
+        [company.id],
+      );
+      expect(locRows).toHaveLength(1);
+      expect(locRows[0].name).toBe("Principal");
+
+      const { rows: tillRows } = await db.query<{ name: string }>(
+        "select name from public.tills where company_id=$1 and location_id=$2",
+        [company.id, locRows[0].id],
+      );
+      expect(tillRows).toHaveLength(1);
+      expect(tillRows[0].name).toBe("Caja 1");
+    });
+
+    it("regresa impuestos, comisión y lealtad a los valores por defecto de una empresa nueva", async () => {
+      const { company, admin } = await setupDirtyCompany();
+
+      await asUser(db, admin, () =>
+        db.query("select reset_company_data($1)", ["Empresa Sucia Test"]),
+      );
+
+      const { rows } = await db.query<{
+        tax_rate: string;
+        tax_name: string;
+        fiscal_id_label: string;
+        card_commission_rate: string;
+        loyalty_enabled: boolean;
+        loyalty_point_value: string;
+        name: string;
+      }>(
+        "select tax_rate, tax_name, fiscal_id_label, card_commission_rate, loyalty_enabled, loyalty_point_value, name from public.companies where id=$1",
+        [company.id],
+      );
+      const row = rows[0];
+      expect(Number(row.tax_rate)).toBeCloseTo(0.16);
+      expect(row.tax_name).toBe("IVA");
+      expect(row.fiscal_id_label).toBe("RFC");
+      expect(Number(row.card_commission_rate)).toBeCloseTo(0.03);
+      expect(row.loyalty_enabled).toBe(false);
+      expect(Number(row.loyalty_point_value)).toBe(0);
+      expect(row.name).toBe("Mi Negocio");
+    });
+
+    it("limpia el perfil del admin que restablece, pero no lo borra ni borra a otros miembros del equipo", async () => {
+      const { admin, cashier } = await setupDirtyCompany();
+
+      await asUser(db, admin, () =>
+        db.query("select reset_company_data($1)", ["Empresa Sucia Test"]),
+      );
+
+      const { rows: adminRows } = await db.query<{
+        location_id: string | null;
+        allowed_sections: unknown;
+        pin_hash: string | null;
+        shift_start: string | null;
+      }>(
+        "select location_id, allowed_sections, pin_hash, shift_start from public.profiles where id=$1",
+        [admin],
+      );
+      expect(adminRows).toHaveLength(1);
+      expect(adminRows[0].location_id).toBeNull();
+      expect(adminRows[0].allowed_sections).toBeNull();
+      expect(adminRows[0].pin_hash).toBeNull();
+      expect(adminRows[0].shift_start).toBeNull();
+
+      const { rows: cashierRows } = await db.query<{ id: string }>(
+        "select id from public.profiles where id=$1",
+        [cashier],
+      );
+      expect(cashierRows).toHaveLength(1);
+    });
+  });
 });

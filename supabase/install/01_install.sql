@@ -7808,3 +7808,143 @@ $$;
 
 revoke execute on function public.collect_customer_credit(uuid, numeric, text, text, text) from public, anon;
 grant execute on function public.collect_customer_credit(uuid, numeric, text, text, text) to authenticated;
+
+
+-- ============================================================
+-- Restablecer sistema: borra TODOS los datos operativos de la empresa del
+-- que llama (ventas, productos, clientes, proveedores, compras,
+-- devoluciones, promociones, caja, empleados, puntos de lealtad, kardex,
+-- todo) y regresa companies a un estado de "empresa recién creada"
+-- (nombre, config, impuestos por país, comisión, lealtad).
+--
+-- A propósito NO toca public.profiles: borrar cuentas de equipo requiere
+-- también borrar su auth.users correspondiente (sesiones, tokens) para no
+-- dejar logins huérfanos que luego, al volver a entrar sin perfil,
+-- terminen creándose una empresa fantasma por accidente -- eso solo lo
+-- hace bien la Edge Function team-manage-user (Admin API), que ya existe
+-- y ya se usa en /usuarios. El frontend debe borrar ahí primero a todo el
+-- equipo (menos quien está restableciendo) antes de llamar esta función.
+--
+-- Doble confirmación: además del diálogo del frontend, esta función exige
+-- que le manden el nombre EXACTO actual de la empresa -- mismo principio
+-- que GitHub al borrar un repositorio.
+-- ============================================================
+
+create or replace function public.reset_company_data(p_confirm_name text)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_company public.companies%rowtype;
+  v_cs public.country_settings%rowtype;
+  v_new_location_id uuid;
+  v_caller_id uuid;
+begin
+  v_caller_id := auth.uid();
+  if v_caller_id is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.'; end if;
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null or not public.can_admin_company(v_company_id) then
+    raise exception 'No tienes permiso para restablecer el sistema.';
+  end if;
+
+  select * into v_company from public.companies where id = v_company_id;
+  if not found then raise exception 'Empresa no encontrada.'; end if;
+  if p_confirm_name is null or btrim(p_confirm_name) <> v_company.name then
+    raise exception 'El nombre no coincide. Escribe exactamente "%" para confirmar.', v_company.name;
+  end if;
+
+  -- Se limpia el claim de sesión ANTES de los deletes (no solo antes del
+  -- update final a profiles): borrar locations dispara "on delete set null"
+  -- sobre profiles.location_id, y esa actualización en cascada pasaría por
+  -- el mismo protect_profile_sensitive_columns que bloquea auto-escalación
+  -- -- se revierte sola al terminar la transacción (set local).
+  perform set_config('request.jwt.claim.sub', '', true);
+
+  -- Orden hijo -> padre para respetar llaves foráneas.
+  delete from public.till_count_lines where company_id = v_company_id;
+  delete from public.till_counts where company_id = v_company_id;
+  delete from public.cash_movements where company_id = v_company_id;
+  delete from public.cash_sessions where company_id = v_company_id;
+  delete from public.return_items where company_id = v_company_id;
+  delete from public.returns where company_id = v_company_id;
+  delete from public.sale_payments where company_id = v_company_id;
+  delete from public.sale_items where company_id = v_company_id;
+  delete from public.sales where company_id = v_company_id;
+  delete from public.purchase_items where company_id = v_company_id;
+  delete from public.purchases where company_id = v_company_id;
+  delete from public.loyalty_ledger where company_id = v_company_id;
+  delete from public.customer_credit_payments where company_id = v_company_id;
+  delete from public.stock_movements where company_id = v_company_id;
+  delete from public.employee_attendance where company_id = v_company_id;
+  delete from public.employee_time_events where company_id = v_company_id;
+  delete from public.audit_log where company_id = v_company_id;
+  delete from public.promotions where company_id = v_company_id;
+  delete from public.product_variant_locations where company_id = v_company_id;
+  delete from public.product_variants where company_id = v_company_id;
+  delete from public.product_locations where company_id = v_company_id;
+  delete from public.products where company_id = v_company_id;
+  delete from public.categories where company_id = v_company_id;
+  delete from public.customers where company_id = v_company_id;
+  delete from public.suppliers where company_id = v_company_id;
+  delete from public.profile_locations where company_id = v_company_id;
+  delete from public.tills where company_id = v_company_id;
+  delete from public.locations where company_id = v_company_id;
+  delete from public.units where company_id = v_company_id;
+
+  -- companies: de vuelta a "recién creada" -- salvo lo que no depende de
+  -- pruebas del propio dueño (plan/suscripción/país los define la
+  -- plataforma, no se tocan aquí).
+  select * into v_cs from public.country_settings where country_code = v_company.country_code;
+
+  update public.companies set
+    name = 'Mi Negocio',
+    contact_email = null,
+    fiscal_id = null,
+    address = null,
+    phone = null,
+    logo_url = null,
+    business_type = 'general',
+    card_commission_rate = 0.03,
+    loyalty_enabled = false,
+    loyalty_point_value = 0,
+    loyalty_earn_rate = 0,
+    tax_rate = coalesce(v_cs.tax_rate, tax_rate),
+    tax_name = coalesce(v_cs.tax_name, tax_name),
+    fiscal_id_label = coalesce(v_cs.fiscal_id_label, fiscal_id_label),
+    document_types = coalesce(v_cs.document_types, document_types),
+    updated_at = now()
+  where id = v_company_id;
+
+  -- Sucursal "Principal" + su "Caja 1" (el trigger de locations la crea sola).
+  insert into public.locations (company_id, name) values (v_company_id, 'Principal')
+  returning id into v_new_location_id;
+
+  -- Unidades por defecto, igual que una empresa nueva.
+  insert into public.units (company_id, name)
+  select v_company_id, d.name
+  from (values ('Unidad'),('Kilogramo'),('Gramo'),('Litro'),('Mililitro'),('Paquete'),('Caja'),('Docena'),('Lata'),('Botella'),('Saco')) as d(name);
+
+  -- El propio admin que restablece: vuelve a "recién agregado" (sin
+  -- sucursal fija, sin accesos personalizados, sin PIN ni horario propio).
+  update public.profiles set
+    location_id = null,
+    allowed_sections = null,
+    pin_hash = null,
+    shift_start = null,
+    shift_end = null,
+    updated_at = now()
+  where id = v_caller_id;
+
+  return jsonb_build_object(
+    'company_id', v_company_id,
+    'new_location_id', v_new_location_id
+  );
+end;
+$$;
+
+revoke execute on function public.reset_company_data(text) from public, anon;
+grant execute on function public.reset_company_data(text) to authenticated;
