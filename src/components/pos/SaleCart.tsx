@@ -147,6 +147,7 @@ function SaleCartContent({
   const canCheckout = !splitMode || splitReady;
 
   const [newOpen, setNewOpen] = useState(false);
+  const [splitEditorOpen, setSplitEditorOpen] = useState(false);
   const [ncName, setNcName] = useState("");
   const [ncDoc, setNcDoc] = useState("");
   const [ncPhone, setNcPhone] = useState("");
@@ -374,8 +375,11 @@ function SaleCartContent({
                           amount: finalTotal,
                         },
                       ]);
+                      onSplitModeChange(true);
+                      setSplitEditorOpen(true);
+                    } else {
+                      onSplitModeChange(false);
                     }
-                    onSplitModeChange(!splitMode);
                   }}
                   className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
                 >
@@ -385,11 +389,25 @@ function SaleCartContent({
               )}
             </div>
             {splitMode ? (
-              <div className="flex h-11 items-center gap-1.5 rounded-xl border border-input bg-background px-3 text-sm text-muted-foreground">
-                <SplitSquareHorizontal className="h-4 w-4 shrink-0" />
-                {splitPayments.length}{" "}
-                {splitPayments.length === 1 ? "método" : "métodos"}
-              </div>
+              <button
+                type="button"
+                onClick={() => setSplitEditorOpen(true)}
+                className="flex h-11 w-full items-center justify-between gap-1.5 rounded-xl border border-input bg-background px-3 text-sm"
+              >
+                <span className="flex items-center gap-1.5 text-muted-foreground">
+                  <SplitSquareHorizontal className="h-4 w-4 shrink-0" />
+                  {splitPayments.length}{" "}
+                  {splitPayments.length === 1 ? "método" : "métodos"}
+                </span>
+                <span
+                  className={cn(
+                    "text-xs font-semibold",
+                    splitReady ? "text-emerald-600" : "text-destructive",
+                  )}
+                >
+                  {splitReady ? "✓ Cuadra" : "Editar"}
+                </span>
+              </button>
             ) : (
               <Select
                 value={method}
@@ -416,94 +434,6 @@ function SaleCartContent({
             )}
           </div>
         </div>
-
-        {splitMode && (
-          <div className="space-y-2 rounded-xl border border-dashed border-primary/40 bg-primary/5 p-3">
-            {splitPayments.map((line, idx) => (
-              <div key={idx} className="flex items-center gap-2">
-                <Select
-                  value={line.method}
-                  onValueChange={(value) => {
-                    const next = [...splitPayments];
-                    next[idx] = { ...next[idx], method: value };
-                    onSplitPaymentsChange?.(next);
-                  }}
-                >
-                  <SelectTrigger className="h-9 flex-1 rounded-lg text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {paymentMethods.map((item) => (
-                      <SelectItem key={item.id} value={item.label}>
-                        {item.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={line.amount || ""}
-                  onChange={(e) => {
-                    const value = Number(e.target.value);
-                    const next = [...splitPayments];
-                    next[idx] = {
-                      ...next[idx],
-                      amount: Number.isFinite(value) ? value : 0,
-                    };
-                    onSplitPaymentsChange?.(next);
-                  }}
-                  placeholder="0.00"
-                  className="h-9 w-24 rounded-lg text-sm"
-                />
-                <button
-                  type="button"
-                  aria-label="Quitar método"
-                  onClick={() =>
-                    onSplitPaymentsChange?.(
-                      splitPayments.filter((_, i) => i !== idx),
-                    )
-                  }
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            ))}
-            <div className="flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  onSplitPaymentsChange?.([
-                    ...splitPayments,
-                    {
-                      method: paymentMethods[0]?.label ?? "Efectivo",
-                      amount: Math.max(0, splitRemaining),
-                    },
-                  ])
-                }
-                className="text-xs font-semibold text-primary hover:underline"
-              >
-                + Agregar método
-              </button>
-              <span
-                className={cn(
-                  "text-xs font-semibold",
-                  splitRemaining === 0
-                    ? "text-emerald-600"
-                    : "text-destructive",
-                )}
-              >
-                {splitRemaining === 0
-                  ? "✓ Cuadra con el total"
-                  : splitRemaining > 0
-                    ? `Falta ${formatMoney(splitRemaining)}`
-                    : `Sobra ${formatMoney(Math.abs(splitRemaining))}`}
-              </span>
-            </div>
-          </div>
-        )}
       </div>
 
       {showItemFilter && (
@@ -686,6 +616,102 @@ function SaleCartContent({
           </>
         )}
       </Button>
+
+      <Dialog open={splitEditorOpen} onOpenChange={setSplitEditorOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Dividir el pago</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            {splitPayments.map((line, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <Select
+                  value={line.method}
+                  onValueChange={(value) => {
+                    const next = [...splitPayments];
+                    next[idx] = { ...next[idx], method: value };
+                    onSplitPaymentsChange?.(next);
+                  }}
+                >
+                  <SelectTrigger className="h-10 flex-1 rounded-lg text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {paymentMethods.map((item) => (
+                      <SelectItem key={item.id} value={item.label}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  autoFocus={idx === splitPayments.length - 1}
+                  value={line.amount || ""}
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    const next = [...splitPayments];
+                    next[idx] = {
+                      ...next[idx],
+                      amount: Number.isFinite(value) ? value : 0,
+                    };
+                    onSplitPaymentsChange?.(next);
+                  }}
+                  placeholder="0.00"
+                  className="h-10 w-28 rounded-lg text-sm"
+                />
+                <button
+                  type="button"
+                  aria-label="Quitar método"
+                  disabled={splitPayments.length <= 1}
+                  onClick={() =>
+                    onSplitPaymentsChange?.(
+                      splitPayments.filter((_, i) => i !== idx),
+                    )
+                  }
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted disabled:opacity-30"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() =>
+                onSplitPaymentsChange?.([
+                  ...splitPayments,
+                  {
+                    method: paymentMethods[0]?.label ?? "Efectivo",
+                    amount: Math.max(0, splitRemaining),
+                  },
+                ])
+              }
+              className="text-sm font-semibold text-primary hover:underline"
+            >
+              + Agregar método
+            </button>
+          </div>
+          <DialogFooter className="flex-row items-center justify-between sm:justify-between">
+            <span
+              className={cn(
+                "text-sm font-semibold",
+                splitReady ? "text-emerald-600" : "text-destructive",
+              )}
+            >
+              {splitReady
+                ? "✓ Cuadra con el total"
+                : splitRemaining > 0
+                  ? `Falta ${formatMoney(splitRemaining)}`
+                  : `Sobra ${formatMoney(Math.abs(splitRemaining))}`}
+            </span>
+            <Button variant="brand" onClick={() => setSplitEditorOpen(false)}>
+              Listo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={newOpen} onOpenChange={setNewOpen}>
         <DialogContent>
