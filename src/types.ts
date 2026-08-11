@@ -104,6 +104,10 @@ export interface Customer {
   phone: string;
   /** Saldo de puntos de lealtad acumulados, canjeables como descuento en el POS. */
   loyaltyPoints?: number;
+  /** Límite de crédito asignado por el admin. 0 = sin crédito habilitado. */
+  creditLimit?: number;
+  /** Cuánto debe actualmente el cliente (nunca puede superar creditLimit). */
+  creditBalance?: number;
 }
 export interface Sale {
   id: string;

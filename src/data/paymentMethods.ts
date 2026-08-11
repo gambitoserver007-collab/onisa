@@ -8,6 +8,7 @@ export type PaymentMethodKind =
   | "voucher"
   | "bnpl"
   | "crypto"
+  | "credit"
   | "other";
 
 export interface PaymentMethodDefinition {
@@ -28,6 +29,7 @@ export const PAYMENT_METHOD_KIND_LABELS: Record<PaymentMethodKind, string> = {
   voucher: "Pago en agente/código",
   bnpl: "Financiamiento",
   crypto: "Cripto",
+  credit: "Crédito",
   other: "Otro",
 };
 

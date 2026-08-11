@@ -2146,8 +2146,8 @@ describe("RPCs críticas de dinero y stock", () => {
           undefined,
           {
             payments: [
-              { method: "Efectivo", amount: 50 },
-              { method: "Tarjeta", amount: 150 },
+              { method: "Efectivo", amount: 50, kind: "cash" },
+              { method: "Tarjeta de débito", amount: 150, kind: "card" },
             ],
           },
         );
@@ -2190,6 +2190,327 @@ describe("RPCs críticas de dinero y stock", () => {
         const byMethod = new Map(rows.map((r) => [r.method, Number(r.total)]));
         expect(byMethod.get("Efectivo")).toBe(70);
         expect(byMethod.get("Tarjeta")).toBe(130);
+      });
+    });
+  });
+
+  describe("18. Venta a crédito (customers.credit_limit/credit_balance)", () => {
+    async function setupCreditCompany() {
+      const company = await makeCompany(db, "Empresa Credito Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Credito",
+        50,
+        200,
+        1000,
+      );
+      return { company, admin, product };
+    }
+
+    it("una venta a crédito dentro del límite se acepta y aumenta el saldo del cliente", async () => {
+      const { company, admin, product } = await setupCreditCompany();
+      const customer = await makeCustomer(db, company.id, "Cliente Credito");
+      await db.query(
+        "update public.customers set credit_limit=500 where id=$1",
+        [customer],
+      );
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 200 }],
+          company.loc1,
+          undefined,
+          {
+            customerId: customer,
+            payments: [{ method: "Crédito", amount: 200, kind: "credit" }],
+          },
+        ),
+      );
+      expect(result.total).toBe(200);
+
+      const { rows } = await db.query<{ credit_balance: number }>(
+        "select credit_balance from public.customers where id=$1",
+        [customer],
+      );
+      expect(Number(rows[0].credit_balance)).toBe(200);
+    });
+
+    it("una venta a crédito que excede el límite disponible se rechaza", async () => {
+      const { company, admin, product } = await setupCreditCompany();
+      const customer = await makeCustomer(db, company.id, "Cliente Limite");
+      await db.query(
+        "update public.customers set credit_limit=100 where id=$1",
+        [customer],
+      );
+
+      await asUser(db, admin, async () => {
+        await expect(
+          createSale(
+            db,
+            [{ product_id: product, qty: 1, unit_price: 200 }],
+            company.loc1,
+            undefined,
+            {
+              customerId: customer,
+              payments: [{ method: "Crédito", amount: 200, kind: "credit" }],
+            },
+          ),
+        ).rejects.toThrow(/credito disponible/i);
+      });
+
+      const { rows } = await db.query<{ credit_balance: number }>(
+        "select credit_balance from public.customers where id=$1",
+        [customer],
+      );
+      expect(Number(rows[0].credit_balance)).toBe(0);
+    });
+
+    it("vender a crédito sin cliente seleccionado se rechaza", async () => {
+      const { company, admin, product } = await setupCreditCompany();
+      await asUser(db, admin, async () => {
+        await expect(
+          createSale(
+            db,
+            [{ product_id: product, qty: 1, unit_price: 200 }],
+            company.loc1,
+            undefined,
+            {
+              payments: [{ method: "Crédito", amount: 200, kind: "credit" }],
+            },
+          ),
+        ).rejects.toThrow(/elige un cliente/i);
+      });
+    });
+
+    it("un cliente sin límite de crédito asignado no puede comprar a crédito", async () => {
+      const { company, admin, product } = await setupCreditCompany();
+      const customer = await makeCustomer(
+        db,
+        company.id,
+        "Cliente Sin Credito",
+      );
+      await asUser(db, admin, async () => {
+        await expect(
+          createSale(
+            db,
+            [{ product_id: product, qty: 1, unit_price: 200 }],
+            company.loc1,
+            undefined,
+            {
+              customerId: customer,
+              payments: [{ method: "Crédito", amount: 200, kind: "credit" }],
+            },
+          ),
+        ).rejects.toThrow(/no tiene credito habilitado/i);
+      });
+    });
+
+    it("el crédito se puede combinar con efectivo en la misma venta", async () => {
+      const { company, admin, product } = await setupCreditCompany();
+      const customer = await makeCustomer(db, company.id, "Cliente Mixto");
+      await db.query(
+        "update public.customers set credit_limit=500 where id=$1",
+        [customer],
+      );
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 200 }],
+          company.loc1,
+          undefined,
+          {
+            customerId: customer,
+            payments: [
+              { method: "Efectivo", amount: 100, kind: "cash" },
+              { method: "Crédito", amount: 100, kind: "credit" },
+            ],
+          },
+        ),
+      );
+      expect(result.total).toBe(200);
+
+      const { rows } = await db.query<{ credit_balance: number }>(
+        "select credit_balance from public.customers where id=$1",
+        [customer],
+      );
+      expect(Number(rows[0].credit_balance)).toBe(100);
+    });
+
+    it("una venta a crédito nunca cuenta como dinero cobrado en el arqueo", async () => {
+      const { company, admin, product } = await setupCreditCompany();
+      const customer = await makeCustomer(db, company.id, "Cliente Arqueo");
+      await db.query(
+        "update public.customers set credit_limit=500 where id=$1",
+        [customer],
+      );
+
+      await asUser(db, admin, async () => {
+        const { rows: openRows } = await db.query<{
+          open_cash_session: string;
+        }>("select open_cash_session(100, $1) as open_cash_session", [
+          company.loc1,
+        ]);
+        const sessionId = openRows[0].open_cash_session;
+
+        await createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 200 }],
+          company.loc1,
+          undefined,
+          {
+            customerId: customer,
+            payments: [{ method: "Crédito", amount: 200, kind: "credit" }],
+          },
+        );
+
+        // Solo el fondo (100) -- la venta a crédito no metió nada a la caja.
+        const count = await submitTillCount(db, sessionId, [
+          { denomination: 100, quantity: 1 },
+        ]);
+        expect(Number(count.card_total)).toBe(0);
+        expect(Number(count.transfer_total)).toBe(0);
+        expect(Number(count.other_total)).toBe(0);
+
+        await finishTillCount(db, sessionId);
+        const authResult = await authorizeCashSession(db, sessionId);
+        expect(Number(authResult.expected_amount)).toBe(100);
+        expect(authResult.classification).toBe("cuadrado");
+      });
+    });
+
+    it("collect_customer_credit reduce el saldo y, en efectivo con caja abierta, también entra a cash_movements", async () => {
+      const { company, admin, product } = await setupCreditCompany();
+      const customer = await makeCustomer(db, company.id, "Cliente Cobro");
+      await db.query(
+        "update public.customers set credit_limit=500 where id=$1",
+        [customer],
+      );
+
+      await asUser(db, admin, async () => {
+        await createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 200 }],
+          company.loc1,
+          undefined,
+          {
+            customerId: customer,
+            payments: [{ method: "Crédito", amount: 200, kind: "credit" }],
+          },
+        );
+
+        const { rows: openRows } = await db.query<{
+          open_cash_session: string;
+        }>("select open_cash_session(0, $1) as open_cash_session", [
+          company.loc1,
+        ]);
+        const sessionId = openRows[0].open_cash_session;
+
+        const { rows } = await db.query<{ collect_customer_credit: unknown }>(
+          "select collect_customer_credit($1, 150, 'Efectivo', 'cash') as collect_customer_credit",
+          [customer],
+        );
+        const collected = rows[0].collect_customer_credit as {
+          applied: number;
+          remaining_balance: number;
+        };
+        expect(Number(collected.applied)).toBe(150);
+        expect(Number(collected.remaining_balance)).toBe(50);
+
+        const { rows: balRows } = await db.query<{ credit_balance: number }>(
+          "select credit_balance from public.customers where id=$1",
+          [customer],
+        );
+        expect(Number(balRows[0].credit_balance)).toBe(50);
+
+        const { rows: movRows } = await db.query<{ amount: number }>(
+          "select amount from public.cash_movements where cash_session_id=$1 and concept='Cobro de credito'",
+          [sessionId],
+        );
+        expect(movRows).toHaveLength(1);
+        expect(Number(movRows[0].amount)).toBe(150);
+      });
+    });
+
+    it("collect_customer_credit topa el cobro al saldo real, nunca lo excede", async () => {
+      const { company, admin, product } = await setupCreditCompany();
+      const customer = await makeCustomer(db, company.id, "Cliente Topado");
+      await db.query(
+        "update public.customers set credit_limit=500 where id=$1",
+        [customer],
+      );
+      await asUser(db, admin, async () => {
+        await createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 200 }],
+          company.loc1,
+          undefined,
+          {
+            customerId: customer,
+            payments: [{ method: "Crédito", amount: 200, kind: "credit" }],
+          },
+        );
+
+        const { rows } = await db.query<{ collect_customer_credit: unknown }>(
+          "select collect_customer_credit($1, 500, 'Efectivo', 'cash') as collect_customer_credit",
+          [customer],
+        );
+        const collected = rows[0].collect_customer_credit as {
+          applied: number;
+          remaining_balance: number;
+        };
+        expect(Number(collected.applied)).toBe(200);
+        expect(Number(collected.remaining_balance)).toBe(0);
+      });
+    });
+
+    it("un cobro de crédito por tarjeta no se registra en cash_movements (no afecta el cajón físico)", async () => {
+      const { company, admin, product } = await setupCreditCompany();
+      const customer = await makeCustomer(db, company.id, "Cliente Tarjeta");
+      await db.query(
+        "update public.customers set credit_limit=500 where id=$1",
+        [customer],
+      );
+
+      await asUser(db, admin, async () => {
+        await createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 200 }],
+          company.loc1,
+          undefined,
+          {
+            customerId: customer,
+            payments: [{ method: "Crédito", amount: 200, kind: "credit" }],
+          },
+        );
+
+        const { rows: openRows } = await db.query<{
+          open_cash_session: string;
+        }>("select open_cash_session(0, $1) as open_cash_session", [
+          company.loc1,
+        ]);
+        const sessionId = openRows[0].open_cash_session;
+
+        await db.query(
+          "select collect_customer_credit($1, 200, 'Tarjeta de débito', 'card')",
+          [customer],
+        );
+
+        const { rows: movRows } = await db.query<{ id: string }>(
+          "select id from public.cash_movements where cash_session_id=$1",
+          [sessionId],
+        );
+        expect(movRows).toHaveLength(0);
+
+        const { rows: balRows } = await db.query<{ credit_balance: number }>(
+          "select credit_balance from public.customers where id=$1",
+          [customer],
+        );
+        expect(Number(balRows[0].credit_balance)).toBe(0);
       });
     });
   });

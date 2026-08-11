@@ -457,6 +457,8 @@ export type Database = {
           address: string | null;
           company_id: string;
           created_at: string;
+          credit_balance: number;
+          credit_limit: number;
           deleted_at: string | null;
           document_number: string | null;
           email: string | null;
@@ -471,6 +473,8 @@ export type Database = {
           address?: string | null;
           company_id: string;
           created_at?: string;
+          credit_balance?: number;
+          credit_limit?: number;
           deleted_at?: string | null;
           document_number?: string | null;
           email?: string | null;
@@ -485,6 +489,8 @@ export type Database = {
           address?: string | null;
           company_id?: string;
           created_at?: string;
+          credit_balance?: number;
+          credit_limit?: number;
           deleted_at?: string | null;
           document_number?: string | null;
           email?: string | null;
@@ -1558,6 +1564,7 @@ export type Database = {
           created_at: string;
           id: string;
           is_demo_data: boolean;
+          kind: string;
           method: string;
           sale_id: string;
         };
@@ -1567,6 +1574,7 @@ export type Database = {
           created_at?: string;
           id?: string;
           is_demo_data?: boolean;
+          kind?: string;
           method: string;
           sale_id: string;
         };
@@ -1576,6 +1584,7 @@ export type Database = {
           created_at?: string;
           id?: string;
           is_demo_data?: boolean;
+          kind?: string;
           method?: string;
           sale_id?: string;
         };
@@ -1592,6 +1601,57 @@ export type Database = {
             columns: ["sale_id"];
             isOneToOne: false;
             referencedRelation: "sales";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      customer_credit_payments: {
+        Row: {
+          amount: number;
+          company_id: string;
+          created_at: string;
+          created_by: string | null;
+          customer_id: string;
+          id: string;
+          is_demo_data: boolean;
+          method: string;
+          notes: string | null;
+        };
+        Insert: {
+          amount: number;
+          company_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          customer_id: string;
+          id?: string;
+          is_demo_data?: boolean;
+          method: string;
+          notes?: string | null;
+        };
+        Update: {
+          amount?: number;
+          company_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          customer_id?: string;
+          id?: string;
+          is_demo_data?: boolean;
+          method?: string;
+          notes?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "customer_credit_payments_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "customer_credit_payments_customer_id_fkey";
+            columns: ["customer_id"];
+            isOneToOne: false;
+            referencedRelation: "customers";
             referencedColumns: ["id"];
           },
         ];
@@ -2110,6 +2170,16 @@ export type Database = {
         Args: { p_profile_id: string };
         Returns: undefined;
       };
+      collect_customer_credit: {
+        Args: {
+          p_amount: number;
+          p_customer_id: string;
+          p_kind?: string;
+          p_method?: string;
+          p_notes?: string;
+        };
+        Returns: Json;
+      };
       compute_cash_session_expected: {
         Args: { p_session_id: string };
         Returns: number;
@@ -2141,6 +2211,7 @@ export type Database = {
           p_document_type: string;
           p_items: Json;
           p_location_id?: string;
+          p_payment_kind?: string;
           p_payment_method: string;
           p_payments?: Json;
           p_points_redeemed?: number;

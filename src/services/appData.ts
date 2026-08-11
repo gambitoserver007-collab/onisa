@@ -91,6 +91,8 @@ export interface CreateCustomerInput {
   phone?: string;
   email?: string;
   address?: string;
+  /** Límite de crédito ("fiado"). Omitir = no cambiar; 0 = sin crédito habilitado. */
+  creditLimit?: number;
 }
 
 export interface CreateSupplierInput {
@@ -249,6 +251,11 @@ function mapCustomer(row: CustomerRow): Customer {
       (row as { loyalty_points?: number }).loyalty_points,
       0,
     ),
+    creditLimit: toNumber((row as { credit_limit?: number }).credit_limit, 0),
+    creditBalance: toNumber(
+      (row as { credit_balance?: number }).credit_balance,
+      0,
+    ),
   };
 }
 
@@ -371,7 +378,7 @@ export async function fetchCompanyCatalog(
   const customersQuery = supabase
     .from("customers")
     .select(
-      "id, company_id, name, document_number, phone, email, loyalty_points, is_demo_data, created_at, updated_at, deleted_at",
+      "id, company_id, name, document_number, phone, email, loyalty_points, credit_limit, credit_balance, is_demo_data, created_at, updated_at, deleted_at",
     )
     .is("deleted_at", null);
   const suppliersQuery = supabase
@@ -738,12 +745,17 @@ export async function fetchSaleById(
 export interface SalePaymentLine {
   method: string;
   amount: number;
+  /** cash/card/bank_transfer/instant_transfer/credit/other -- decide cómo
+   * cuenta (o no) en el arqueo de caja. Nunca inferir del texto del método:
+   * las etiquetas son personalizables por empresa. */
+  kind: string;
 }
 
 export async function createSaleFromCart({
   customerId,
   documentType,
   paymentMethod,
+  paymentKind,
   items,
   companyId,
   locationId,
@@ -754,6 +766,8 @@ export async function createSaleFromCart({
   customerId: string | null;
   documentType: Sale["type"];
   paymentMethod: Sale["method"];
+  /** Tipo del método único (cuando no se divide el pago) -- ver SalePaymentLine.kind. */
+  paymentKind?: string;
   items: CartItem[];
   companyId?: string;
   locationId?: string | null;
@@ -769,7 +783,8 @@ export async function createSaleFromCart({
   pointsRedeemed?: number;
   /** Desglose de pago dividido (ej. parte efectivo, parte tarjeta). El
    * servidor revalida que la suma coincida exacto con el total final; si se
-   * omite, se guarda un solo pago con `paymentMethod` (igual que siempre). */
+   * omite, se guarda un solo pago con `paymentMethod`/`paymentKind` (igual
+   * que siempre). */
   payments?: SalePaymentLine[];
 }) {
   const { data, error } = await supabase.rpc("create_sale", {
@@ -789,6 +804,7 @@ export async function createSaleFromCart({
       payments && payments.length > 0
         ? (payments as unknown as Json)
         : undefined,
+    p_payment_kind: paymentKind || undefined,
   });
 
   if (error) throw error;
@@ -948,6 +964,9 @@ export async function createCustomer(
     document_number: input.documentNumber?.trim() || null,
     phone: input.phone?.trim() || null,
     email: input.email?.trim() || null,
+    ...(input.creditLimit !== undefined
+      ? { credit_limit: input.creditLimit }
+      : {}),
   };
   const address = input.address?.trim() || null;
 
@@ -2678,6 +2697,7 @@ export async function updateCustomer(
   };
   // No pisar el email si el formulario no lo gestiona (input.email === undefined).
   if (input.email !== undefined) base.email = input.email.trim() || null;
+  if (input.creditLimit !== undefined) base.credit_limit = input.creditLimit;
   const address = input.address?.trim() || null;
 
   let res = await supabase
@@ -2699,6 +2719,35 @@ export async function deleteCustomer(customerId: string) {
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", customerId);
   if (error) throw error;
+}
+
+/** Registra el cobro de una deuda a crédito ("fiado"). El servidor topa el
+ * monto al saldo real del cliente (nunca rechaza por "pagó de más", igual
+ * que el canje de puntos de lealtad). Si es en efectivo y hay una caja
+ * abierta del usuario, también entra al efectivo esperado de ese turno. */
+export async function collectCustomerCredit(
+  customerId: string,
+  amount: number,
+  method: string,
+  kind: string,
+  notes?: string,
+): Promise<{ applied: number; remainingBalance: number }> {
+  const { data, error } = await supabase.rpc("collect_customer_credit", {
+    p_customer_id: customerId,
+    p_amount: amount,
+    p_method: method,
+    p_kind: kind,
+    p_notes: notes || undefined,
+  });
+  if (error) throw error;
+  const payload = (data ?? {}) as {
+    applied?: number;
+    remaining_balance?: number;
+  };
+  return {
+    applied: toNumber(payload.applied),
+    remainingBalance: toNumber(payload.remaining_balance),
+  };
 }
 
 function documentNumber(prefix: string) {

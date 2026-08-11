@@ -181,6 +181,7 @@ export interface CartLine {
 export interface SalePaymentLine {
   method: string;
   amount: number;
+  kind?: string;
 }
 
 export async function createSale(
@@ -192,6 +193,8 @@ export async function createSale(
     customerId?: string | null;
     pointsRedeemed?: number;
     payments?: SalePaymentLine[] | null;
+    paymentMethod?: string;
+    paymentKind?: string;
   } = {},
 ): Promise<{
   sale_id: string;
@@ -204,14 +207,16 @@ export async function createSale(
   points_redeemed: number;
 }> {
   const { rows } = await db.query<{ create_sale: unknown }>(
-    "select create_sale($1, 'Ticket', 'Efectivo', $2::jsonb, $3, $4, null, $5, $6::jsonb) as create_sale",
+    "select create_sale($1, 'Ticket', $2, $3::jsonb, $4, $5, null, $6, $7::jsonb, $8) as create_sale",
     [
       opts.customerId ?? null,
+      opts.paymentMethod ?? "Efectivo",
       JSON.stringify(items),
       locationId,
       clientRequestId ?? null,
       opts.pointsRedeemed ?? 0,
       opts.payments ? JSON.stringify(opts.payments) : null,
+      opts.paymentKind ?? null,
     ],
   );
   return rows[0].create_sale as {

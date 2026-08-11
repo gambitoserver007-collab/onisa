@@ -202,15 +202,6 @@ function POS() {
     setPointsToRedeem(0);
   }, [customer]);
 
-  useEffect(() => {
-    if (!activeMethods.length) return;
-    if (
-      !activeMethods.some((paymentMethod) => paymentMethod.label === method)
-    ) {
-      setMethod(activeMethods[0].label);
-    }
-  }, [activeMethods, method]);
-
   // Default the comprobante to the first one the store has configured.
   useEffect(() => {
     if (!docType && documentTypes.length) setDocType(documentTypes[0].name);
@@ -593,6 +584,43 @@ function POS() {
     setPointsToRedeem((current) => Math.min(current, maxRedeemablePoints));
   }, [maxRedeemablePoints]);
 
+  // "Crédito" solo aparece como método de pago si el cliente elegido tiene
+  // un límite asignado -- el servidor revalida el disponible real de
+  // cualquier forma, esto es solo para no ofrecer la opción quien no
+  // califica. El monto exacto disponible siempre lo topa/rechaza create_sale.
+  const customerCreditAvailable = selectedCustomer
+    ? Math.max(
+        0,
+        (selectedCustomer.creditLimit ?? 0) -
+          (selectedCustomer.creditBalance ?? 0),
+      )
+    : 0;
+  const paymentMethodsWithCredit = useMemo(() => {
+    if (!selectedCustomer || (selectedCustomer.creditLimit ?? 0) <= 0) {
+      return activeMethods;
+    }
+    return [
+      ...activeMethods,
+      {
+        id: "credit",
+        label: "Crédito",
+        kind: "credit" as const,
+        description: `Disponible: ${formatMoney(customerCreditAvailable)}`,
+      },
+    ];
+  }, [activeMethods, selectedCustomer, customerCreditAvailable, formatMoney]);
+
+  useEffect(() => {
+    if (!paymentMethodsWithCredit.length) return;
+    if (
+      !paymentMethodsWithCredit.some(
+        (paymentMethod) => paymentMethod.label === method,
+      )
+    ) {
+      setMethod(paymentMethodsWithCredit[0].label);
+    }
+  }, [paymentMethodsWithCredit, method]);
+
   const checkout = async () => {
     if (cart.length === 0) {
       toast.error("El carrito está vacío.");
@@ -617,6 +645,18 @@ function POS() {
       return;
     }
 
+    const validCustomerNow = customers.some((entry) => entry.id === customer);
+    const usesCredit = splitMode
+      ? splitPayments.some((p) => p.kind === "credit")
+      : paymentMethodsWithCredit.find((m) => m.label === method)?.kind ===
+        "credit";
+    if (usesCredit && !validCustomerNow) {
+      toast.error(
+        "Elige un cliente con crédito habilitado para vender a crédito.",
+      );
+      return;
+    }
+
     setIsCheckingOut(true);
 
     // Reutiliza la misma clave si es el mismo carrito de un intento anterior
@@ -633,6 +673,8 @@ function POS() {
         customerId: validCustomer ? customer : null,
         documentType: docType,
         paymentMethod: method,
+        paymentKind: paymentMethodsWithCredit.find((m) => m.label === method)
+          ?.kind,
         items: cart,
         companyId: session?.companyId,
         locationId: posLocationId,
@@ -672,7 +714,7 @@ function POS() {
     docType,
     documentTypes,
     method,
-    paymentMethods: activeMethods,
+    paymentMethods: paymentMethodsWithCredit,
     subtotal,
     igv,
     total,

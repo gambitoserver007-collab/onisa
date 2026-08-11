@@ -145,6 +145,8 @@ function SaleCartContent({
   const splitRemaining = Math.round((finalTotal - splitAssigned) * 100) / 100;
   const splitReady = splitPayments.length > 0 && splitRemaining === 0;
   const canCheckout = !splitMode || splitReady;
+  const kindOf = (label: string) =>
+    paymentMethods.find((item) => item.label === label)?.kind ?? "other";
 
   const [newOpen, setNewOpen] = useState(false);
   const [splitEditorOpen, setSplitEditorOpen] = useState(false);
@@ -373,6 +375,7 @@ function SaleCartContent({
                         {
                           method: paymentMethods[0]?.label ?? "Efectivo",
                           amount: finalTotal,
+                          kind: kindOf(paymentMethods[0]?.label ?? "Efectivo"),
                         },
                       ]);
                       onSplitModeChange(true);
@@ -424,7 +427,9 @@ function SaleCartContent({
                       <span className="flex flex-col">
                         <span>{item.label}</span>
                         <span className="text-xs text-muted-foreground">
-                          {PAYMENT_METHOD_KIND_LABELS[item.kind]}
+                          {item.kind === "credit" && item.description
+                            ? item.description
+                            : PAYMENT_METHOD_KIND_LABELS[item.kind]}
                         </span>
                       </span>
                     </SelectItem>
@@ -629,7 +634,11 @@ function SaleCartContent({
                   value={line.method}
                   onValueChange={(value) => {
                     const next = [...splitPayments];
-                    next[idx] = { ...next[idx], method: value };
+                    next[idx] = {
+                      ...next[idx],
+                      method: value,
+                      kind: kindOf(value),
+                    };
                     onSplitPaymentsChange?.(next);
                   }}
                 >
@@ -685,6 +694,7 @@ function SaleCartContent({
                   {
                     method: paymentMethods[0]?.label ?? "Efectivo",
                     amount: Math.max(0, splitRemaining),
+                    kind: kindOf(paymentMethods[0]?.label ?? "Efectivo"),
                   },
                 ])
               }
