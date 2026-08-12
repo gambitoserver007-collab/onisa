@@ -99,8 +99,13 @@ export function ProductCatalog({
 
         {!isLoading &&
           products.map((product) => {
-            const outOfStock = product.stock === 0;
+            // Combo/Servicio no tienen stock propio -- el combo se valida
+            // al cobrar (descuenta de sus piezas), el servicio nunca
+            // maneja inventario. Nunca se muestran como agotados aquí.
+            const tracksStock = product.productType === "standard";
+            const outOfStock = tracksStock && product.stock === 0;
             const lowStock =
+              tracksStock &&
               product.stock > 0 &&
               product.stock <=
                 effectiveLowStockThreshold(
@@ -165,9 +170,19 @@ export function ProductCatalog({
                   <span className="text-base font-extrabold text-foreground">
                     {formatMoney(product.price)}
                   </span>
-                  {!outOfStock && !lowStock && (
+                  {!outOfStock && !lowStock && tracksStock && (
                     <Badge variant="soft" className="px-2 py-0 text-[10px]">
                       {product.stock} {product.unit}
+                    </Badge>
+                  )}
+                  {product.productType === "combo" && (
+                    <Badge variant="soft" className="px-2 py-0 text-[10px]">
+                      Combo
+                    </Badge>
+                  )}
+                  {product.productType === "service" && (
+                    <Badge variant="soft" className="px-2 py-0 text-[10px]">
+                      Servicio
                     </Badge>
                   )}
                 </div>

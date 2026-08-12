@@ -702,6 +702,55 @@ export type Database = {
         };
         Relationships: [];
       };
+      product_combo_items: {
+        Row: {
+          combo_product_id: string;
+          company_id: string;
+          component_product_id: string;
+          created_at: string;
+          id: string;
+          qty: number;
+        };
+        Insert: {
+          combo_product_id: string;
+          company_id: string;
+          component_product_id: string;
+          created_at?: string;
+          id?: string;
+          qty: number;
+        };
+        Update: {
+          combo_product_id?: string;
+          company_id?: string;
+          component_product_id?: string;
+          created_at?: string;
+          id?: string;
+          qty?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "product_combo_items_combo_product_id_fkey";
+            columns: ["combo_product_id"];
+            isOneToOne: false;
+            referencedRelation: "products";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "product_combo_items_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "product_combo_items_component_product_id_fkey";
+            columns: ["component_product_id"];
+            isOneToOne: false;
+            referencedRelation: "products";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       product_locations: {
         Row: {
           company_id: string;
@@ -898,6 +947,7 @@ export type Database = {
           name: string;
           price: number;
           price_includes_tax: boolean;
+          product_type: string;
           sku: string | null;
           stock: number;
           supplier_id: string | null;
@@ -921,6 +971,7 @@ export type Database = {
           name: string;
           price?: number;
           price_includes_tax?: boolean;
+          product_type?: string;
           sku?: string | null;
           stock?: number;
           supplier_id?: string | null;
@@ -944,6 +995,7 @@ export type Database = {
           name?: string;
           price?: number;
           price_includes_tax?: boolean;
+          product_type?: string;
           sku?: string | null;
           stock?: number;
           supplier_id?: string | null;

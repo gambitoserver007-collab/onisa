@@ -91,7 +91,7 @@ function Kpi({
 function Inventario() {
   const { formatMoney, settings } = useBusinessSettings();
   const {
-    products: baseProducts,
+    products: allProducts,
     error,
     source,
     isLoading,
@@ -100,6 +100,14 @@ function Inventario() {
   const { isDemo, session } = useDemoSession();
   const { locations, currentLocationId } = useCurrentLocation();
   const multiLocal = locations.length > 1;
+
+  // Control de Stock es solo para productos Estándar: Combo no tiene stock
+  // propio (se arma de sus piezas al vender) y Servicio nunca maneja
+  // inventario -- ninguno de los dos aplica aquí.
+  const baseProducts = useMemo(
+    () => allProducts.filter((p) => p.productType === "standard"),
+    [allProducts],
+  );
 
   // La sucursal activa la manda el selector único de la barra superior.
   const location = currentLocationId ?? ALL_LOCATIONS;

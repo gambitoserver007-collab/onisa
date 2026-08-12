@@ -3312,4 +3312,296 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(ids[1]).toBe(medio);
     });
   });
+
+  describe("23. Tipos de producto: Combo y Servicio", () => {
+    async function makeComboProduct(
+      companyId: string,
+      name: string,
+      price: number,
+    ): Promise<string> {
+      const { rows } = await db.query<{ id: string }>(
+        "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,0,'und','combo') returning id",
+        [companyId, name, price],
+      );
+      return rows[0].id;
+    }
+
+    async function makeServiceProduct(
+      companyId: string,
+      name: string,
+      cost: number,
+      price: number,
+    ): Promise<string> {
+      const { rows } = await db.query<{ id: string }>(
+        "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,$4,'und','service') returning id",
+        [companyId, name, price, cost],
+      );
+      return rows[0].id;
+    }
+
+    async function addComboItem(
+      companyId: string,
+      comboId: string,
+      componentId: string,
+      qty: number,
+    ) {
+      await db.query(
+        "insert into public.product_combo_items (company_id, combo_product_id, component_product_id, qty) values ($1,$2,$3,$4)",
+        [companyId, comboId, componentId, qty],
+      );
+    }
+
+    it("vender un combo descuenta cada pieza según su cantidad, no el combo mismo", async () => {
+      const company = await makeCompany(db, "Empresa Combo Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const boligrafo = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Bolígrafo negro",
+        2,
+        5,
+        100,
+      );
+      const combo = await makeComboProduct(company.id, "Caja de 12", 50);
+      await addComboItem(company.id, combo, boligrafo, 12);
+
+      await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: combo, qty: 2, unit_price: 50 }],
+          company.loc1,
+        ),
+      );
+
+      const { rows: pieza } = await db.query<{ stock: number }>(
+        "select stock from public.products where id=$1",
+        [boligrafo],
+      );
+      // 100 - (12 piezas * 2 cajas) = 76
+      expect(Number(pieza[0].stock)).toBe(76);
+
+      const { rows: comboRow } = await db.query<{ stock: number }>(
+        "select stock from public.products where id=$1",
+        [combo],
+      );
+      expect(Number(comboRow[0].stock)).toBe(0);
+
+      const { rows: items } = await db.query<{
+        product_id: string;
+        qty: number;
+        cost: number;
+      }>(
+        "select product_id, qty, cost from public.sale_items where product_id=$1",
+        [combo],
+      );
+      expect(items).toHaveLength(1);
+      expect(Number(items[0].qty)).toBe(2);
+      // Costo del combo = costo de la pieza (2) * 12 = 24 por caja.
+      expect(Number(items[0].cost)).toBeCloseTo(24);
+    });
+
+    it("un combo con varias piezas distintas descuenta todas correctamente", async () => {
+      const company = await makeCompany(db, "Empresa Combo Múltiple Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const lapiz = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Lápiz",
+        1,
+        3,
+        50,
+      );
+      const goma = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Goma",
+        0.5,
+        2,
+        50,
+      );
+      const combo = await makeComboProduct(company.id, "Kit escolar", 10);
+      await addComboItem(company.id, combo, lapiz, 2);
+      await addComboItem(company.id, combo, goma, 1);
+
+      await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: combo, qty: 3, unit_price: 10 }],
+          company.loc1,
+        ),
+      );
+
+      const { rows: lapizRow } = await db.query<{ stock: number }>(
+        "select stock from public.products where id=$1",
+        [lapiz],
+      );
+      const { rows: gomaRow } = await db.query<{ stock: number }>(
+        "select stock from public.products where id=$1",
+        [goma],
+      );
+      expect(Number(lapizRow[0].stock)).toBe(50 - 2 * 3);
+      expect(Number(gomaRow[0].stock)).toBe(50 - 1 * 3);
+    });
+
+    it("rechaza vender un combo si falta stock de alguna pieza -- sin descontar nada (atómico)", async () => {
+      const company = await makeCompany(db, "Empresa Combo Falta Stock Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const conStock = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Con stock",
+        1,
+        3,
+        100,
+      );
+      const sinStock = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Sin stock",
+        1,
+        3,
+        1,
+      );
+      const combo = await makeComboProduct(company.id, "Combo incompleto", 10);
+      await addComboItem(company.id, combo, conStock, 1);
+      await addComboItem(company.id, combo, sinStock, 5); // pide 5, solo hay 1
+
+      await asUser(db, admin, () =>
+        expect(
+          createSale(
+            db,
+            [{ product_id: combo, qty: 1, unit_price: 10 }],
+            company.loc1,
+          ),
+        ).rejects.toThrow(/stock insuficiente/i),
+      );
+
+      // La pieza que sí alcanzaba no debe haberse tocado -- todo o nada.
+      const { rows: conStockRow } = await db.query<{ stock: number }>(
+        "select stock from public.products where id=$1",
+        [conStock],
+      );
+      expect(Number(conStockRow[0].stock)).toBe(100);
+    });
+
+    it("un combo sin piezas configuradas no se puede vender", async () => {
+      const company = await makeCompany(db, "Empresa Combo Vacío Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const combo = await makeComboProduct(company.id, "Combo vacío", 10);
+
+      await asUser(db, admin, () =>
+        expect(
+          createSale(
+            db,
+            [{ product_id: combo, qty: 1, unit_price: 10 }],
+            company.loc1,
+          ),
+        ).rejects.toThrow(/no tiene piezas configuradas/i),
+      );
+    });
+
+    it("vender un Servicio no valida ni descuenta stock, ni genera movimientos", async () => {
+      const company = await makeCompany(db, "Empresa Servicio Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const servicio = await makeServiceProduct(
+        company.id,
+        "Instalación a domicilio",
+        20,
+        100,
+      );
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: servicio, qty: 1, unit_price: 100 }],
+          company.loc1,
+        ),
+      );
+      expect(result.total).toBe(100);
+
+      const { rows: movs } = await db.query<{ id: string }>(
+        "select id from public.stock_movements where product_id=$1",
+        [servicio],
+      );
+      expect(movs).toHaveLength(0);
+    });
+
+    it("no se puede borrar un producto Estándar que es pieza de un combo activo", async () => {
+      const company = await makeCompany(db, "Empresa Borrado Pieza Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const pieza = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Pieza en uso",
+        1,
+        3,
+        10,
+      );
+      const combo = await makeComboProduct(company.id, "Combo con pieza", 10);
+      await addComboItem(company.id, combo, pieza, 1);
+
+      await asUser(db, admin, () =>
+        expect(
+          db.query("select soft_delete_product($1)", [pieza]),
+        ).rejects.toThrow(/pieza del combo/i),
+      );
+    });
+
+    it("el trigger rechaza una pieza que no sea de tipo Estándar (ej. otro combo o un servicio)", async () => {
+      const company = await makeCompany(db, "Empresa Pieza Inválida Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const servicio = await makeServiceProduct(
+        company.id,
+        "Un servicio",
+        5,
+        20,
+      );
+      const combo = await makeComboProduct(
+        company.id,
+        "Combo con pieza inválida",
+        10,
+      );
+
+      await asUser(db, admin, () =>
+        expect(addComboItem(company.id, combo, servicio, 1)).rejects.toThrow(
+          /no es un producto Estándar/i,
+        ),
+      );
+    });
+
+    it("el trigger rechaza usar un producto que no es Combo como combo_product_id", async () => {
+      const company = await makeCompany(db, "Empresa Combo Inválido Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const estandar1 = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto A",
+        1,
+        3,
+        10,
+      );
+      const estandar2 = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto B",
+        1,
+        3,
+        10,
+      );
+
+      await asUser(db, admin, () =>
+        expect(
+          addComboItem(company.id, estandar1, estandar2, 1),
+        ).rejects.toThrow(/no es un producto de tipo Combo/i),
+      );
+    });
+  });
 });

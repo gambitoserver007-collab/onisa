@@ -63,6 +63,17 @@ export interface ProductLocationStock {
   stock: number;
 }
 
+export interface ComboComponentInput {
+  componentProductId: string;
+  qty: number;
+}
+
+export interface ComboComponent {
+  componentProductId: string;
+  componentName: string;
+  qty: number;
+}
+
 export interface CreateProductInput {
   name: string;
   barcode?: string;
@@ -86,6 +97,10 @@ export interface CreateProductInput {
   locations?: ProductLocationStock[];
   /** Umbral propio de alerta de stock bajo. null/undefined = usa el default de la empresa. */
   lowStockThreshold?: number | null;
+  /** Solo se usa al CREAR -- el tipo queda fijo después. Por defecto 'standard'. */
+  productType?: "standard" | "combo" | "service";
+  /** Piezas del combo (solo cuando productType === 'combo'). */
+  comboItems?: ComboComponentInput[];
 }
 
 export interface CreateCustomerInput {
@@ -224,6 +239,12 @@ function mapProduct(
     id: row.id,
     categoryId: row.category_id ?? undefined,
     supplierId: (row as { supplier_id?: string | null }).supplier_id ?? null,
+    productType:
+      ((row as { product_type?: string | null }).product_type as
+        | "standard"
+        | "combo"
+        | "service"
+        | undefined) ?? "standard",
     name: row.name,
     category: row.category_id
       ? (categoryById.get(row.category_id) ?? "Sin categoría")
@@ -379,7 +400,7 @@ export async function fetchCompanyCatalog(
   const productsQuery = supabase
     .from("products")
     .select(
-      "id, company_id, category_id, supplier_id, name, barcode, sku, cost, price, stock, unit, image_url, price_includes_tax, has_variants, variant_attributes, low_stock_threshold, active, is_demo_data, created_at, updated_at, deleted_at",
+      "id, company_id, category_id, supplier_id, name, barcode, sku, cost, price, stock, unit, image_url, price_includes_tax, has_variants, variant_attributes, low_stock_threshold, product_type, active, is_demo_data, created_at, updated_at, deleted_at",
     )
     .is("deleted_at", null)
     .eq("active", true);
@@ -1424,6 +1445,57 @@ async function syncProductLocations(
   if (error) throw error;
 }
 
+// Piezas que componen un combo, con el nombre del componente ya resuelto
+// (para mostrarlas en el editor sin una consulta aparte).
+export async function fetchComboItems(
+  comboProductId: string,
+): Promise<ComboComponent[]> {
+  const { data, error } = await supabase
+    .from("product_combo_items")
+    .select(
+      "component_product_id, qty, products!product_combo_items_component_product_id_fkey(name)",
+    )
+    .eq("combo_product_id", comboProductId);
+  if (error) throw error;
+  return (data ?? []).map(
+    (row: {
+      component_product_id: string;
+      qty: number;
+      products?: { name?: string } | null;
+    }) => ({
+      componentProductId: row.component_product_id,
+      componentName: row.products?.name ?? "—",
+      qty: toNumber(row.qty),
+    }),
+  );
+}
+
+// Reemplaza por completo las piezas de un combo (borra las que ya no
+// aplican, agrega/actualiza las nuevas) -- se llama tanto al crear como al
+// editar un combo.
+async function syncComboItems(
+  companyId: string,
+  comboProductId: string,
+  items: ComboComponentInput[],
+) {
+  const { error: delError } = await supabase
+    .from("product_combo_items")
+    .delete()
+    .eq("combo_product_id", comboProductId);
+  if (delError) throw delError;
+  if (items.length === 0) return;
+  const rows = items.map((item) => ({
+    company_id: companyId,
+    combo_product_id: comboProductId,
+    component_product_id: item.componentProductId,
+    qty: item.qty,
+  }));
+  const { error: insError } = await supabase
+    .from("product_combo_items")
+    .insert(rows);
+  if (insError) throw insError;
+}
+
 export async function createProduct(
   session: DemoSession,
   input: CreateProductInput,
@@ -1458,12 +1530,15 @@ export async function createProduct(
       ...(input.lowStockThreshold !== undefined
         ? { low_stock_threshold: input.lowStockThreshold }
         : {}),
+      product_type: input.productType ?? "standard",
     } as never)
     .select("id")
     .single();
   if (error) throw error;
   const productId = (data as { id: string }).id;
-  if (input.locations) {
+  if (input.productType === "combo") {
+    await syncComboItems(companyId, productId, input.comboItems ?? []);
+  } else if (input.locations) {
     await syncProductLocations(companyId, productId, input.locations);
   }
   return productId;
@@ -1504,7 +1579,7 @@ export async function updateProduct(
     .eq("id", productId);
   if (error) throw error;
 
-  if (input.locations) {
+  if (input.locations || input.comboItems !== undefined) {
     let cid = companyId;
     if (!cid) {
       const { data } = await supabase
@@ -1514,7 +1589,12 @@ export async function updateProduct(
         .maybeSingle();
       cid = (data as { company_id?: string } | null)?.company_id;
     }
-    if (cid) await syncProductLocations(cid, productId, input.locations);
+    if (cid) {
+      if (input.locations)
+        await syncProductLocations(cid, productId, input.locations);
+      if (input.comboItems !== undefined)
+        await syncComboItems(cid, productId, input.comboItems);
+    }
   }
 }
 

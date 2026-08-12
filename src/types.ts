@@ -47,9 +47,15 @@ export interface DemoSession {
   businessType?: string;
 }
 
+export type ProductType = "standard" | "combo" | "service";
+
 export interface Product {
   id: string;
   categoryId?: string;
+  /** Estándar (normal), Combo (se arma de otros productos al vender, sin
+   * stock propio) o Servicio (como Estándar pero sin manejar inventario).
+   * Fijo desde que se crea el producto. */
+  productType: ProductType;
   /** Proveedor habitual (a quién se le compra). null = sin proveedor asignado. */
   supplierId?: string | null;
   name: string;

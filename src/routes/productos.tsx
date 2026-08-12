@@ -139,6 +139,7 @@ function ProductosPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Producto</TableHead>
+                  <TableHead>Tipo</TableHead>
                   <TableHead>Categoría</TableHead>
                   <TableHead>Proveedor</TableHead>
                   <TableHead>Código</TableHead>
@@ -152,7 +153,7 @@ function ProductosPage() {
                 {isLoading && (
                   <TableRow>
                     <TableCell
-                      colSpan={8}
+                      colSpan={9}
                       className="py-8 text-center text-muted-foreground"
                     >
                       Cargando productos...
@@ -161,7 +162,7 @@ function ProductosPage() {
                 )}
                 {!isLoading && list.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8}>
+                    <TableCell colSpan={9}>
                       <EmptyState
                         emoji="📦"
                         title="Sin productos"
@@ -207,6 +208,15 @@ function ProductosPage() {
                             </span>
                           </div>
                         </TableCell>
+                        <TableCell>
+                          <Badge variant="soft">
+                            {product.productType === "combo"
+                              ? "Combo"
+                              : product.productType === "service"
+                                ? "Servicio"
+                                : "Estándar"}
+                          </Badge>
+                        </TableCell>
                         <TableCell>{product.category}</TableCell>
                         <TableCell>
                           {product.supplierId ? (
@@ -232,17 +242,27 @@ function ProductosPage() {
                           {formatMoney(product.price)}
                         </TableCell>
                         <TableCell>
-                          <Badge
-                            variant={
-                              status === "out"
-                                ? "destructive"
-                                : status === "low"
-                                  ? "warm"
-                                  : "success"
-                            }
-                          >
-                            {product.stock} {product.unit}
-                          </Badge>
+                          {product.productType === "service" ? (
+                            <span className="text-muted-foreground">
+                              Sin inventario
+                            </span>
+                          ) : product.productType === "combo" ? (
+                            <span className="text-muted-foreground">
+                              Según piezas
+                            </span>
+                          ) : (
+                            <Badge
+                              variant={
+                                status === "out"
+                                  ? "destructive"
+                                  : status === "low"
+                                    ? "warm"
+                                    : "success"
+                              }
+                            >
+                              {product.stock} {product.unit}
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           {canManage ? (

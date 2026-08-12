@@ -7896,6 +7896,7 @@ begin
   delete from public.product_variant_locations where company_id = v_company_id;
   delete from public.product_variants where company_id = v_company_id;
   delete from public.product_locations where company_id = v_company_id;
+  delete from public.product_combo_items where company_id = v_company_id;
   delete from public.products where company_id = v_company_id;
   delete from public.categories where company_id = v_company_id;
   delete from public.customers where company_id = v_company_id;
@@ -8036,6 +8037,38 @@ $function$;
 alter table public.products add column if not exists low_stock_threshold numeric(12,3);
 alter table public.companies add column if not exists low_stock_threshold_default numeric(12,3) not null default 10;
 
+-- ============================================================
+-- Tipos de producto: Estándar (lo de siempre), Combo (se arma al vender
+-- descontando de sus piezas -- sin stock propio) y Servicio (como
+-- Estándar pero sin manejar inventario para nada). El tipo se fija al
+-- crear el producto y ya no se puede cambiar (lo hace cumplir el
+-- frontend; aquí solo se valida la forma de los datos). Se declara aquí
+-- (antes de low_stock_summary/purchase_projection, más abajo) porque esas
+-- son "language sql" y Postgres valida que las columnas referenciadas
+-- existan al momento de CREARLAS, no de llamarlas.
+-- ============================================================
+alter table public.products add column if not exists product_type text not null default 'standard';
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'products_product_type_chk'
+  ) then
+    alter table public.products
+      add constraint products_product_type_chk
+      check (product_type in ('standard', 'combo', 'service'));
+  end if;
+  -- Combos y servicios no manejan variantes (talla/color) -- esa
+  -- complejidad se queda solo para productos Estándar.
+  if not exists (
+    select 1 from pg_constraint where conname = 'products_type_variants_chk'
+  ) then
+    alter table public.products
+      add constraint products_type_variants_chk
+      check (product_type = 'standard' or has_variants = false);
+  end if;
+end $$;
+
 -- Reemplaza el "stock < 10, stock > 0" fijo del frontend: calcula el umbral
 -- efectivo por producto server-side (evita traer el catálogo completo solo
 -- para filtrarlo) y ahora SÍ incluye los agotados (stock = 0) -- antes se
@@ -8061,6 +8094,7 @@ as $$
     where p.company_id = public.current_user_company_id()
       and p.deleted_at is null
       and p.active = true
+      and p.product_type = 'standard'
       and public.user_can_access_location(p_location_id)
       and (p_location_id is null or pl.id is not null)
   ),
@@ -8128,6 +8162,7 @@ as $$
     where p.company_id = public.current_user_company_id()
       and p.deleted_at is null
       and p.active = true
+      and p.product_type = 'standard'
   )
   select jsonb_build_object(
     'windowDays', p_days_window,
@@ -8151,3 +8186,661 @@ $$;
 
 revoke execute on function public.purchase_projection(integer, integer, integer) from public, anon;
 grant execute on function public.purchase_projection(integer, integer, integer) to authenticated;
+
+-- Piezas que componen un Combo (ej. "Caja de 12" = 12x "Bolígrafo negro").
+-- Sin stock/precio propio en esta tabla -- el precio de venta del combo
+-- vive en products.price como cualquier producto, y el costo/disponible se
+-- calculan en vivo a partir de estas piezas.
+create table if not exists public.product_combo_items (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  combo_product_id uuid not null references public.products(id) on delete cascade,
+  component_product_id uuid not null references public.products(id) on delete cascade,
+  qty numeric(12,3) not null check (qty > 0),
+  created_at timestamptz not null default now(),
+  unique (combo_product_id, component_product_id)
+);
+create index if not exists product_combo_items_combo_idx on public.product_combo_items(combo_product_id);
+create index if not exists product_combo_items_component_idx on public.product_combo_items(component_product_id);
+
+grant select, insert, update, delete on public.product_combo_items to authenticated;
+grant all on public.product_combo_items to service_role;
+alter table public.product_combo_items enable row level security;
+
+drop policy if exists "product_combo_items select scoped" on public.product_combo_items;
+create policy "product_combo_items select scoped" on public.product_combo_items for select to authenticated
+  using (public.can_select_company(company_id));
+drop policy if exists "product_combo_items write scoped" on public.product_combo_items;
+create policy "product_combo_items write scoped" on public.product_combo_items for all to authenticated
+  using (public.can_admin_company(company_id)) with check (public.can_admin_company(company_id));
+
+-- Un combo no puede incluir otro combo ni un servicio como pieza (solo
+-- productos Estándar), ni incluirse a sí mismo, y ambos productos deben
+-- ser de la misma empresa que la fila.
+create or replace function public.validate_combo_item()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_combo public.products%rowtype;
+  v_component public.products%rowtype;
+begin
+  if new.combo_product_id = new.component_product_id then
+    raise exception 'Un combo no puede incluirse a sí mismo como pieza.';
+  end if;
+
+  select * into v_combo from public.products where id = new.combo_product_id;
+  if not found or v_combo.company_id <> new.company_id then
+    raise exception 'Combo no encontrado.';
+  end if;
+  if v_combo.product_type <> 'combo' then
+    raise exception '% no es un producto de tipo Combo.', v_combo.name;
+  end if;
+
+  select * into v_component from public.products where id = new.component_product_id;
+  if not found or v_component.company_id <> new.company_id then
+    raise exception 'Producto componente no encontrado.';
+  end if;
+  if v_component.product_type <> 'standard' then
+    raise exception '% no es un producto Estándar -- solo productos Estándar pueden ser piezas de un combo.', v_component.name;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists validate_combo_item_trg on public.product_combo_items;
+create trigger validate_combo_item_trg
+  before insert or update on public.product_combo_items
+  for each row execute function public.validate_combo_item();
+
+revoke execute on function public.validate_combo_item() from public, anon, authenticated;
+
+-- soft_delete_product: bloquea borrar un producto Estándar que sigue
+-- siendo pieza de un combo activo (si no, el combo quedaría roto sin
+-- avisar -- create_sale fallaría recién al intentar vender ese combo).
+create or replace function public.soft_delete_product(p_product_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_product public.products%rowtype;
+  v_combo_name text;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
+
+  select * into v_product from public.products
+    where id = p_product_id and company_id = v_company_id
+    for update;
+  if not found then raise exception 'Producto no encontrado.'; end if;
+
+  if not public.can_admin_company(v_company_id) then
+    raise exception 'Solo el administrador de la empresa puede eliminar productos.';
+  end if;
+
+  select combo.name into v_combo_name
+    from public.product_combo_items pci
+    join public.products combo on combo.id = pci.combo_product_id
+    where pci.component_product_id = p_product_id and combo.deleted_at is null
+    limit 1;
+  if v_combo_name is not null then
+    raise exception 'No puedes eliminar este producto: es pieza del combo "%". Quita esa pieza del combo primero.', v_combo_name;
+  end if;
+
+  update public.products
+    set deleted_at = now(), active = false, updated_at = now()
+    where id = p_product_id;
+
+  update public.product_variants
+    set deleted_at = now(), is_active = false, updated_at = now()
+    where product_id = p_product_id and deleted_at is null;
+
+  update public.product_variant_locations
+    set is_active = false, updated_at = now()
+    where product_variant_id in (
+      select id from public.product_variants where product_id = p_product_id
+    )
+    and is_active = true;
+
+  update public.product_locations
+    set is_active = false, updated_at = now()
+    where product_id = p_product_id and is_active = true;
+end;
+$$;
+
+revoke execute on function public.soft_delete_product(uuid) from public, anon;
+grant execute on function public.soft_delete_product(uuid) to authenticated;
+
+
+-- ============================================================
+-- create_sale: soporte para Combo (descuenta stock de cada pieza, no del
+-- combo -- que no tiene stock propio) y Servicio (no descuenta ni valida
+-- stock para nada). El costo de un combo SIEMPRE se recalcula en vivo
+-- sumando el costo actual de sus piezas (nunca se confía en un
+-- products.cost guardado, que podría estar desactualizado si cambió el
+-- costo de alguna pieza desde que se armó el combo) -- mismo principio de
+-- "nunca confiar en datos que pudieron quedar viejos" que ya aplica en
+-- todo el resto de esta función.
+-- ============================================================
+create or replace function public.create_sale(
+  p_customer_id uuid,
+  p_document_type text,
+  p_payment_method text,
+  p_items jsonb,
+  p_location_id uuid default null,
+  p_client_request_id uuid default null,
+  p_till_id uuid default null,
+  p_points_redeemed integer default 0,
+  p_payments jsonb default null,
+  p_payment_kind text default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_company_id uuid; v_location_id uuid; v_till_id uuid; v_tax_rate numeric(5,4); v_doc_types jsonb; v_charges_iva boolean;
+  v_sale_id uuid; v_customer_name text; v_item jsonb; v_product public.products%rowtype; v_loc_stock numeric(12,3);
+  v_qty numeric(12,3); v_line_total numeric(12,2); v_line_tax numeric(12,2);
+  v_total numeric(12,2) := 0; v_tax numeric(12,2) := 0; v_subtotal numeric(12,2); v_sale_number text;
+  v_variant_id uuid; v_variant public.product_variants%rowtype; v_unit_price numeric(12,2); v_unit_cost numeric(12,2);
+  v_variant_label text; v_attr_key text; v_attr_val text; v_label_parts text[];
+  v_price_includes_tax boolean;
+  v_existing record;
+  v_plan_sales_limit integer;
+  v_sales_this_month integer;
+  v_open_sessions integer;
+  -- Combos: piezas que lo componen y cuánto se necesita de cada una.
+  v_combo_item record;
+  v_combo_needed numeric(12,3);
+  v_combo_component_count integer;
+  -- Puntos de lealtad (Fase 3): nunca bloquean la venta -- si algo no
+  -- cuadra (sin cliente, deshabilitado, saldo insuficiente), simplemente
+  -- no se canjea/gana nada, la venta sigue su curso normal.
+  v_loyalty_enabled boolean;
+  v_point_value numeric(10,4);
+  v_earn_rate numeric(10,4);
+  v_customer_balance numeric;
+  v_points_redeemed_actual numeric := 0;
+  v_points_earned numeric := 0;
+  v_discount numeric(12,2) := 0;
+  -- Promociones automáticas: cantidades agregadas por producto y por
+  -- categoría en TODO el carrito (no solo la línea actual), para que una
+  -- promoción por categoría cuente unidades de varios productos distintos.
+  v_qty_by_product jsonb;
+  v_qty_by_category jsonb;
+  v_promo record;
+  v_promo_pct numeric;
+  v_orig_unit_price numeric(12,2);
+  v_promo_discount numeric(12,2) := 0;
+  -- Pago dividido / crédito.
+  v_payments_total numeric(12,2) := 0;
+  v_payment_item jsonb;
+  v_payment_method text;
+  v_payment_amount numeric(12,2);
+  v_payment_kind text;
+  v_distinct_methods integer;
+  v_credit_limit numeric(12,2);
+  v_credit_balance numeric(12,2);
+  v_credit_available numeric(12,2);
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.'; end if;
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = v_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
+  if p_items is null or jsonb_array_length(p_items) = 0 then raise exception 'El carrito esta vacio.'; end if;
+  if coalesce(p_points_redeemed, 0) < 0 then raise exception 'Puntos invalidos.'; end if;
+
+  if p_client_request_id is not null then
+    select id, subtotal, tax, total into v_existing
+    from public.sales
+    where company_id = v_company_id and client_request_id = p_client_request_id;
+    if found then
+      return jsonb_build_object(
+        'sale_id', v_existing.id,
+        'subtotal', v_existing.subtotal,
+        'tax', v_existing.tax,
+        'total', v_existing.total
+      );
+    end if;
+  end if;
+
+  if not public.current_user_is_platform_admin() then
+    select sp.monthly_sales_limit into v_plan_sales_limit
+    from public.companies c
+    join public.subscription_plans sp on sp.id = c.plan_id
+    where c.id = v_company_id;
+
+    if v_plan_sales_limit is not null then
+      select count(*) into v_sales_this_month
+      from public.sales
+      where company_id = v_company_id
+        and deleted_at is null
+        and sale_date >= date_trunc('month', now());
+
+      if v_sales_this_month >= v_plan_sales_limit then
+        raise exception 'Se alcanzo el limite de ventas mensuales de tu plan (%). Actualiza tu plan para seguir vendiendo este mes.', v_plan_sales_limit;
+      end if;
+    end if;
+  end if;
+
+  v_location_id := p_location_id;
+  if v_location_id is null then select location_id into v_location_id from public.profiles where id = auth.uid(); end if;
+  if v_location_id is null then select id into v_location_id from public.locations where company_id = v_company_id order by created_at limit 1; end if;
+  if v_location_id is null then raise exception 'No hay punto de venta configurado.'; end if;
+
+  -- Resolución de caja (till_id): nunca bloquea la venta, solo intenta
+  -- atribuirla correctamente para el arqueo. Prioridad: (1) la caja que
+  -- indique el cliente, si de verdad tiene una sesión abierta; (2) la
+  -- sesión abierta por el propio usuario en esta sucursal; (3) si hay
+  -- exactamente una sesión abierta en la sucursal, esa.
+  v_till_id := p_till_id;
+  if v_till_id is not null and not exists (
+    select 1 from public.cash_sessions
+    where till_id = v_till_id and company_id = v_company_id and location_id = v_location_id and status = 'open'
+  ) then
+    v_till_id := null;
+  end if;
+  if v_till_id is null then
+    select till_id into v_till_id from public.cash_sessions
+      where company_id = v_company_id and location_id = v_location_id and status = 'open' and opened_by = auth.uid()
+      order by opened_at desc limit 1;
+  end if;
+  if v_till_id is null then
+    select count(*) into v_open_sessions from public.cash_sessions
+      where company_id = v_company_id and location_id = v_location_id and status = 'open';
+    if v_open_sessions = 1 then
+      select till_id into v_till_id from public.cash_sessions
+        where company_id = v_company_id and location_id = v_location_id and status = 'open';
+    end if;
+  end if;
+
+  select tax_rate, document_types, loyalty_enabled, loyalty_point_value, loyalty_earn_rate
+    into v_tax_rate, v_doc_types, v_loyalty_enabled, v_point_value, v_earn_rate
+    from public.companies where id = v_company_id;
+  v_tax_rate := coalesce(v_tax_rate, 0.18);
+  select (dt ->> 'charges_iva')::boolean into v_charges_iva from jsonb_array_elements(coalesce(v_doc_types,'[]'::jsonb)) dt
+    where lower(dt ->> 'name') = lower(coalesce(p_document_type,'')) limit 1;
+  v_charges_iva := coalesce(v_charges_iva, true);
+  select coalesce(name,'Publico general') into v_customer_name from public.customers
+    where id = p_customer_id and company_id = v_company_id and deleted_at is null;
+  v_customer_name := coalesce(v_customer_name,'Publico general');
+  v_sale_number := 'V-' || to_char(now(),'YYYYMMDD') || '-' || upper(substr(replace(gen_random_uuid()::text,'-',''),1,6));
+  insert into public.sales (company_id, location_id, till_id, customer_id, sale_number, document_type, payment_method, customer_name, subtotal, tax, total, created_by, client_request_id)
+  values (v_company_id, v_location_id, v_till_id, p_customer_id, v_sale_number, coalesce(p_document_type,'Ticket'), coalesce(p_payment_method,'Efectivo'), v_customer_name, 0,0,0, auth.uid(), p_client_request_id)
+  returning id into v_sale_id;
+
+  -- Cantidad total por producto y por categoría en TODO el carrito, para
+  -- evaluar el mínimo de las promociones automáticas.
+  select coalesce(jsonb_object_agg(pid, total_qty), '{}'::jsonb) into v_qty_by_product
+  from (
+    select (item ->> 'product_id')::uuid as pid, sum(coalesce((item ->> 'qty')::numeric, 0)) as total_qty
+    from jsonb_array_elements(p_items) item
+    group by (item ->> 'product_id')::uuid
+  ) t;
+
+  select coalesce(jsonb_object_agg(cat_id::text, total_qty), '{}'::jsonb) into v_qty_by_category
+  from (
+    select p.category_id as cat_id, sum(coalesce((item ->> 'qty')::numeric, 0)) as total_qty
+    from jsonb_array_elements(p_items) item
+    join public.products p on p.id = (item ->> 'product_id')::uuid and p.company_id = v_company_id
+    where p.category_id is not null
+    group by p.category_id
+  ) t;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_qty := coalesce((v_item ->> 'qty')::numeric, 0);
+    if v_qty <= 0 then raise exception 'Cantidad invalida.'; end if;
+    select * into v_product from public.products where id = (v_item ->> 'product_id')::uuid and company_id = v_company_id and deleted_at is null and active = true;
+    if not found then raise exception 'Producto no encontrado.'; end if;
+
+    v_price_includes_tax := coalesce(v_product.price_includes_tax, true);
+    v_variant_id := nullif(v_item ->> 'variant_id','')::uuid;
+
+    if v_variant_id is not null then
+      select * into v_variant from public.product_variants
+        where id = v_variant_id and product_id = v_product.id and company_id = v_company_id
+          and is_active = true and deleted_at is null;
+      if not found then raise exception 'Variante no encontrada para el producto %.', v_product.name; end if;
+
+      -- SECURITY: server-side price only; never trust client-supplied unit_price/price.
+      v_unit_price := coalesce(v_variant.price_override, v_product.price);
+      v_unit_cost  := coalesce(v_variant.cost_override, v_product.cost);
+
+      select stock into v_loc_stock from public.product_variant_locations
+        where product_variant_id = v_variant.id and location_id = v_location_id for update;
+      if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_product.name; end if;
+      if v_loc_stock < v_qty then raise exception 'Stock insuficiente para % en este local.', v_product.name; end if;
+
+      -- Promoción automática (producto o categoría): gana la de mayor %.
+      select p2.* into v_promo
+      from public.promotions p2
+      where p2.company_id = v_company_id
+        and p2.active = true
+        and p2.promotion_type = 'discount'
+        and p2.scope_type <> 'none'
+        and (p2.starts_at is null or p2.starts_at <= now())
+        and (p2.ends_at is null or p2.ends_at >= now())
+        and p2.value_text ~ '[0-9]'
+        and (
+          (p2.scope_type = 'product' and p2.product_id = v_product.id
+            and coalesce((v_qty_by_product ->> v_product.id::text)::numeric, 0) >= coalesce(p2.min_qty, 0))
+          or
+          (p2.scope_type = 'category' and v_product.category_id is not null and p2.category_id = v_product.category_id
+            and coalesce((v_qty_by_category ->> v_product.category_id::text)::numeric, 0) >= coalesce(p2.min_qty, 0))
+        )
+      order by (regexp_replace(p2.value_text, '[^0-9.]', '', 'g'))::numeric desc
+      limit 1;
+
+      v_orig_unit_price := v_unit_price;
+      if v_promo.id is not null then
+        v_promo_pct := least(greatest((regexp_replace(v_promo.value_text, '[^0-9.]', '', 'g'))::numeric / 100, 0), 1);
+        v_unit_price := round(v_unit_price * (1 - v_promo_pct), 2);
+        v_promo_discount := v_promo_discount + round((v_orig_unit_price - v_unit_price) * v_qty, 2);
+      end if;
+      v_promo := null;
+
+      if not v_charges_iva then
+        v_line_total := round(v_unit_price * v_qty, 2); v_line_tax := 0;
+      elsif v_price_includes_tax then
+        v_line_total := round(v_unit_price * v_qty, 2); v_line_tax := round(v_line_total - v_line_total/(1+v_tax_rate), 2);
+      else
+        v_line_total := round(v_unit_price * v_qty * (1+v_tax_rate), 2); v_line_tax := round(v_unit_price * v_qty * v_tax_rate, 2);
+      end if;
+      v_total := v_total + v_line_total; v_tax := v_tax + v_line_tax;
+
+      v_label_parts := array[]::text[];
+      for v_attr_key, v_attr_val in select key, value::text from jsonb_each_text(coalesce(v_variant.attributes,'{}'::jsonb)) loop
+        v_label_parts := v_label_parts || (v_attr_key || ' ' || v_attr_val);
+      end loop;
+      v_variant_label := array_to_string(v_label_parts, ' / ');
+
+      insert into public.sale_items (company_id, location_id, sale_id, product_id, product_variant_id, variant_label, product_name, qty, unit_price, total, cost, tax_amount, price_includes_tax)
+      values (v_company_id, v_location_id, v_sale_id, v_product.id, v_variant.id, v_variant_label, v_product.name, v_qty, v_unit_price, v_line_total, v_unit_cost, v_line_tax, case when v_charges_iva then v_price_includes_tax else true end);
+
+      update public.product_variant_locations set stock = stock - v_qty, updated_at = now()
+        where product_variant_id = v_variant.id and location_id = v_location_id;
+
+      update public.products set stock = (
+        select coalesce(sum(pvl.stock),0)
+        from public.product_variant_locations pvl
+        join public.product_variants pv on pv.id = pvl.product_variant_id
+        where pv.product_id = v_product.id
+      ) where id = v_product.id;
+
+      insert into public.stock_movements (company_id, location_id, product_id, product_variant_id, movement_type, qty, reference_type, reference_id, notes)
+      values (v_company_id, v_location_id, v_product.id, v_variant.id, 'sale', -v_qty, 'sale', v_sale_id, 'Venta POS');
+
+    else
+      -- SECURITY: server-side price only; never trust client-supplied unit_price/price.
+      v_unit_price := v_product.price;
+
+      if v_product.product_type = 'combo' then
+        -- El costo se recalcula siempre en vivo sumando el costo actual de
+        -- cada pieza (nunca se confía en un products.cost guardado para el
+        -- combo). Se valida y descuenta el stock de CADA pieza -- el combo
+        -- en sí nunca tiene fila propia en product_locations.
+        v_unit_cost := 0;
+        v_combo_component_count := 0;
+        for v_combo_item in
+          select ci.component_product_id, ci.qty as component_qty, p3.name as component_name, p3.cost as component_cost
+          from public.product_combo_items ci
+          join public.products p3 on p3.id = ci.component_product_id
+          where ci.combo_product_id = v_product.id and ci.company_id = v_company_id
+        loop
+          v_combo_component_count := v_combo_component_count + 1;
+          v_combo_needed := v_combo_item.component_qty * v_qty;
+          v_unit_cost := v_unit_cost + (v_combo_item.component_cost * v_combo_item.component_qty);
+
+          select stock into v_loc_stock from public.product_locations
+            where product_id = v_combo_item.component_product_id and location_id = v_location_id for update;
+          if not found then raise exception 'La pieza % del combo % no esta asignada a este punto de venta.', v_combo_item.component_name, v_product.name; end if;
+          if v_loc_stock < v_combo_needed then raise exception 'Stock insuficiente de % para armar % unidad(es) de %.', v_combo_item.component_name, v_qty, v_product.name; end if;
+
+          update public.product_locations set stock = stock - v_combo_needed, updated_at = now()
+            where product_id = v_combo_item.component_product_id and location_id = v_location_id;
+          update public.products set stock = (
+            select coalesce(sum(stock),0) from public.product_locations where product_id = v_combo_item.component_product_id
+          ) where id = v_combo_item.component_product_id;
+          insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty, reference_type, reference_id, notes)
+          values (v_company_id, v_location_id, v_combo_item.component_product_id, 'sale', -v_combo_needed, 'sale', v_sale_id, 'Venta POS (pieza del combo: ' || v_product.name || ')');
+        end loop;
+        if v_combo_component_count = 0 then
+          raise exception 'El combo % no tiene piezas configuradas.', v_product.name;
+        end if;
+      elsif v_product.product_type = 'service' then
+        -- Sin control de inventario: no se valida ni descuenta stock.
+        v_unit_cost := v_product.cost;
+      else
+        v_unit_cost := v_product.cost;
+        select stock into v_loc_stock from public.product_locations where product_id = v_product.id and location_id = v_location_id for update;
+        if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_product.name; end if;
+        if v_loc_stock < v_qty then raise exception 'Stock insuficiente para % en este local.', v_product.name; end if;
+      end if;
+
+      -- Promoción automática (producto o categoría): gana la de mayor %.
+      select p2.* into v_promo
+      from public.promotions p2
+      where p2.company_id = v_company_id
+        and p2.active = true
+        and p2.promotion_type = 'discount'
+        and p2.scope_type <> 'none'
+        and (p2.starts_at is null or p2.starts_at <= now())
+        and (p2.ends_at is null or p2.ends_at >= now())
+        and p2.value_text ~ '[0-9]'
+        and (
+          (p2.scope_type = 'product' and p2.product_id = v_product.id
+            and coalesce((v_qty_by_product ->> v_product.id::text)::numeric, 0) >= coalesce(p2.min_qty, 0))
+          or
+          (p2.scope_type = 'category' and v_product.category_id is not null and p2.category_id = v_product.category_id
+            and coalesce((v_qty_by_category ->> v_product.category_id::text)::numeric, 0) >= coalesce(p2.min_qty, 0))
+        )
+      order by (regexp_replace(p2.value_text, '[^0-9.]', '', 'g'))::numeric desc
+      limit 1;
+
+      v_orig_unit_price := v_unit_price;
+      if v_promo.id is not null then
+        v_promo_pct := least(greatest((regexp_replace(v_promo.value_text, '[^0-9.]', '', 'g'))::numeric / 100, 0), 1);
+        v_unit_price := round(v_unit_price * (1 - v_promo_pct), 2);
+        v_promo_discount := v_promo_discount + round((v_orig_unit_price - v_unit_price) * v_qty, 2);
+      end if;
+      v_promo := null;
+
+      if not v_charges_iva then
+        v_line_total := round(v_unit_price * v_qty, 2); v_line_tax := 0;
+      elsif v_price_includes_tax then
+        v_line_total := round(v_unit_price * v_qty, 2); v_line_tax := round(v_line_total - v_line_total/(1+v_tax_rate), 2);
+      else
+        v_line_total := round(v_unit_price * v_qty * (1+v_tax_rate), 2); v_line_tax := round(v_unit_price * v_qty * v_tax_rate, 2);
+      end if;
+      v_total := v_total + v_line_total; v_tax := v_tax + v_line_tax;
+
+      insert into public.sale_items (company_id, location_id, sale_id, product_id, product_name, qty, unit_price, total, cost, tax_amount, price_includes_tax)
+      values (v_company_id, v_location_id, v_sale_id, v_product.id, v_product.name, v_qty, v_unit_price, v_line_total, v_unit_cost, v_line_tax, case when v_charges_iva then v_price_includes_tax else true end);
+
+      if v_product.product_type = 'standard' then
+        update public.product_locations set stock = stock - v_qty, updated_at = now() where product_id = v_product.id and location_id = v_location_id;
+        update public.products set stock = (select coalesce(sum(stock),0) from public.product_locations where product_id = v_product.id) where id = v_product.id;
+        insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty, reference_type, reference_id, notes)
+        values (v_company_id, v_location_id, v_product.id, 'sale', -v_qty, 'sale', v_sale_id, 'Venta POS');
+      end if;
+      -- combo: el stock de sus piezas ya se descontó arriba, línea por línea.
+      -- service: nunca maneja stock.
+    end if;
+  end loop;
+
+  v_subtotal := v_total - v_tax;
+
+  -- Puntos de lealtad (Fase 3): nunca bloquean la venta. El descuento por
+  -- canje se resta del TOTAL final (subtotal/tax ya reflejan el precio
+  -- real cobrado por articulo -- incluyendo cualquier promocion
+  -- automatica aplicada arriba) -- asi sales.total sigue siendo
+  -- exactamente "lo que se cobro", que es lo que ya suman
+  -- compute_cash_session_expected, sales_by_payment_method y los reportes
+  -- de caja.
+  if p_customer_id is not null and coalesce(v_loyalty_enabled, false) then
+    select loyalty_points into v_customer_balance
+      from public.customers where id = p_customer_id and company_id = v_company_id
+      for update;
+
+    if coalesce(p_points_redeemed, 0) > 0 and coalesce(v_point_value, 0) > 0 then
+      v_points_redeemed_actual := least(
+        p_points_redeemed::numeric,
+        coalesce(v_customer_balance, 0),
+        floor(v_total / v_point_value)
+      );
+      if v_points_redeemed_actual > 0 then
+        v_discount := round(v_points_redeemed_actual * v_point_value, 2);
+        insert into public.loyalty_ledger (company_id, customer_id, sale_id, points, type, created_by)
+        values (v_company_id, p_customer_id, v_sale_id, -v_points_redeemed_actual, 'redeemed', auth.uid());
+      end if;
+    end if;
+
+    v_total := v_total - v_discount;
+
+    if coalesce(v_earn_rate, 0) > 0 then
+      v_points_earned := floor(v_total / v_earn_rate);
+      if v_points_earned > 0 then
+        insert into public.loyalty_ledger (company_id, customer_id, sale_id, points, type, created_by)
+        values (v_company_id, p_customer_id, v_sale_id, v_points_earned, 'earned', auth.uid());
+      end if;
+    end if;
+
+    update public.customers
+      set loyalty_points = coalesce(loyalty_points, 0) + v_points_earned - v_points_redeemed_actual,
+          updated_at = now()
+      where id = p_customer_id;
+  end if;
+
+  -- Pago dividido / crédito: si el cajero manda un desglose, se valida que
+  -- sume exacto al total ya final (post-promociones y post-lealtad) --
+  -- nunca se confía en los montos individuales, solo se acepta la
+  -- combinación si cuadra con lo que create_sale ya calculó. Sin desglose,
+  -- se guarda una sola fila (mismo comportamiento de siempre). Si el total
+  -- quedó en 0 (cubierto por completo con puntos), no hay nada que pagar.
+  --
+  -- Cuando una línea es kind='credit': se exige cliente, y se valida que
+  -- (credit_limit - credit_balance) alcance el monto -- si no alcanza, se
+  -- rechaza toda la venta (no se recorta el crédito en silencio, a
+  -- diferencia de los puntos de lealtad, porque el cajero ya le prometió
+  -- ese monto exacto al cliente al armar el pago dividido).
+  if v_total > 0 then
+    if p_payments is not null and jsonb_array_length(p_payments) > 0 then
+      select coalesce(sum((pmt ->> 'amount')::numeric), 0) into v_payments_total
+      from jsonb_array_elements(p_payments) pmt;
+
+      if round(v_payments_total, 2) <> round(v_total, 2) then
+        raise exception 'La suma de los pagos (%) no coincide con el total de la venta (%).', v_payments_total, v_total;
+      end if;
+
+      for v_payment_item in select * from jsonb_array_elements(p_payments) loop
+        v_payment_method := nullif(btrim(coalesce(v_payment_item ->> 'method', '')), '');
+        v_payment_amount := (v_payment_item ->> 'amount')::numeric;
+        v_payment_kind := nullif(btrim(coalesce(v_payment_item ->> 'kind', '')), '');
+        if v_payment_kind is null then
+          v_payment_kind := case when lower(coalesce(v_payment_method,'')) = 'efectivo' then 'cash' else 'other' end;
+        end if;
+        if v_payment_method is null then raise exception 'Metodo de pago invalido.'; end if;
+        if v_payment_amount is null or v_payment_amount <= 0 then raise exception 'Monto de pago invalido.'; end if;
+
+        if v_payment_kind = 'credit' then
+          if p_customer_id is null then
+            raise exception 'Elige un cliente para vender a credito.';
+          end if;
+          select credit_limit, credit_balance into v_credit_limit, v_credit_balance
+            from public.customers where id = p_customer_id and company_id = v_company_id
+            for update;
+          if v_credit_limit is null or v_credit_limit <= 0 then
+            raise exception 'Este cliente no tiene credito habilitado.';
+          end if;
+          v_credit_available := v_credit_limit - coalesce(v_credit_balance, 0);
+          if v_payment_amount > v_credit_available then
+            raise exception 'El credito disponible del cliente (%) es menor al monto a credito (%).', round(v_credit_available,2), round(v_payment_amount,2);
+          end if;
+          update public.customers set credit_balance = coalesce(credit_balance,0) + v_payment_amount, updated_at = now()
+            where id = p_customer_id;
+        end if;
+
+        insert into public.sale_payments (company_id, sale_id, method, amount, kind)
+        values (v_company_id, v_sale_id, v_payment_method, round(v_payment_amount, 2), v_payment_kind);
+      end loop;
+
+      select count(distinct (pmt ->> 'method')) into v_distinct_methods
+      from jsonb_array_elements(p_payments) pmt;
+      if v_distinct_methods > 1 then
+        update public.sales set payment_method = 'Mixto' where id = v_sale_id;
+      end if;
+    else
+      v_payment_method := coalesce(p_payment_method, 'Efectivo');
+      v_payment_kind := nullif(btrim(coalesce(p_payment_kind, '')), '');
+      if v_payment_kind is null then
+        v_payment_kind := case when lower(v_payment_method) = 'efectivo' then 'cash' else 'other' end;
+      end if;
+
+      if v_payment_kind = 'credit' then
+        if p_customer_id is null then
+          raise exception 'Elige un cliente para vender a credito.';
+        end if;
+        select credit_limit, credit_balance into v_credit_limit, v_credit_balance
+          from public.customers where id = p_customer_id and company_id = v_company_id
+          for update;
+        if v_credit_limit is null or v_credit_limit <= 0 then
+          raise exception 'Este cliente no tiene credito habilitado.';
+        end if;
+        v_credit_available := v_credit_limit - coalesce(v_credit_balance, 0);
+        if v_total > v_credit_available then
+          raise exception 'El credito disponible del cliente (%) es menor al total de la venta (%).', round(v_credit_available,2), round(v_total,2);
+        end if;
+        update public.customers set credit_balance = coalesce(credit_balance,0) + v_total, updated_at = now()
+          where id = p_customer_id;
+      end if;
+
+      insert into public.sale_payments (company_id, sale_id, method, amount, kind)
+      values (v_company_id, v_sale_id, v_payment_method, v_total, v_payment_kind);
+    end if;
+  end if;
+
+  update public.sales set subtotal = v_subtotal, tax = v_tax, total = v_total, discount_total = v_discount + v_promo_discount where id = v_sale_id;
+
+  return jsonb_build_object(
+    'sale_id', v_sale_id,
+    'subtotal', v_subtotal,
+    'tax', v_tax,
+    'total', v_total,
+    'discount_total', v_discount + v_promo_discount,
+    'promo_discount', v_promo_discount,
+    'points_earned', v_points_earned,
+    'points_redeemed', v_points_redeemed_actual
+  );
+end;
+$function$;
+
+revoke execute on function public.create_sale(uuid, text, text, jsonb, uuid, uuid, uuid, integer, jsonb, text) from public, anon;
+grant execute on function public.create_sale(uuid, text, text, jsonb, uuid, uuid, uuid, integer, jsonb, text) to authenticated, service_role;

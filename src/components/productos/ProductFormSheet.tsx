@@ -30,6 +30,7 @@ import {
   createCategory,
   createProduct,
   createUnit,
+  fetchComboItems,
   fetchLocations,
   fetchProductLocations,
   fetchProductVariants,
@@ -38,15 +39,20 @@ import {
   syncProductVariants,
   updateProduct,
   getErrorMessage,
+  type ComboComponentInput,
   type Location,
   type Unit,
 } from "@/services/appData";
-import type { Product } from "@/types";
+import type { Product, ProductType } from "@/types";
 import {
   VariantEditor,
   type AttrDef,
   type VariantRow,
 } from "@/components/productos/VariantEditor";
+import {
+  ComboItemsEditor,
+  type ComboItemRow,
+} from "@/components/productos/ComboItemsEditor";
 
 // Valor centinela del desplegable de categoría para "crear una nueva ahí mismo".
 const NEW_CATEGORY = "__new_category__";
@@ -98,6 +104,11 @@ export function ProductFormSheet({
   const { settings } = useBusinessSettings();
   const [isSaving, setIsSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Fijo desde que se crea el producto -- al editar se muestra como etiqueta,
+  // no como selector.
+  const [productType, setProductType] = useState<ProductType>("standard");
+  const [comboItems, setComboItems] = useState<ComboItemRow[]>([]);
+  const [comboItemsLoading, setComboItemsLoading] = useState(false);
   const [name, setName] = useState("");
   const [barcode, setBarcode] = useState("");
   const [sku, setSku] = useState("");
@@ -192,6 +203,8 @@ export function ProductFormSheet({
 
   const resetForm = useCallback(() => {
     setEditingId(null);
+    setProductType("standard");
+    setComboItems([]);
     setName("");
     setBarcode("");
     setSku("");
@@ -217,6 +230,24 @@ export function ProductFormSheet({
   const loadProduct = useCallback(
     (product: Product) => {
       setEditingId(product.id);
+      setProductType(product.productType);
+      setComboItems([]);
+      if (product.productType === "combo") {
+        setComboItemsLoading(true);
+        void fetchComboItems(product.id)
+          .then((items) =>
+            setComboItems(
+              items.map((item) => ({
+                componentProductId: item.componentProductId,
+                qty: String(item.qty),
+              })),
+            ),
+          )
+          .catch(() =>
+            toast.error("No se pudieron cargar las piezas del combo."),
+          )
+          .finally(() => setComboItemsLoading(false));
+      }
       setName(product.name);
       setBarcode(product.barcode ?? "");
       setSku(product.sku ?? "");
@@ -320,18 +351,49 @@ export function ProductFormSheet({
         locationId: loc.id,
         stock: Number(locStock[loc.id]?.stock) || 0,
       }));
-    if (!hasVariants && locations.length > 0 && locationsInput.length === 0) {
+    if (
+      productType === "standard" &&
+      !hasVariants &&
+      locations.length > 0 &&
+      locationsInput.length === 0
+    ) {
       toast.error("Asigna el producto a al menos una sucursal.");
       return;
     }
     const validVariants = variants.filter(
       (v) => Object.keys(v.attributes).length > 0,
     );
-    if (hasVariants && validVariants.length === 0) {
+    if (
+      productType === "standard" &&
+      hasVariants &&
+      validVariants.length === 0
+    ) {
       toast.error(
         "Genera al menos una variante (define atributos y pulsa “Generar combinaciones”).",
       );
       return;
+    }
+
+    let comboItemsInput: ComboComponentInput[] = [];
+    if (productType === "combo") {
+      comboItemsInput = comboItems
+        .filter((item) => item.componentProductId)
+        .map((item) => ({
+          componentProductId: item.componentProductId,
+          qty: Number(item.qty),
+        }));
+      if (comboItemsInput.length === 0) {
+        toast.error("Agrega al menos una pieza al combo.");
+        return;
+      }
+      if (
+        comboItemsInput.some(
+          (item) => !Number.isFinite(item.qty) || item.qty <= 0,
+        )
+      ) {
+        toast.error("La cantidad de cada pieza debe ser un número mayor a 0.");
+        return;
+      }
     }
 
     // Precio y costo no pueden ser negativos (producto base ni variantes).
@@ -412,11 +474,14 @@ export function ProductFormSheet({
         priceIncludesTax,
         imageUrl,
         lowStockThreshold: numLowStockThreshold,
-        locations: hasVariants
-          ? undefined
-          : locations.length > 0
-            ? locationsInput
-            : undefined,
+        productType,
+        comboItems: productType === "combo" ? comboItemsInput : undefined,
+        locations:
+          productType !== "standard" || hasVariants
+            ? undefined
+            : locations.length > 0
+              ? locationsInput
+              : undefined,
       };
 
       let productId = editingId;
@@ -490,6 +555,42 @@ export function ProductFormSheet({
           </SheetTitle>
         </SheetHeader>
         <div className="flex-1 space-y-3 overflow-y-auto p-4">
+          <div className="space-y-1">
+            <Label>Tipo de producto</Label>
+            {editingId ? (
+              <div className="flex h-10 items-center rounded-md border bg-muted/40 px-3 text-sm">
+                {productType === "combo"
+                  ? "Combo"
+                  : productType === "service"
+                    ? "Servicio"
+                    : "Estándar"}
+                <span className="ml-2 text-xs text-muted-foreground">
+                  (no se puede cambiar después de crear el producto)
+                </span>
+              </div>
+            ) : (
+              <Select
+                value={productType}
+                onValueChange={(value) => setProductType(value as ProductType)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="standard">Estándar</SelectItem>
+                  <SelectItem value="combo">Combo</SelectItem>
+                  <SelectItem value="service">Servicio</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {productType === "combo"
+                ? "Se arma de otros productos Estándar al venderse -- no tiene stock propio."
+                : productType === "service"
+                  ? "No maneja inventario (ej. instalación, mano de obra)."
+                  : "Un producto normal, con su propio stock."}
+            </p>
+          </div>
           <p className="text-xs font-bold uppercase tracking-wider text-primary">
             Datos del producto
           </p>
@@ -559,17 +660,19 @@ export function ProductFormSheet({
               placeholder="Código interno (opcional)"
             />
           </div>
-          <div className="space-y-1">
-            <Label>Alerta de stock bajo</Label>
-            <Input
-              type="number"
-              min="0"
-              step="1"
-              value={lowStockThreshold}
-              onChange={(event) => setLowStockThreshold(event.target.value)}
-              placeholder={`Usa el valor general de la tienda (${settings.lowStockThresholdDefault})`}
-            />
-          </div>
+          {productType === "standard" && (
+            <div className="space-y-1">
+              <Label>Alerta de stock bajo</Label>
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={lowStockThreshold}
+                onChange={(event) => setLowStockThreshold(event.target.value)}
+                placeholder={`Usa el valor general de la tienda (${settings.lowStockThresholdDefault})`}
+              />
+            </div>
+          )}
           <div className="space-y-1">
             <Label>Categoría</Label>
             <Select value={categoryId} onValueChange={setCategoryId}>
@@ -723,7 +826,7 @@ export function ProductFormSheet({
             )}
           </div>
 
-          {usesVariants && (
+          {productType === "standard" && usesVariants && (
             <div className="flex items-center justify-between rounded-lg border p-3">
               <div className="pr-3">
                 <Label>Este producto maneja variantes</Label>
@@ -735,7 +838,14 @@ export function ProductFormSheet({
               <Switch checked={hasVariants} onCheckedChange={toggleVariants} />
             </div>
           )}
-          {hasVariants ? (
+          {productType === "combo" ? (
+            <ComboItemsEditor
+              items={comboItems}
+              onItemsChange={setComboItems}
+              components={products.filter((p) => p.productType === "standard")}
+              isLoading={comboItemsLoading}
+            />
+          ) : productType === "service" ? null : hasVariants ? (
             <VariantEditor
               attrDefs={attrDefs}
               onAttrDefsChange={setAttrDefs}

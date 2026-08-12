@@ -23,6 +23,7 @@ export const categories: Category[] = [
 export const products: Product[] = [
   {
     id: "p1",
+    productType: "standard",
     name: "Arroz Costeño 750g",
     category: "Abarrotes",
     barcode: "7750001000011",
@@ -34,6 +35,7 @@ export const products: Product[] = [
   },
   {
     id: "p2",
+    productType: "standard",
     name: "Azúcar Rubia 1kg",
     category: "Abarrotes",
     barcode: "7750001000028",
@@ -44,6 +46,7 @@ export const products: Product[] = [
   },
   {
     id: "p3",
+    productType: "standard",
     name: "Aceite Primor 1L",
     category: "Abarrotes",
     barcode: "7750001000035",
@@ -54,6 +57,7 @@ export const products: Product[] = [
   },
   {
     id: "p4",
+    productType: "standard",
     name: "Fideos Don Vittorio 500g",
     category: "Abarrotes",
     barcode: "7750001000042",
@@ -64,6 +68,7 @@ export const products: Product[] = [
   },
   {
     id: "p5",
+    productType: "standard",
     name: "Atún Florida",
     category: "Abarrotes",
     barcode: "7750001000059",
@@ -74,6 +79,7 @@ export const products: Product[] = [
   },
   {
     id: "p6",
+    productType: "standard",
     name: "Leche Gloria 400g",
     category: "Lácteos",
     barcode: "7750001000066",
@@ -84,6 +90,7 @@ export const products: Product[] = [
   },
   {
     id: "p7",
+    productType: "standard",
     name: "Yogurt Gloria 1L",
     category: "Lácteos",
     barcode: "7750001000073",
@@ -94,6 +101,7 @@ export const products: Product[] = [
   },
   {
     id: "p8",
+    productType: "standard",
     name: "Coca Cola 1.5L",
     category: "Bebidas",
     barcode: "7750001000080",
@@ -105,6 +113,7 @@ export const products: Product[] = [
   },
   {
     id: "p9",
+    productType: "standard",
     name: "Inca Kola 1.5L",
     category: "Bebidas",
     barcode: "7750001000097",
@@ -115,6 +124,7 @@ export const products: Product[] = [
   },
   {
     id: "p10",
+    productType: "standard",
     name: "Agua San Luis",
     category: "Bebidas",
     barcode: "7750001000103",
@@ -125,6 +135,7 @@ export const products: Product[] = [
   },
   {
     id: "p11",
+    productType: "standard",
     name: "Detergente Bolívar",
     category: "Limpieza",
     barcode: "7750001000110",
@@ -135,6 +146,7 @@ export const products: Product[] = [
   },
   {
     id: "p12",
+    productType: "standard",
     name: "Papel Higiénico",
     category: "Limpieza",
     barcode: "7750001000127",
@@ -145,6 +157,7 @@ export const products: Product[] = [
   },
   {
     id: "p13",
+    productType: "standard",
     name: "Shampoo",
     category: "Cuidado Personal",
     barcode: "7750001000134",
@@ -155,6 +168,7 @@ export const products: Product[] = [
   },
   {
     id: "p14",
+    productType: "standard",
     name: "Pasta Dental",
     category: "Cuidado Personal",
     barcode: "7750001000141",
@@ -165,6 +179,7 @@ export const products: Product[] = [
   },
   {
     id: "p15",
+    productType: "standard",
     name: "Plátano kg",
     category: "Frutas y Verduras",
     barcode: "7750001000158",
@@ -176,6 +191,7 @@ export const products: Product[] = [
   },
   {
     id: "p16",
+    productType: "standard",
     name: "Tomate kg",
     category: "Frutas y Verduras",
     barcode: "7750001000165",
@@ -186,6 +202,7 @@ export const products: Product[] = [
   },
   {
     id: "p17",
+    productType: "standard",
     name: "Papas Lays",
     category: "Snacks",
     barcode: "7750001000172",
@@ -196,6 +213,7 @@ export const products: Product[] = [
   },
   {
     id: "p18",
+    productType: "standard",
     name: "Galletas Oreo",
     category: "Snacks",
     barcode: "7750001000189",
@@ -206,6 +224,7 @@ export const products: Product[] = [
   },
   {
     id: "p19",
+    productType: "standard",
     name: "Pan Francés",
     category: "Panadería",
     barcode: "7750001000196",
