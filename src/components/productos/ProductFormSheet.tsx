@@ -98,7 +98,14 @@ export function ProductFormSheet({
   /** Si es true, el proveedor queda fijo (no editable) en defaultSupplierId. */
   lockSupplier?: boolean;
 }) {
-  const { products, categories, suppliers, session } = useCompanyCatalog();
+  const {
+    products,
+    categories,
+    suppliers,
+    session,
+    isLoading: catalogLoading,
+    reload: reloadCatalog,
+  } = useCompanyCatalog();
   const { isDemo } = useDemoSession();
   const { usesVariants, profile } = useBusinessProfile();
   const { settings } = useBusinessSettings();
@@ -317,11 +324,17 @@ export function ProductFormSheet({
     [units, initLocStock],
   );
 
-  // Al abrir: carga el producto a editar o limpia para uno nuevo.
+  // Al abrir: carga el producto a editar o limpia para uno nuevo. También
+  // refresca el catálogo -- este panel casi siempre queda montado de fondo
+  // (Sheet solo oculta/muestra su contenido), así que su propia copia de
+  // useCompanyCatalog() puede quedar vieja; sin esto, un producto Estándar
+  // recién creado en ESTE MISMO panel no aparecía todavía como pieza
+  // disponible para armar un combo hasta refrescar la página entera.
   useEffect(() => {
     if (!open) return;
     if (editingProduct) loadProduct(editingProduct);
     else resetForm();
+    void reloadCatalog();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editingProduct]);
 
@@ -843,7 +856,7 @@ export function ProductFormSheet({
               items={comboItems}
               onItemsChange={setComboItems}
               components={products.filter((p) => p.productType === "standard")}
-              isLoading={comboItemsLoading}
+              isLoading={catalogLoading || comboItemsLoading}
             />
           ) : productType === "service" ? null : hasVariants ? (
             <VariantEditor
