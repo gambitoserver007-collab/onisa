@@ -2813,13 +2813,21 @@ describe("RPCs críticas de dinero y stock", () => {
       const company = await makeCompany(db, "Empresa Stock Test");
       const admin = await makeUser(db, company.id, "admin");
       // Default de la empresa es 10: 8 está bajo, 12 no.
-      const bajo = await makeProduct(db, company.id, company.loc1, "Bajo", 5, 10, 8);
+      const bajo = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Bajo",
+        5,
+        10,
+        8,
+      );
       await makeProduct(db, company.id, company.loc1, "Normal", 5, 10, 12);
 
       const { rows } = await asUser(db, admin, () =>
-        db.query<{ low_stock_summary: { count: number; items: { id: string }[] } }>(
-          "select low_stock_summary() as low_stock_summary",
-        ),
+        db.query<{
+          low_stock_summary: { count: number; items: { id: string }[] };
+        }>("select low_stock_summary() as low_stock_summary"),
       );
       const result = rows[0].low_stock_summary;
       expect(result.count).toBe(1);
@@ -2829,14 +2837,25 @@ describe("RPCs críticas de dinero y stock", () => {
     it("un producto con umbral propio lo usa en vez del default de la empresa", async () => {
       const company = await makeCompany(db, "Empresa Umbral Propio Test");
       const admin = await makeUser(db, company.id, "admin");
-      const producto = await makeProduct(db, company.id, company.loc1, "Insumo caro", 5, 10, 15);
+      const producto = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Insumo caro",
+        5,
+        10,
+        15,
+      );
       // Con el default (10) NO estaría bajo; con un umbral propio de 20, sí.
-      await db.query("update public.products set low_stock_threshold=20 where id=$1", [producto]);
+      await db.query(
+        "update public.products set low_stock_threshold=20 where id=$1",
+        [producto],
+      );
 
       const { rows } = await asUser(db, admin, () =>
-        db.query<{ low_stock_summary: { count: number; items: { id: string }[] } }>(
-          "select low_stock_summary() as low_stock_summary",
-        ),
+        db.query<{
+          low_stock_summary: { count: number; items: { id: string }[] };
+        }>("select low_stock_summary() as low_stock_summary"),
       );
       expect(rows[0].low_stock_summary.count).toBe(1);
       expect(rows[0].low_stock_summary.items[0].id).toBe(producto);
@@ -2845,12 +2864,23 @@ describe("RPCs críticas de dinero y stock", () => {
     it("un producto agotado (stock=0) aparece incluido -- antes se excluía del resumen", async () => {
       const company = await makeCompany(db, "Empresa Agotado Test");
       const admin = await makeUser(db, company.id, "admin");
-      const agotado = await makeProduct(db, company.id, company.loc1, "Agotado", 5, 10, 0);
+      const agotado = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Agotado",
+        5,
+        10,
+        0,
+      );
 
       const { rows } = await asUser(db, admin, () =>
-        db.query<{ low_stock_summary: { count: number; items: { id: string; stock: number }[] } }>(
-          "select low_stock_summary() as low_stock_summary",
-        ),
+        db.query<{
+          low_stock_summary: {
+            count: number;
+            items: { id: string; stock: number }[];
+          };
+        }>("select low_stock_summary() as low_stock_summary"),
       );
       expect(rows[0].low_stock_summary.count).toBe(1);
       expect(rows[0].low_stock_summary.items[0].id).toBe(agotado);
@@ -2862,12 +2892,22 @@ describe("RPCs críticas de dinero y stock", () => {
       const admin = await makeUser(db, company.id, "admin");
       // 8 en loc1 (bajo) + 8 en loc2 (bajo) -> products.stock agregado = 16 (NO bajo),
       // pero cada sucursal individualmente SÍ está baja.
-      const producto = await makeProduct(db, company.id, company.loc1, "Repartido", 5, 10, 8);
+      const producto = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Repartido",
+        5,
+        10,
+        8,
+      );
       await db.query(
         "insert into public.product_locations (company_id, product_id, location_id, stock, is_active) values ($1,$2,$3,8,true)",
         [company.id, producto, company.loc2],
       );
-      await db.query("update public.products set stock=16 where id=$1", [producto]);
+      await db.query("update public.products set stock=16 where id=$1", [
+        producto,
+      ]);
 
       const { rows: aggRows } = await asUser(db, admin, () =>
         db.query<{ low_stock_summary: { count: number } }>(
@@ -2877,10 +2917,9 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(aggRows[0].low_stock_summary.count).toBe(0);
 
       const { rows: locRows } = await asUser(db, admin, () =>
-        db.query<{ low_stock_summary: { count: number; items: { stock: number }[] } }>(
-          "select low_stock_summary($1) as low_stock_summary",
-          [company.loc1],
-        ),
+        db.query<{
+          low_stock_summary: { count: number; items: { stock: number }[] };
+        }>("select low_stock_summary($1) as low_stock_summary", [company.loc1]),
       );
       expect(locRows[0].low_stock_summary.count).toBe(1);
       expect(Number(locRows[0].low_stock_summary.items[0].stock)).toBe(8);
@@ -2889,7 +2928,15 @@ describe("RPCs críticas de dinero y stock", () => {
     it("respeta el límite y ordena por stock ascendente (los más urgentes primero)", async () => {
       const company = await makeCompany(db, "Empresa Orden Test");
       const admin = await makeUser(db, company.id, "admin");
-      const p5 = await makeProduct(db, company.id, company.loc1, "Stock 5", 5, 10, 5);
+      const p5 = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Stock 5",
+        5,
+        10,
+        5,
+      );
       await makeProduct(db, company.id, company.loc1, "Stock 2", 5, 10, 2);
       await makeProduct(db, company.id, company.loc1, "Stock 0", 5, 10, 0);
       await makeProduct(db, company.id, company.loc1, "Stock 8", 5, 10, 8);
@@ -2910,8 +2957,24 @@ describe("RPCs críticas de dinero y stock", () => {
       const companyA = await makeCompany(db, "Empresa A Aislamiento Stock");
       const companyB = await makeCompany(db, "Empresa B Aislamiento Stock");
       const adminA = await makeUser(db, companyA.id, "admin");
-      await makeProduct(db, companyB.id, companyB.loc1, "Producto de B, muy bajo", 5, 10, 1);
-      await makeProduct(db, companyA.id, companyA.loc1, "Producto de A, normal", 5, 10, 50);
+      await makeProduct(
+        db,
+        companyB.id,
+        companyB.loc1,
+        "Producto de B, muy bajo",
+        5,
+        10,
+        1,
+      );
+      await makeProduct(
+        db,
+        companyA.id,
+        companyA.loc1,
+        "Producto de A, normal",
+        5,
+        10,
+        50,
+      );
 
       const { rows } = await asUser(db, adminA, () =>
         db.query<{ low_stock_summary: { count: number } }>(
@@ -2937,6 +3000,316 @@ describe("RPCs críticas de dinero y stock", () => {
         ),
       );
       expect(rows[0].low_stock_summary.count).toBe(0);
+    });
+  });
+
+  describe("22. Proyección de compra (purchase_projection)", () => {
+    it("calcula la velocidad de venta real y los días de cobertura restantes", async () => {
+      const company = await makeCompany(db, "Empresa Proyección Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const customer = await makeCustomer(db, company.id, "Cliente Proyección");
+      // 30 unidades vendidas en la ventana de 30 días -> velocidad = 1/día.
+      const producto = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Constante",
+        5,
+        10,
+        1000,
+      );
+      await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: producto, qty: 30, unit_price: 10 }],
+          company.loc1,
+          undefined,
+          { customerId: customer },
+        ),
+      );
+      // Deja el stock en un valor limpio para el cálculo de cobertura.
+      await db.query("update public.products set stock=10 where id=$1", [
+        producto,
+      ]);
+
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{
+          purchase_projection: {
+            items: {
+              id: string;
+              velocity: number;
+              daysOfCoverage: number;
+              stock: number;
+            }[];
+          };
+        }>("select purchase_projection(30, 30) as purchase_projection"),
+      );
+      const item = rows[0].purchase_projection.items.find(
+        (i) => i.id === producto,
+      );
+      expect(item).toBeDefined();
+      expect(Number(item!.velocity)).toBeCloseTo(1);
+      expect(Number(item!.daysOfCoverage)).toBeCloseTo(10); // stock 10 / velocidad 1
+    });
+
+    it("una venta fuera de la ventana no cuenta para la velocidad", async () => {
+      const company = await makeCompany(db, "Empresa Venta Vieja Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const customer = await makeCustomer(db, company.id, "Cliente Viejo");
+      const producto = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Solo vendido hace tiempo",
+        5,
+        10,
+        20,
+      );
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: producto, qty: 5, unit_price: 10 }],
+          company.loc1,
+          undefined,
+          { customerId: customer },
+        ),
+      );
+      // La venta ocurrió, pero hace 60 días -- fuera de la ventana de 30.
+      await db.query(
+        "update public.sales set sale_date = now() - interval '60 days' where id=$1",
+        [result.sale_id],
+      );
+
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{ purchase_projection: { items: { id: string }[] } }>(
+          "select purchase_projection(30, 30) as purchase_projection",
+        ),
+      );
+      expect(
+        rows[0].purchase_projection.items.some((i) => i.id === producto),
+      ).toBe(false);
+    });
+
+    it("las devoluciones dentro de la ventana se restan de la velocidad neta", async () => {
+      const company = await makeCompany(db, "Empresa Devolución Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const customer = await makeCustomer(db, company.id, "Cliente Devuelve");
+      const producto = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Con devoluciones",
+        5,
+        10,
+        50,
+      );
+      let saleId = "";
+      let saleItemId = "";
+      await asUser(db, admin, async () => {
+        const result = await createSale(
+          db,
+          [{ product_id: producto, qty: 20, unit_price: 10 }],
+          company.loc1,
+          undefined,
+          { customerId: customer },
+        );
+        saleId = result.sale_id;
+        const { rows: items } = await db.query<{ id: string }>(
+          "select id from public.sale_items where sale_id=$1",
+          [saleId],
+        );
+        saleItemId = items[0].id;
+        // Se devuelven 8 de las 20 -> neto vendido = 12 en la ventana de 30 días.
+        await db.query(
+          "select create_return($1, 'No le gustó', $2::jsonb, $3, true) as create_return",
+          [
+            saleId,
+            JSON.stringify([
+              { sale_item_id: saleItemId, qty: 8, unit_price: 10 },
+            ]),
+            company.loc1,
+          ],
+        );
+      });
+
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{
+          purchase_projection: { items: { id: string; velocity: number }[] };
+        }>("select purchase_projection(30, 30) as purchase_projection"),
+      );
+      const item = rows[0].purchase_projection.items.find(
+        (i) => i.id === producto,
+      );
+      expect(item).toBeDefined();
+      expect(Number(item!.velocity)).toBeCloseTo(12 / 30);
+    });
+
+    it("un producto sin ventas en la ventana no aparece en la proyección", async () => {
+      const company = await makeCompany(db, "Empresa Sin Ventas Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const producto = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Nunca vendido",
+        5,
+        10,
+        20,
+      );
+
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{ purchase_projection: { items: { id: string }[] } }>(
+          "select purchase_projection(30, 30) as purchase_projection",
+        ),
+      );
+      expect(
+        rows[0].purchase_projection.items.some((i) => i.id === producto),
+      ).toBe(false);
+    });
+
+    it("suggestedQty cubre exactamente los días de cobertura pedidos, sin bajar de 0", async () => {
+      const company = await makeCompany(db, "Empresa Sugerencia Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const customer = await makeCustomer(db, company.id, "Cliente Sugerencia");
+      // Velocidad = 30/30 = 1/día, stock = 5, cobertura pedida = 15 días
+      // -> sugerido = 1*15 - 5 = 10.
+      const producto = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Para sugerir",
+        5,
+        10,
+        1000,
+      );
+      await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: producto, qty: 30, unit_price: 10 }],
+          company.loc1,
+          undefined,
+          { customerId: customer },
+        ),
+      );
+      await db.query("update public.products set stock=5 where id=$1", [
+        producto,
+      ]);
+
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{
+          purchase_projection: {
+            items: { id: string; suggestedQty: number }[];
+          };
+        }>("select purchase_projection(30, 15) as purchase_projection"),
+      );
+      const item = rows[0].purchase_projection.items.find(
+        (i) => i.id === producto,
+      );
+      expect(item).toBeDefined();
+      expect(Number(item!.suggestedQty)).toBe(10);
+    });
+
+    it("no mezcla ventas de otra empresa (aislamiento)", async () => {
+      const companyA = await makeCompany(
+        db,
+        "Empresa A Proyección Aislamiento",
+      );
+      const companyB = await makeCompany(
+        db,
+        "Empresa B Proyección Aislamiento",
+      );
+      const adminA = await makeUser(db, companyA.id, "admin");
+      const adminB = await makeUser(db, companyB.id, "admin");
+      const customerB = await makeCustomer(db, companyB.id, "Cliente B");
+      const productoB = await makeProduct(
+        db,
+        companyB.id,
+        companyB.loc1,
+        "Producto de B",
+        5,
+        10,
+        1000,
+      );
+      await asUser(db, adminB, () =>
+        createSale(
+          db,
+          [{ product_id: productoB, qty: 30, unit_price: 10 }],
+          companyB.loc1,
+          undefined,
+          { customerId: customerB },
+        ),
+      );
+
+      const { rows } = await asUser(db, adminA, () =>
+        db.query<{ purchase_projection: { items: unknown[] } }>(
+          "select purchase_projection(30, 30) as purchase_projection",
+        ),
+      );
+      expect(rows[0].purchase_projection.items).toHaveLength(0);
+    });
+
+    it("ordena por menor cobertura primero y respeta el límite", async () => {
+      const company = await makeCompany(db, "Empresa Orden Proyección Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const customer = await makeCustomer(db, company.id, "Cliente Orden");
+      // Misma velocidad (30/30=1/día) para los tres, distinto stock ->
+      // distintos días de cobertura: 2, 5, 20.
+      const urgente = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Urgente",
+        5,
+        10,
+        1000,
+      );
+      const medio = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Medio",
+        5,
+        10,
+        1000,
+      );
+      const holgado = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Holgado",
+        5,
+        10,
+        1000,
+      );
+      await asUser(db, admin, async () => {
+        for (const productId of [urgente, medio, holgado]) {
+          await createSale(
+            db,
+            [{ product_id: productId, qty: 30, unit_price: 10 }],
+            company.loc1,
+            undefined,
+            { customerId: customer },
+          );
+        }
+      });
+      // Deja cada uno en el stock exacto que define su cobertura (2, 5, 20 días).
+      await db.query("update public.products set stock=2 where id=$1", [
+        urgente,
+      ]);
+      await db.query("update public.products set stock=5 where id=$1", [medio]);
+      await db.query("update public.products set stock=20 where id=$1", [
+        holgado,
+      ]);
+
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{
+          purchase_projection: { items: { id: string }[] };
+        }>("select purchase_projection(30, 30, 2) as purchase_projection"),
+      );
+      const ids = rows[0].purchase_projection.items.map((i) => i.id);
+      expect(ids).toHaveLength(2);
+      expect(ids[0]).toBe(urgente);
+      expect(ids[1]).toBe(medio);
     });
   });
 });

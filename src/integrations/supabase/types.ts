@@ -2276,6 +2276,14 @@ export type Database = {
         Args: { p_location_id?: string; p_pin: string; p_tz?: string };
         Returns: Json;
       };
+      purchase_projection: {
+        Args: {
+          p_coverage_days?: number;
+          p_days_window?: number;
+          p_limit?: number;
+        };
+        Returns: Json;
+      };
       reset_company_data: {
         Args: { p_confirm_name: string };
         Returns: Json;

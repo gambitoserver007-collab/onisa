@@ -46,6 +46,7 @@ import { Route as ComprasIndexRouteImport } from './routes/compras.index'
 import { Route as ComprasNuevaRouteImport } from './routes/compras.nueva'
 import { Route as InventarioIndexRouteImport } from './routes/inventario.index'
 import { Route as InventarioKardexRouteImport } from './routes/inventario.kardex'
+import { Route as InventarioProyeccionRouteImport } from './routes/inventario.proyeccion'
 import { Route as VentasIndexRouteImport } from './routes/ventas.index'
 import { Route as VentasIdRouteImport } from './routes/ventas.$id'
 import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
@@ -238,6 +239,11 @@ const InventarioKardexRoute = InventarioKardexRouteImport.update({
   path: '/inventario/kardex',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InventarioProyeccionRoute = InventarioProyeccionRouteImport.update({
+  id: '/inventario/proyeccion',
+  path: '/inventario/proyeccion',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const VentasIndexRoute = VentasIndexRouteImport.update({
   id: '/ventas/',
   path: '/ventas/',
@@ -295,6 +301,7 @@ export interface FileRoutesByFullPath {
   '/caja/revision': typeof CajaRevisionRoute
   '/compras/nueva': typeof ComprasNuevaRoute
   '/inventario/kardex': typeof InventarioKardexRoute
+  '/inventario/proyeccion': typeof InventarioProyeccionRoute
   '/ventas/$id': typeof VentasIdRoute
   '/admin/': typeof AdminIndexRoute
   '/compras/': typeof ComprasIndexRoute
@@ -338,6 +345,7 @@ export interface FileRoutesByTo {
   '/caja/revision': typeof CajaRevisionRoute
   '/compras/nueva': typeof ComprasNuevaRoute
   '/inventario/kardex': typeof InventarioKardexRoute
+  '/inventario/proyeccion': typeof InventarioProyeccionRoute
   '/ventas/$id': typeof VentasIdRoute
   '/admin': typeof AdminIndexRoute
   '/compras': typeof ComprasIndexRoute
@@ -382,6 +390,7 @@ export interface FileRoutesById {
   '/caja_/revision': typeof CajaRevisionRoute
   '/compras/nueva': typeof ComprasNuevaRoute
   '/inventario/kardex': typeof InventarioKardexRoute
+  '/inventario/proyeccion': typeof InventarioProyeccionRoute
   '/ventas/$id': typeof VentasIdRoute
   '/admin/': typeof AdminIndexRoute
   '/compras/': typeof ComprasIndexRoute
@@ -427,6 +436,7 @@ export interface FileRouteTypes {
     | '/caja/revision'
     | '/compras/nueva'
     | '/inventario/kardex'
+    | '/inventario/proyeccion'
     | '/ventas/$id'
     | '/admin/'
     | '/compras/'
@@ -470,6 +480,7 @@ export interface FileRouteTypes {
     | '/caja/revision'
     | '/compras/nueva'
     | '/inventario/kardex'
+    | '/inventario/proyeccion'
     | '/ventas/$id'
     | '/admin'
     | '/compras'
@@ -513,6 +524,7 @@ export interface FileRouteTypes {
     | '/caja_/revision'
     | '/compras/nueva'
     | '/inventario/kardex'
+    | '/inventario/proyeccion'
     | '/ventas/$id'
     | '/admin/'
     | '/compras/'
@@ -557,6 +569,7 @@ export interface RootRouteChildren {
   CajaRevisionRoute: typeof CajaRevisionRoute
   ComprasNuevaRoute: typeof ComprasNuevaRoute
   InventarioKardexRoute: typeof InventarioKardexRoute
+  InventarioProyeccionRoute: typeof InventarioProyeccionRoute
   VentasIdRoute: typeof VentasIdRoute
   AdminIndexRoute: typeof AdminIndexRoute
   ComprasIndexRoute: typeof ComprasIndexRoute
@@ -827,6 +840,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InventarioKardexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/inventario/proyeccion': {
+      id: '/inventario/proyeccion'
+      path: '/inventario/proyeccion'
+      fullPath: '/inventario/proyeccion'
+      preLoaderRoute: typeof InventarioProyeccionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/ventas/': {
       id: '/ventas/'
       path: '/ventas'
@@ -894,6 +914,7 @@ const rootRouteChildren: RootRouteChildren = {
   CajaRevisionRoute: CajaRevisionRoute,
   ComprasNuevaRoute: ComprasNuevaRoute,
   InventarioKardexRoute: InventarioKardexRoute,
+  InventarioProyeccionRoute: InventarioProyeccionRoute,
   VentasIdRoute: VentasIdRoute,
   AdminIndexRoute: AdminIndexRoute,
   ComprasIndexRoute: ComprasIndexRoute,

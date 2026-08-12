@@ -267,6 +267,9 @@ function Inventario() {
                 <ArrowRightLeft className="mr-1 h-4 w-4" /> Transferir stock
               </Button>
             )}
+            <Link to="/inventario/proyeccion">
+              <Button variant="outline">Proyección de compra</Button>
+            </Link>
             <Link to="/inventario/kardex">
               <Button variant="outline">Ver Kardex</Button>
             </Link>

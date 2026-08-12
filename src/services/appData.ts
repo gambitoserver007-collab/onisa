@@ -506,6 +506,70 @@ export async function fetchLowStockSummary(
   };
 }
 
+export interface PurchaseProjectionItem {
+  id: string;
+  name: string;
+  unit: string;
+  stock: number;
+  /** Unidades vendidas por día (ventas netas de devoluciones) en la ventana consultada. */
+  velocity: number;
+  /** Días que dura el stock actual al ritmo de venta actual. */
+  daysOfCoverage: number;
+  /** Unidades sugeridas a comprar para cubrir coverageDays al ritmo actual. */
+  suggestedQty: number;
+}
+
+export interface PurchaseProjection {
+  windowDays: number;
+  coverageDays: number;
+  items: PurchaseProjectionItem[];
+}
+
+/** Velocidad de venta real (ventas menos devoluciones) por producto en los
+ * últimos `windowDays` días, y cuánto conviene comprar para cubrir los
+ * próximos `coverageDays` -- calculado server-side (RPC purchase_projection)
+ * para no traer todo el historial de ventas al navegador. Solo incluye
+ * productos con ventas reales en la ventana (sin datos = no se puede
+ * proyectar nada útil). */
+export async function fetchPurchaseProjection(
+  windowDays = 30,
+  coverageDays = 30,
+  limit = 100,
+): Promise<PurchaseProjection> {
+  const { data, error } = await supabase.rpc("purchase_projection", {
+    p_days_window: windowDays,
+    p_coverage_days: coverageDays,
+    p_limit: limit,
+  });
+  if (error) throw error;
+  const payload = (data ?? { windowDays, coverageDays, items: [] }) as {
+    windowDays?: number;
+    coverageDays?: number;
+    items?: {
+      id: string;
+      name: string;
+      unit: string;
+      stock: number;
+      velocity: number;
+      daysOfCoverage: number;
+      suggestedQty: number;
+    }[];
+  };
+  return {
+    windowDays: payload.windowDays ?? windowDays,
+    coverageDays: payload.coverageDays ?? coverageDays,
+    items: (payload.items ?? []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      unit: item.unit,
+      stock: toNumber(item.stock),
+      velocity: toNumber(item.velocity),
+      daysOfCoverage: toNumber(item.daysOfCoverage),
+      suggestedQty: toNumber(item.suggestedQty),
+    })),
+  };
+}
+
 export async function fetchSales(
   companyId?: string,
   locationId?: string,

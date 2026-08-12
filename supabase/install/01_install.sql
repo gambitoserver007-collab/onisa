@@ -8078,3 +8078,76 @@ $$;
 
 revoke execute on function public.low_stock_summary(uuid, integer) from public, anon;
 grant execute on function public.low_stock_summary(uuid, integer) to authenticated;
+
+-- ============================================================
+-- Tendencias y proyección de compra: velocidad de venta real por producto
+-- (ventas menos devoluciones, en una ventana de días), cuántos días de
+-- cobertura queda al ritmo actual, y cuánto conviene comprar para cubrir
+-- los próximos p_coverage_days. Company-wide (no por sucursal): igual que
+-- el resto de "compras", la decisión de reabastecer se toma a nivel
+-- negocio, no por local -- para eso ya existe transferir stock.
+-- ============================================================
+create or replace function public.purchase_projection(
+  p_days_window integer default 30,
+  p_coverage_days integer default 30,
+  p_limit integer default 100
+) returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with sold as (
+    select si.product_id, sum(si.qty) as qty_sold
+    from public.sale_items si
+    join public.sales s on s.id = si.sale_id
+    where s.company_id = public.current_user_company_id()
+      and s.deleted_at is null
+      and s.sale_date >= now() - make_interval(days => p_days_window)
+      and si.product_id is not null
+    group by si.product_id
+  ),
+  returned as (
+    select ri.product_id, sum(ri.qty) as qty_returned
+    from public.return_items ri
+    join public.returns r on r.id = ri.return_id
+    where r.company_id = public.current_user_company_id()
+      and r.deleted_at is null
+      and r.created_at >= now() - make_interval(days => p_days_window)
+      and ri.product_id is not null
+    group by ri.product_id
+  ),
+  calc as (
+    select
+      p.id, p.name, p.unit, p.stock,
+      greatest(coalesce(sold.qty_sold, 0) - coalesce(returned.qty_returned, 0), 0)
+        / nullif(p_days_window, 0)::numeric as velocity
+    from public.products p
+    left join sold on sold.product_id = p.id
+    left join returned on returned.product_id = p.id
+    where p.company_id = public.current_user_company_id()
+      and p.deleted_at is null
+      and p.active = true
+  )
+  select jsonb_build_object(
+    'windowDays', p_days_window,
+    'coverageDays', p_coverage_days,
+    'items', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', id,
+        'name', name,
+        'unit', unit,
+        'stock', stock,
+        'velocity', round(velocity, 3),
+        'daysOfCoverage', round(stock / velocity, 1),
+        'suggestedQty', greatest(ceil(velocity * p_coverage_days - stock), 0)
+      ) order by (stock / velocity) asc)
+      from (
+        select * from calc where velocity > 0 order by (stock / velocity) asc limit p_limit
+      ) c
+    ), '[]'::jsonb)
+  );
+$$;
+
+revoke execute on function public.purchase_projection(integer, integer, integer) from public, anon;
+grant execute on function public.purchase_projection(integer, integer, integer) to authenticated;
