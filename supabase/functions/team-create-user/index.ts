@@ -164,6 +164,19 @@ Deno.serve(async (req) => {
 
     const newUserId = created.user.id;
 
+    // handle_new_user() (el trigger AFTER INSERT ON auth.users) ya NO confía
+    // en ningún company_id que venga en user_metadata -- por seguridad
+    // (ver comentario extenso en 01_install.sql), siempre crea una empresa
+    // nueva "fantasma" para cualquier usuario recién insertado. Aquí se
+    // corrige el perfil a la empresa REAL (ya validada arriba) y luego se
+    // borra esa empresa fantasma, que nunca tuvo ni tendrá otro dato.
+    const { data: phantomProfile } = await admin
+      .from("profiles")
+      .select("company_id")
+      .eq("id", newUserId)
+      .maybeSingle();
+    const phantomCompanyId = phantomProfile?.company_id ?? null;
+
     const isPlatformAdmin = role === "admin" && saas_panel === true;
 
     // Upsert profile
@@ -190,6 +203,13 @@ Deno.serve(async (req) => {
 
     if (profileErr) {
       return json({ error: `Usuario creado pero falló el perfil: ${profileErr.message}` }, 500);
+    }
+
+    if (phantomCompanyId && phantomCompanyId !== company_id) {
+      // Best-effort: si falla, queda una empresa vacía sin dueño real y sin
+      // ningún dato -- inofensivo, no vale la pena fallar la creación del
+      // usuario por esto.
+      await admin.from("companies").delete().eq("id", phantomCompanyId);
     }
 
     if (locIds.length > 0) {

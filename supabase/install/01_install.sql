@@ -7958,3 +7958,69 @@ $$;
 
 revoke execute on function public.reset_company_data(text) from public, anon;
 grant execute on function public.reset_company_data(text) to authenticated;
+
+-- ============================================================
+-- Auditoría de seguridad 2026-08 — Hallazgo crítico: secuestro de cuenta
+-- vía "company_id" en el registro público.
+--
+-- Antes, handle_new_user() confiaba en un campo "company_id" que viene
+-- dentro de raw_user_meta_data -- un valor que el propio cliente controla
+-- al llamar a supabase.auth.signUp() (o directo al endpoint /auth/v1/signup
+-- con la anon key, que es pública por diseño). Cualquiera podía
+-- "registrarse" pasando el company_id de una empresa AJENA y quedar
+-- adentro como miembro (role 'user', con acceso real de lectura/escritura
+-- vía RLS) sin que nadie de esa empresa lo invitara -- el escenario más
+-- realista es un EX-empleado recuperando acceso después de ser dado de
+-- baja, ya que el company_id de su antigua empresa vive en su sesión del
+-- navegador de toda la vida. Verificado con una reproducción real antes de
+-- este fix: una cuenta nueva sin invitación quedaba con acceso de
+-- inmediato a ventas/clientes/productos de la empresa objetivo.
+--
+-- Ahora el registro público SIEMPRE crea una empresa nueva con su dueño
+-- como admin de ESA empresa -- exactamente lo que ya hacía /register en la
+-- app (nunca mandaba company_id). La única forma real de sumarse a una
+-- empresa YA existente es que un admin de esa empresa lo dé de alta desde
+-- /usuarios, vía el edge function team-create-user, que corre del lado del
+-- servidor con la service_role key y valida ahí mismo que quien llama sea
+-- admin de esa empresa exacta -- ver el comentario en
+-- supabase/functions/team-create-user/index.ts sobre cómo limpia la
+-- empresa "fantasma" que este mismo trigger crea de todas formas.
+-- ============================================================
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_company_id uuid;
+  v_company_name text;
+  v_country_code text;
+  v_currency_code text;
+  v_locale text;
+begin
+  v_company_name  := coalesce(new.raw_user_meta_data ->> 'company_name', 'Mi Tienda');
+  v_country_code  := coalesce(new.raw_user_meta_data ->> 'country_code', 'MX');
+  v_currency_code := coalesce(new.raw_user_meta_data ->> 'currency_code', 'MXN');
+  v_locale        := coalesce(new.raw_user_meta_data ->> 'locale', 'es-MX');
+
+  insert into public.companies (name, contact_email, country_code, currency_code, locale,
+                                fiscal_id_label, tax_name, tax_rate, expires_at)
+  values (v_company_name, new.email, v_country_code, v_currency_code, v_locale,
+    coalesce(new.raw_user_meta_data ->> 'fiscal_id_label', 'ID fiscal'),
+    coalesce(new.raw_user_meta_data ->> 'tax_name', 'Impuesto demo'),
+    coalesce(nullif(new.raw_user_meta_data ->> 'tax_rate', '')::numeric, 0.18),
+    (now() + interval '14 days')::date)
+  returning id into v_company_id;
+
+  insert into public.profiles (id, company_id, email, full_name, role,
+                               is_platform_admin, is_demo, demo_mode)
+  values (new.id, v_company_id, new.email,
+    coalesce(new.raw_user_meta_data ->> 'full_name', v_company_name),
+    'admin'::public.app_role,
+    false, false, 'none')
+  on conflict (id) do nothing;
+
+  return new;
+end;
+$function$;

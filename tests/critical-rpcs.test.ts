@@ -2736,4 +2736,75 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(rows[0].counted_by).toBeNull();
     });
   });
+
+  describe("20. Seguridad: el registro público no puede autoasignarse a una empresa existente", () => {
+    // Auditoría 2026-08: handle_new_user() confiaba en un "company_id" que
+    // viene en raw_user_meta_data -- valor que controla el propio cliente al
+    // registrarse (supabase.auth.signUp() u /auth/v1/signup directo, con la
+    // anon key pública). Cualquiera podía "registrarse" con el company_id de
+    // una empresa ajena y quedar adentro como miembro, sin invitación.
+    it("una cuenta nueva con company_id de una empresa ajena NO se une a ella -- se crea su propia empresa", async () => {
+      const victima = await makeCompany(db, "Bodega Don José (víctima)");
+      await makeProduct(
+        db,
+        victima.id,
+        victima.loc1,
+        "Producto secreto de la víctima",
+        10,
+        50,
+        20,
+      );
+
+      const atacanteId = crypto.randomUUID();
+      await db.query(
+        "insert into auth.users (id, email, raw_user_meta_data) values ($1,$2,$3)",
+        [
+          atacanteId,
+          "atacante@fuera-de-la-empresa.com",
+          JSON.stringify({ full_name: "Atacante", company_id: victima.id }),
+        ],
+      );
+
+      const { rows } = await db.query<{
+        company_id: string;
+        role: string;
+      }>("select company_id, role from public.profiles where id=$1", [
+        atacanteId,
+      ]);
+      expect(rows[0].company_id).not.toBe(victima.id);
+      expect(rows[0].role).toBe("admin"); // dueño de SU propia empresa nueva
+
+      await asUser(db, atacanteId, async () => {
+        const { rows: leaked } = await db.query(
+          "select name from public.products where company_id=$1",
+          [victima.id],
+        );
+        expect(leaked).toHaveLength(0);
+
+        const { rows: canRead } = await db.query<{ ok: boolean }>(
+          "select public.can_select_company($1) as ok",
+          [victima.id],
+        );
+        expect(canRead[0].ok).toBe(false);
+      });
+    });
+
+    it("el registro público normal (sin company_id) sigue creando su propia empresa como admin", async () => {
+      const nuevoId = crypto.randomUUID();
+      await db.query(
+        "insert into auth.users (id, email, raw_user_meta_data) values ($1,$2,$3)",
+        [
+          nuevoId,
+          "dueno@tienda-nueva.com",
+          JSON.stringify({ company_name: "Tienda Nueva" }),
+        ],
+      );
+      const { rows } = await db.query<{ role: string; company_id: string }>(
+        "select role, company_id from public.profiles where id=$1",
+        [nuevoId],
+      );
+      expect(rows[0].role).toBe("admin");
+      expect(rows[0].company_id).toBeTruthy();
+    });
+  });
 });

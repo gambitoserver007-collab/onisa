@@ -93,6 +93,18 @@ Deno.serve(async (req) => {
           207,
         );
       }
+      // handle_new_user() ya no confía en el company_id de user_metadata (por
+      // seguridad -- ver comentario en 01_install.sql), así que createUser()
+      // de arriba dejó al dueño en una empresa "fantasma" recién inventada,
+      // no en la que se acaba de crear en este mismo request. Se corrige el
+      // perfil a la empresa real y se borra la fantasma.
+      const { data: phantomProfile } = await admin
+        .from("profiles")
+        .select("company_id")
+        .eq("id", created.user.id)
+        .maybeSingle();
+      const phantomCompanyId = phantomProfile?.company_id ?? null;
+
       const { data: profile, error: profileErr } = await admin
         .from("profiles")
         .upsert(
@@ -114,6 +126,10 @@ Deno.serve(async (req) => {
       if (profileErr)
         return json({ error: `Tienda creada, pero falló el perfil: ${profileErr.message}` }, 207);
       owner = profile;
+
+      if (phantomCompanyId && phantomCompanyId !== company.id) {
+        await admin.from("companies").delete().eq("id", phantomCompanyId);
+      }
     }
     return json({ company, owner }, 200);
   } catch (e: any) {
