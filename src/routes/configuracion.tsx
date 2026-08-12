@@ -71,6 +71,9 @@ function Configuracion() {
   const [cardCommissionPct, setCardCommissionPct] = useState(
     String(Math.round(settings.cardCommissionRate * 10000) / 100),
   );
+  const [lowStockThresholdDefault, setLowStockThresholdDefault] = useState(
+    String(settings.lowStockThresholdDefault),
+  );
   const [loyaltyEnabled, setLoyaltyEnabled] = useState(settings.loyaltyEnabled);
   const [loyaltyPointValue, setLoyaltyPointValue] = useState(
     String(settings.loyaltyPointValue || ""),
@@ -119,6 +122,10 @@ function Configuracion() {
       String(Math.round(settings.cardCommissionRate * 10000) / 100),
     );
   }, [settings.cardCommissionRate]);
+
+  useEffect(() => {
+    setLowStockThresholdDefault(String(settings.lowStockThresholdDefault));
+  }, [settings.lowStockThresholdDefault]);
 
   useEffect(() => {
     setLoyaltyEnabled(settings.loyaltyEnabled);
@@ -177,6 +184,15 @@ function Configuracion() {
       return;
     }
 
+    const lowStockThresholdDefaultNum = Number(lowStockThresholdDefault);
+    if (
+      !Number.isFinite(lowStockThresholdDefaultNum) ||
+      lowStockThresholdDefaultNum < 0
+    ) {
+      toast.error("El umbral de stock bajo debe ser un número positivo.");
+      return;
+    }
+
     setIsSaving(true);
 
     try {
@@ -190,6 +206,7 @@ function Configuracion() {
         loyaltyEnabled,
         loyaltyPointValue: loyaltyPointValueNum,
         loyaltyEarnRate: loyaltyEarnRateNum,
+        lowStockThresholdDefault: lowStockThresholdDefaultNum,
       });
       saveBusinessSettings(mapCompanyToBusinessSettings(company));
       // Refresh the session so the "complete your data" reminder updates immediately.
@@ -354,6 +371,23 @@ function Configuracion() {
               <p className="text-xs text-muted-foreground">
                 Se usa en la calculadora de precio de productos, junto con el{" "}
                 {selectedMarket.taxName ?? "IVA"}.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label>Alerta de stock bajo (unidades)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={lowStockThresholdDefault}
+                onChange={(event) =>
+                  setLowStockThresholdDefault(event.target.value)
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Cuando un producto llega a este stock o menos, aparece en las
+                alertas del dashboard. Puedes darle a un producto su propio
+                umbral desde su ficha, que reemplaza este valor general.
               </p>
             </div>
             <div className="space-y-3 rounded-lg border p-3">

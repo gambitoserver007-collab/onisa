@@ -65,7 +65,7 @@ export function useDashboardData(locationId?: string, range?: DashboardRange) {
 
       const [counts, lowStock, aggregates, recentSales] = await Promise.all([
         fetchCompanyCounts(session?.companyId),
-        fetchLowStockSummary(session?.companyId, locationId),
+        fetchLowStockSummary(locationId),
         fetchSalesAggregates(tz, locationId, fromTs, toTs),
         fetchRecentSales(session?.companyId, locationId, 4),
       ]);

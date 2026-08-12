@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getProductImage, getProductVisual } from "@/lib/productVisuals";
+import { effectiveLowStockThreshold } from "@/lib/stockAlerts";
 import { cn } from "@/lib/utils";
 
 interface ProductCatalogProps {
@@ -41,7 +42,7 @@ export function ProductCatalog({
   onScan,
   inputRef,
 }: ProductCatalogProps) {
-  const { formatMoney } = useBusinessSettings();
+  const { formatMoney, settings } = useBusinessSettings();
 
   return (
     <section className="min-w-0 space-y-4">
@@ -99,7 +100,13 @@ export function ProductCatalog({
         {!isLoading &&
           products.map((product) => {
             const outOfStock = product.stock === 0;
-            const lowStock = product.stock > 0 && product.stock < 10;
+            const lowStock =
+              product.stock > 0 &&
+              product.stock <=
+                effectiveLowStockThreshold(
+                  product,
+                  settings.lowStockThresholdDefault,
+                );
             const image = getProductImage(product);
             const visual = getProductVisual(product);
 

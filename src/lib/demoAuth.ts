@@ -137,6 +137,12 @@ function createSessionFromUser(
         ?.loyalty_earn_rate === "number"
         ? (company as { loyalty_earn_rate?: number }).loyalty_earn_rate
         : 0,
+    lowStockThresholdDefault:
+      typeof (company as { low_stock_threshold_default?: number } | null)
+        ?.low_stock_threshold_default === "number"
+        ? (company as { low_stock_threshold_default?: number })
+            .low_stock_threshold_default
+        : 10,
     isDemo: profileDemo || demoFallback,
     demoMode: profile?.demo_mode ?? (demoFallback ? "read_only" : "none"),
     demoAccountId: Object.values(DEMO_ACCOUNTS).find(

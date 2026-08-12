@@ -26,6 +26,8 @@ export interface DemoSession {
   taxRate?: number;
   /** % de comisión de pago con tarjeta (fracción, ej. 0.03 = 3%), para la calculadora de precio. */
   cardCommissionRate?: number;
+  /** Umbral de stock bajo por defecto (unidades) para productos sin uno propio. */
+  lowStockThresholdDefault?: number;
   /** Si el programa de puntos de lealtad está activo para esta empresa. */
   loyaltyEnabled?: boolean;
   /** Cuánto vale 1 punto en la moneda de la empresa (ej. 1 = $1 por punto). */
@@ -67,6 +69,8 @@ export interface Product {
   hasVariants?: boolean;
   /** Nombres de los atributos de variante que usa el producto, ej. ["Talla","Color"]. */
   variantAttributes?: string[];
+  /** Umbral propio de alerta de stock bajo (unidades). null = usa el default de la empresa. */
+  lowStockThreshold?: number | null;
 }
 
 /** Una variante (SKU) de un producto: una combinación concreta de atributos. */

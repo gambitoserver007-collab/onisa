@@ -29,6 +29,8 @@ export interface BusinessSettings {
   loyaltyPointValue: number;
   /** Cuánto gasto equivale a 1 punto ganado. */
   loyaltyEarnRate: number;
+  /** Umbral de stock bajo por defecto (unidades) para productos sin uno propio. */
+  lowStockThresholdDefault: number;
   currencyLabel: string;
   /** Optional store logo (data URL or image URL). */
   logoUrl?: string;
@@ -63,6 +65,8 @@ export function createBusinessSettingsFromMarket(
     loyaltyEnabled: false,
     loyaltyPointValue: 0,
     loyaltyEarnRate: 0,
+    // Mismo valor por defecto que companies.low_stock_threshold_default.
+    lowStockThresholdDefault: 10,
     currencyLabel: getCurrencyLabel(market),
   };
 }
@@ -115,6 +119,11 @@ function normalizeBusinessSettings(
       Number.isFinite(settings.loyaltyEarnRate)
         ? settings.loyaltyEarnRate
         : base.loyaltyEarnRate,
+    lowStockThresholdDefault:
+      typeof settings?.lowStockThresholdDefault === "number" &&
+      Number.isFinite(settings.lowStockThresholdDefault)
+        ? settings.lowStockThresholdDefault
+        : base.lowStockThresholdDefault,
     currencyLabel:
       settings?.currencyLabel ||
       getCurrencyLabel({
@@ -207,6 +216,7 @@ export function syncBusinessSettingsWithSession(session: DemoSession) {
     loyaltyEnabled: session.loyaltyEnabled,
     loyaltyPointValue: session.loyaltyPointValue,
     loyaltyEarnRate: session.loyaltyEarnRate,
+    lowStockThresholdDefault: session.lowStockThresholdDefault,
     logoUrl: session.logoUrl,
     businessType: session.businessType,
   });

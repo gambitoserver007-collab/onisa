@@ -8,6 +8,7 @@ import {
 import { getMarketByCountryCode } from "@/data/markets";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json, Tables } from "@/integrations/supabase/types";
+import { effectiveLowStockThreshold } from "@/lib/stockAlerts";
 
 type CategoryRow = Tables<"categories">;
 type CompanyRow = Tables<"companies">;
@@ -83,6 +84,8 @@ export interface CreateProductInput {
    * `stock` (total) se calcula como la suma y se sincroniza product_locations.
    */
   locations?: ProductLocationStock[];
+  /** Umbral propio de alerta de stock bajo. null/undefined = usa el default de la empresa. */
+  lowStockThreshold?: number | null;
 }
 
 export interface CreateCustomerInput {
@@ -119,6 +122,8 @@ export interface UpdateCompanySettingsInput {
   loyaltyPointValue?: number;
   /** Cuánto gasto equivale a 1 punto ganado. */
   loyaltyEarnRate?: number;
+  /** Umbral de stock bajo por defecto (unidades) para productos sin uno propio. */
+  lowStockThresholdDefault?: number;
 }
 
 // Single-row platform branding (SaaS name + logo). Seeded by the installer.
@@ -238,6 +243,9 @@ function mapProduct(
     variantAttributes:
       (row as { variant_attributes?: string[] | null }).variant_attributes ??
       undefined,
+    lowStockThreshold:
+      (row as { low_stock_threshold?: number | null }).low_stock_threshold ??
+      null,
   };
 }
 
@@ -371,7 +379,7 @@ export async function fetchCompanyCatalog(
   const productsQuery = supabase
     .from("products")
     .select(
-      "id, company_id, category_id, supplier_id, name, barcode, sku, cost, price, stock, unit, image_url, price_includes_tax, has_variants, variant_attributes, active, is_demo_data, created_at, updated_at, deleted_at",
+      "id, company_id, category_id, supplier_id, name, barcode, sku, cost, price, stock, unit, image_url, price_includes_tax, has_variants, variant_attributes, low_stock_threshold, active, is_demo_data, created_at, updated_at, deleted_at",
     )
     .is("deleted_at", null)
     .eq("active", true);
@@ -458,8 +466,6 @@ export async function fetchCompanyCounts(
   };
 }
 
-const LOW_STOCK_THRESHOLD = 10;
-
 export interface LowStockProduct {
   id: string;
   name: string;
@@ -472,93 +478,30 @@ export interface LowStockSummary {
   items: LowStockProduct[];
 }
 
-/** Resumen de bajo stock para el dashboard: total de productos con
- * 0 < stock < 10 y los de menor stock (hasta `limit`), calculado por el
- * servidor -- evita traer el catálogo completo solo para filtrarlo. */
+/** Resumen de bajo stock para el dashboard, calculado server-side vía
+ * low_stock_summary(): umbral efectivo por producto (propio o el default de
+ * la empresa), incluye agotados (stock=0), y respeta la sucursal asignada
+ * del que consulta -- evita traer el catálogo completo solo para filtrarlo. */
 export async function fetchLowStockSummary(
-  companyId?: string,
   locationId?: string,
   limit = 4,
 ): Promise<LowStockSummary> {
-  if (locationId) {
-    const countQuery = supabase
-      .from("product_locations")
-      .select("product_id", { count: "exact", head: true })
-      .eq("location_id", locationId)
-      .eq("is_active", true)
-      .gt("stock", 0)
-      .lt("stock", LOW_STOCK_THRESHOLD);
-    const rowsQuery = supabase
-      .from("product_locations")
-      .select("product_id, stock")
-      .eq("location_id", locationId)
-      .eq("is_active", true)
-      .gt("stock", 0)
-      .lt("stock", LOW_STOCK_THRESHOLD)
-      .order("stock", { ascending: true })
-      .limit(limit);
-
-    const [{ count }, { data: rows, error: rowsError }] = await Promise.all([
-      countQuery,
-      rowsQuery,
-    ]);
-    if (rowsError) throw rowsError;
-
-    const productIds = (rows ?? []).map((row) => row.product_id);
-    if (!productIds.length) return { count: count ?? 0, items: [] };
-
-    const { data: products, error: productsError } = await supabase
-      .from("products")
-      .select("id, name, unit")
-      .in("id", productIds);
-    if (productsError) throw productsError;
-
-    const productById = new Map((products ?? []).map((p) => [p.id, p]));
-    const items = (rows ?? []).flatMap((row) => {
-      const product = productById.get(row.product_id);
-      if (!product) return [];
-      return [
-        {
-          id: product.id,
-          name: product.name,
-          stock: toNumber(row.stock),
-          unit: product.unit,
-        },
-      ];
-    });
-    return { count: count ?? 0, items };
-  }
-
-  const countQuery = supabase
-    .from("products")
-    .select("id", { count: "exact", head: true })
-    .is("deleted_at", null)
-    .eq("active", true)
-    .gt("stock", 0)
-    .lt("stock", LOW_STOCK_THRESHOLD);
-  const rowsQuery = supabase
-    .from("products")
-    .select("id, name, stock, unit")
-    .is("deleted_at", null)
-    .eq("active", true)
-    .gt("stock", 0)
-    .lt("stock", LOW_STOCK_THRESHOLD)
-    .order("stock", { ascending: true })
-    .limit(limit);
-
-  const [{ count }, { data: rows, error: rowsError }] = await Promise.all([
-    companyId ? countQuery.eq("company_id", companyId) : countQuery,
-    companyId ? rowsQuery.eq("company_id", companyId) : rowsQuery,
-  ]);
-  if (rowsError) throw rowsError;
-
+  const { data, error } = await supabase.rpc("low_stock_summary", {
+    p_location_id: locationId || undefined,
+    p_limit: limit,
+  });
+  if (error) throw error;
+  const payload = (data ?? { count: 0, items: [] }) as {
+    count?: number;
+    items?: { id: string; name: string; stock: number; unit: string }[];
+  };
   return {
-    count: count ?? 0,
-    items: (rows ?? []).map((row) => ({
-      id: row.id,
-      name: row.name,
-      stock: toNumber(row.stock),
-      unit: row.unit,
+    count: payload.count ?? 0,
+    items: (payload.items ?? []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      stock: toNumber(item.stock),
+      unit: item.unit,
     })),
   };
 }
@@ -1448,6 +1391,9 @@ export async function createProduct(
       ...(input.imageUrl !== undefined
         ? { image_url: input.imageUrl || null }
         : {}),
+      ...(input.lowStockThreshold !== undefined
+        ? { low_stock_threshold: input.lowStockThreshold }
+        : {}),
     } as never)
     .select("id")
     .single();
@@ -1486,6 +1432,8 @@ export async function updateProduct(
   if (input.imageUrl !== undefined) updates.image_url = input.imageUrl || null;
   if (input.priceIncludesTax !== undefined)
     updates.price_includes_tax = input.priceIncludesTax;
+  if (input.lowStockThreshold !== undefined)
+    updates.low_stock_threshold = input.lowStockThreshold;
   const { error } = await supabase
     .from("products")
     .update(updates as never)
@@ -2176,6 +2124,8 @@ export async function updateCompanySettings(
     updates.loyalty_point_value = input.loyaltyPointValue;
   if (input.loyaltyEarnRate !== undefined)
     updates.loyalty_earn_rate = input.loyaltyEarnRate;
+  if (input.lowStockThresholdDefault !== undefined)
+    updates.low_stock_threshold_default = input.lowStockThresholdDefault;
   const { data, error } = await supabase
     .from("companies")
     .update(updates as never)
@@ -2312,6 +2262,11 @@ export function mapCompanyToBusinessSettings(
     logoUrl: (row as { logo_url?: string | null }).logo_url ?? undefined,
     businessType:
       (row as { business_type?: string | null }).business_type ?? undefined,
+    lowStockThresholdDefault: toNumber(
+      (row as { low_stock_threshold_default?: number })
+        .low_stock_threshold_default,
+      10,
+    ),
   };
 }
 
@@ -2582,7 +2537,7 @@ export function buildDashboardData(
   const today = localDateKey(new Date());
   const month = today.slice(0, 7);
   const lowStock = catalog.products.filter(
-    (product) => product.stock > 0 && product.stock < 10,
+    (product) => product.stock <= effectiveLowStockThreshold(product, 10),
   );
   const productById = new Map(
     catalog.products.map((product) => [product.id, product]),

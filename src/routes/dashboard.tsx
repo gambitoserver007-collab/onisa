@@ -501,24 +501,33 @@ function Dashboard() {
               </CardHeader>
               <CardContent className="space-y-2">
                 {data.lowStockProducts.length ? (
-                  data.lowStockProducts.map((product) => (
-                    <div
-                      key={product.id}
-                      className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-background/55 p-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">
-                          {product.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Stock mínimo sugerido
-                        </p>
+                  data.lowStockProducts.map((product) => {
+                    const agotado = product.stock === 0;
+                    return (
+                      <div
+                        key={product.id}
+                        className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-background/55 p-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">
+                            {product.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {agotado ? "Agotado" : "Stock bajo"}
+                          </p>
+                        </div>
+                        <span
+                          className={
+                            agotado
+                              ? "rounded-full bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700"
+                              : "rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700"
+                          }
+                        >
+                          {product.stock} {product.unit}
+                        </span>
                       </div>
-                      <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">
-                        {product.stock} {product.unit}
-                      </span>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div className="rounded-2xl border border-border/70 bg-background/55 p-3 text-sm text-muted-foreground">
                     Sin productos críticos por ahora.

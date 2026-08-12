@@ -2807,4 +2807,136 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(rows[0].company_id).toBeTruthy();
     });
   });
+
+  describe("21. Alertas de stock bajo (low_stock_summary)", () => {
+    it("un producto sin umbral propio usa el default de la empresa", async () => {
+      const company = await makeCompany(db, "Empresa Stock Test");
+      const admin = await makeUser(db, company.id, "admin");
+      // Default de la empresa es 10: 8 está bajo, 12 no.
+      const bajo = await makeProduct(db, company.id, company.loc1, "Bajo", 5, 10, 8);
+      await makeProduct(db, company.id, company.loc1, "Normal", 5, 10, 12);
+
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{ low_stock_summary: { count: number; items: { id: string }[] } }>(
+          "select low_stock_summary() as low_stock_summary",
+        ),
+      );
+      const result = rows[0].low_stock_summary;
+      expect(result.count).toBe(1);
+      expect(result.items[0].id).toBe(bajo);
+    });
+
+    it("un producto con umbral propio lo usa en vez del default de la empresa", async () => {
+      const company = await makeCompany(db, "Empresa Umbral Propio Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const producto = await makeProduct(db, company.id, company.loc1, "Insumo caro", 5, 10, 15);
+      // Con el default (10) NO estaría bajo; con un umbral propio de 20, sí.
+      await db.query("update public.products set low_stock_threshold=20 where id=$1", [producto]);
+
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{ low_stock_summary: { count: number; items: { id: string }[] } }>(
+          "select low_stock_summary() as low_stock_summary",
+        ),
+      );
+      expect(rows[0].low_stock_summary.count).toBe(1);
+      expect(rows[0].low_stock_summary.items[0].id).toBe(producto);
+    });
+
+    it("un producto agotado (stock=0) aparece incluido -- antes se excluía del resumen", async () => {
+      const company = await makeCompany(db, "Empresa Agotado Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const agotado = await makeProduct(db, company.id, company.loc1, "Agotado", 5, 10, 0);
+
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{ low_stock_summary: { count: number; items: { id: string; stock: number }[] } }>(
+          "select low_stock_summary() as low_stock_summary",
+        ),
+      );
+      expect(rows[0].low_stock_summary.count).toBe(1);
+      expect(rows[0].low_stock_summary.items[0].id).toBe(agotado);
+      expect(Number(rows[0].low_stock_summary.items[0].stock)).toBe(0);
+    });
+
+    it("con p_location_id usa el stock de ESA sucursal, no el agregado de la empresa", async () => {
+      const company = await makeCompany(db, "Empresa Multisucursal Test");
+      const admin = await makeUser(db, company.id, "admin");
+      // 8 en loc1 (bajo) + 8 en loc2 (bajo) -> products.stock agregado = 16 (NO bajo),
+      // pero cada sucursal individualmente SÍ está baja.
+      const producto = await makeProduct(db, company.id, company.loc1, "Repartido", 5, 10, 8);
+      await db.query(
+        "insert into public.product_locations (company_id, product_id, location_id, stock, is_active) values ($1,$2,$3,8,true)",
+        [company.id, producto, company.loc2],
+      );
+      await db.query("update public.products set stock=16 where id=$1", [producto]);
+
+      const { rows: aggRows } = await asUser(db, admin, () =>
+        db.query<{ low_stock_summary: { count: number } }>(
+          "select low_stock_summary() as low_stock_summary",
+        ),
+      );
+      expect(aggRows[0].low_stock_summary.count).toBe(0);
+
+      const { rows: locRows } = await asUser(db, admin, () =>
+        db.query<{ low_stock_summary: { count: number; items: { stock: number }[] } }>(
+          "select low_stock_summary($1) as low_stock_summary",
+          [company.loc1],
+        ),
+      );
+      expect(locRows[0].low_stock_summary.count).toBe(1);
+      expect(Number(locRows[0].low_stock_summary.items[0].stock)).toBe(8);
+    });
+
+    it("respeta el límite y ordena por stock ascendente (los más urgentes primero)", async () => {
+      const company = await makeCompany(db, "Empresa Orden Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const p5 = await makeProduct(db, company.id, company.loc1, "Stock 5", 5, 10, 5);
+      await makeProduct(db, company.id, company.loc1, "Stock 2", 5, 10, 2);
+      await makeProduct(db, company.id, company.loc1, "Stock 0", 5, 10, 0);
+      await makeProduct(db, company.id, company.loc1, "Stock 8", 5, 10, 8);
+
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{
+          low_stock_summary: { count: number; items: { stock: number }[] };
+        }>("select low_stock_summary(null, 2) as low_stock_summary"),
+      );
+      expect(rows[0].low_stock_summary.count).toBe(4);
+      expect(rows[0].low_stock_summary.items).toHaveLength(2);
+      expect(Number(rows[0].low_stock_summary.items[0].stock)).toBe(0);
+      expect(Number(rows[0].low_stock_summary.items[1].stock)).toBe(2);
+      void p5;
+    });
+
+    it("no filtra productos con stock bajo de otra empresa (aislamiento)", async () => {
+      const companyA = await makeCompany(db, "Empresa A Aislamiento Stock");
+      const companyB = await makeCompany(db, "Empresa B Aislamiento Stock");
+      const adminA = await makeUser(db, companyA.id, "admin");
+      await makeProduct(db, companyB.id, companyB.loc1, "Producto de B, muy bajo", 5, 10, 1);
+      await makeProduct(db, companyA.id, companyA.loc1, "Producto de A, normal", 5, 10, 50);
+
+      const { rows } = await asUser(db, adminA, () =>
+        db.query<{ low_stock_summary: { count: number } }>(
+          "select low_stock_summary() as low_stock_summary",
+        ),
+      );
+      expect(rows[0].low_stock_summary.count).toBe(0);
+    });
+
+    it("un cajero restringido a otra sucursal no ve el stock bajo de una sucursal ajena", async () => {
+      const company = await makeCompany(db, "Empresa Acceso Sucursal Test");
+      const cajero = await makeUser(db, company.id, "user");
+      await db.query(
+        "insert into public.profile_locations (company_id, profile_id, location_id) values ($1,$2,$3)",
+        [company.id, cajero, company.loc2],
+      );
+      await makeProduct(db, company.id, company.loc1, "Bajo en loc1", 5, 10, 3);
+
+      const { rows } = await asUser(db, cajero, () =>
+        db.query<{ low_stock_summary: { count: number } }>(
+          "select low_stock_summary($1) as low_stock_summary",
+          [company.loc1],
+        ),
+      );
+      expect(rows[0].low_stock_summary.count).toBe(0);
+    });
+  });
 });

@@ -7922,6 +7922,7 @@ begin
     loyalty_enabled = false,
     loyalty_point_value = 0,
     loyalty_earn_rate = 0,
+    low_stock_threshold_default = 10,
     tax_rate = coalesce(v_cs.tax_rate, tax_rate),
     tax_name = coalesce(v_cs.tax_name, tax_name),
     fiscal_id_label = coalesce(v_cs.fiscal_id_label, fiscal_id_label),
@@ -8024,3 +8025,56 @@ begin
   return new;
 end;
 $function$;
+
+-- ============================================================
+-- Alertas de stock bajo: umbral configurable en vez de un "< 10" fijo para
+-- todos los productos por igual (una bolsa de cemento y un smartphone no
+-- se reponen igual). Un producto sin umbral propio usa el default de la
+-- empresa (companies.low_stock_threshold_default, arranca en 10 para no
+-- cambiarle el comportamiento a nadie que ya tenía la alerta vieja).
+-- ============================================================
+alter table public.products add column if not exists low_stock_threshold numeric(12,3);
+alter table public.companies add column if not exists low_stock_threshold_default numeric(12,3) not null default 10;
+
+-- Reemplaza el "stock < 10, stock > 0" fijo del frontend: calcula el umbral
+-- efectivo por producto server-side (evita traer el catálogo completo solo
+-- para filtrarlo) y ahora SÍ incluye los agotados (stock = 0) -- antes se
+-- excluían del todo del resumen, cuando son el caso más urgente.
+create or replace function public.low_stock_summary(
+  p_location_id uuid default null,
+  p_limit integer default 4
+) returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with base as (
+    select
+      p.id, p.name, p.unit,
+      coalesce(p.low_stock_threshold, c.low_stock_threshold_default) as threshold,
+      case when p_location_id is not null then pl.stock else p.stock end as stock
+    from public.products p
+    join public.companies c on c.id = p.company_id
+    left join public.product_locations pl
+      on pl.product_id = p.id and pl.location_id = p_location_id and pl.is_active
+    where p.company_id = public.current_user_company_id()
+      and p.deleted_at is null
+      and p.active = true
+      and public.user_can_access_location(p_location_id)
+      and (p_location_id is null or pl.id is not null)
+  ),
+  low as (
+    select * from base where stock is not null and stock <= threshold
+  )
+  select jsonb_build_object(
+    'count', (select count(*) from low)::int,
+    'items', coalesce((
+      select jsonb_agg(jsonb_build_object('id', id, 'name', name, 'stock', stock, 'unit', unit) order by stock asc)
+      from (select * from low order by stock asc limit p_limit) l
+    ), '[]'::jsonb)
+  );
+$$;
+
+revoke execute on function public.low_stock_summary(uuid, integer) from public, anon;
+grant execute on function public.low_stock_summary(uuid, integer) to authenticated;

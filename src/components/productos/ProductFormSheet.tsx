@@ -115,6 +115,7 @@ export function ProductFormSheet({
   const [unitMode, setUnitMode] = useState<"select" | "custom">("select");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [priceIncludesTax, setPriceIncludesTax] = useState(true);
+  const [lowStockThreshold, setLowStockThreshold] = useState("");
   const barcodeRef = useRef<HTMLInputElement>(null);
   // Stock por punto de venta (multi-local).
   const [locations, setLocations] = useState<Location[]>([]);
@@ -206,6 +207,7 @@ export function ProductFormSheet({
     setUnitMode("select");
     setImageUrl(null);
     setPriceIncludesTax(true);
+    setLowStockThreshold("");
     initLocStock(null);
     setHasVariants(false);
     setAttrDefs([]);
@@ -230,6 +232,11 @@ export function ProductFormSheet({
       );
       setImageUrl(product.image ?? null);
       setPriceIncludesTax(product.priceIncludesTax ?? true);
+      setLowStockThreshold(
+        product.lowStockThreshold != null
+          ? String(product.lowStockThreshold)
+          : "",
+      );
       // Carga el stock por local que ya tiene el producto.
       setLocStockLoading(true);
       initLocStock(null);
@@ -352,6 +359,16 @@ export function ProductFormSheet({
       );
       return;
     }
+    const numLowStockThreshold = lowStockThreshold.trim()
+      ? Number(lowStockThreshold)
+      : null;
+    if (
+      numLowStockThreshold !== null &&
+      (!Number.isFinite(numLowStockThreshold) || numLowStockThreshold < 0)
+    ) {
+      toast.error("La alerta de stock bajo debe ser un número positivo.");
+      return;
+    }
 
     setIsSaving(true);
 
@@ -394,6 +411,7 @@ export function ProductFormSheet({
         unit,
         priceIncludesTax,
         imageUrl,
+        lowStockThreshold: numLowStockThreshold,
         locations: hasVariants
           ? undefined
           : locations.length > 0
@@ -539,6 +557,17 @@ export function ProductFormSheet({
               value={sku}
               onChange={(event) => setSku(event.target.value)}
               placeholder="Código interno (opcional)"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Alerta de stock bajo</Label>
+            <Input
+              type="number"
+              min="0"
+              step="1"
+              value={lowStockThreshold}
+              onChange={(event) => setLowStockThreshold(event.target.value)}
+              placeholder={`Usa el valor general de la tienda (${settings.lowStockThresholdDefault})`}
             />
           </div>
           <div className="space-y-1">

@@ -303,6 +303,7 @@ export type Database = {
           is_demo_data: boolean;
           locale: string;
           logo_url: string | null;
+          low_stock_threshold_default: number;
           loyalty_earn_rate: number;
           loyalty_enabled: boolean;
           loyalty_point_value: number;
@@ -331,6 +332,7 @@ export type Database = {
           is_demo_data?: boolean;
           locale?: string;
           logo_url?: string | null;
+          low_stock_threshold_default?: number;
           loyalty_earn_rate?: number;
           loyalty_enabled?: boolean;
           loyalty_point_value?: number;
@@ -359,6 +361,7 @@ export type Database = {
           is_demo_data?: boolean;
           locale?: string;
           logo_url?: string | null;
+          low_stock_threshold_default?: number;
           loyalty_earn_rate?: number;
           loyalty_enabled?: boolean;
           loyalty_point_value?: number;
@@ -891,6 +894,7 @@ export type Database = {
           id: string;
           image_url: string | null;
           is_demo_data: boolean;
+          low_stock_threshold: number | null;
           name: string;
           price: number;
           price_includes_tax: boolean;
@@ -913,6 +917,7 @@ export type Database = {
           id?: string;
           image_url?: string | null;
           is_demo_data?: boolean;
+          low_stock_threshold?: number | null;
           name: string;
           price?: number;
           price_includes_tax?: boolean;
@@ -935,6 +940,7 @@ export type Database = {
           id?: string;
           image_url?: string | null;
           is_demo_data?: boolean;
+          low_stock_threshold?: number | null;
           name?: string;
           price?: number;
           price_includes_tax?: boolean;
@@ -2241,6 +2247,10 @@ export type Database = {
       expire_overdue_trials: { Args: never; Returns: number };
       finish_till_count: {
         Args: { p_session_id: string };
+        Returns: Json;
+      };
+      low_stock_summary: {
+        Args: { p_limit?: number; p_location_id?: string };
         Returns: Json;
       };
       open_cash_session: {

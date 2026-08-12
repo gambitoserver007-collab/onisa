@@ -34,6 +34,7 @@ import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useCompanyCatalog } from "@/hooks/useCompanyCatalog";
 import { useDemoSession } from "@/hooks/useDemoSession";
 import { blockDemoAction } from "@/lib/demoMode";
+import { effectiveLowStockThreshold, stockStatus } from "@/lib/stockAlerts";
 import { canManageCatalog } from "@/lib/permissions";
 import { getProductImage, getProductVisual } from "@/lib/productVisuals";
 import { cn } from "@/lib/utils";
@@ -45,7 +46,7 @@ export const Route = createFileRoute("/productos")({
 });
 
 function ProductosPage() {
-  const { formatMoney } = useBusinessSettings();
+  const { formatMoney, settings } = useBusinessSettings();
   const { products, suppliers, error, source, isLoading, reload, session } =
     useCompanyCatalog();
   const { isDemo } = useDemoSession();
@@ -173,6 +174,13 @@ function ProductosPage() {
                   list.map((product) => {
                     const image = getProductImage(product);
                     const visual = getProductVisual(product);
+                    const status = stockStatus(
+                      product.stock,
+                      effectiveLowStockThreshold(
+                        product,
+                        settings.lowStockThresholdDefault,
+                      ),
+                    );
                     return (
                       <TableRow key={product.id}>
                         <TableCell>
@@ -226,9 +234,9 @@ function ProductosPage() {
                         <TableCell>
                           <Badge
                             variant={
-                              product.stock === 0
+                              status === "out"
                                 ? "destructive"
-                                : product.stock < 10
+                                : status === "low"
                                   ? "warm"
                                   : "success"
                             }
