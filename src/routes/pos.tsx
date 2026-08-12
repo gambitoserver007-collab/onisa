@@ -26,11 +26,13 @@ import { DEFAULT_DOCUMENT_TYPES } from "@/data/markets";
 import {
   createCustomer,
   createSaleFromCart,
+  fetchAllComboItems,
   fetchLocationStock,
   fetchLocationVariantStock,
   fetchProductVariants,
   fetchPromotions,
   getErrorMessage,
+  type ComboItemRow,
   type Promotion,
   type SalePaymentLine,
 } from "@/services/appData";
@@ -40,6 +42,11 @@ export const Route = createFileRoute("/pos")({ component: POS });
 
 type SaleDocumentType = Sale["type"];
 type PaymentMethod = Sale["method"];
+
+// Un Servicio nunca maneja inventario -- este número solo evita que la
+// lógica de "no pasarse del stock" del carrito lo bloquee; nunca se muestra
+// al cajero (ProductCatalog oculta el stock para todo lo que no sea Estándar).
+const SERVICE_STOCK_SENTINEL = 999999;
 
 // Huella del carrito para decidir si un cobro es "el mismo intento" (reintento
 // tras un error de red) o uno nuevo. No incluye cliente/método/tipo de
@@ -69,6 +76,7 @@ function POS() {
   const [customer, setCustomer] = useState("");
   const [pointsToRedeem, setPointsToRedeem] = useState(0);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [comboItems, setComboItems] = useState<ComboItemRow[]>([]);
   const [docType, setDocType] = useState<SaleDocumentType>("");
   const [method, setMethod] = useState<PaymentMethod>("Efectivo");
   const [splitMode, setSplitMode] = useState(false);
@@ -207,23 +215,83 @@ function POS() {
     if (!docType && documentTypes.length) setDocType(documentTypes[0].name);
   }, [docType, documentTypes]);
 
+  // Piezas de todos los combos: no dependen de la sucursal (la composición
+  // de un combo es la misma en todos lados), solo se usan junto con
+  // locationStock para calcular cuántos se pueden armar en la sucursal activa.
+  useEffect(() => {
+    if (!session?.companyId) return;
+    let active = true;
+    void fetchAllComboItems(session.companyId)
+      .then((data) => {
+        if (active) setComboItems(data);
+      })
+      .catch(() => {
+        /* si falla, los combos simplemente se muestran sin stock disponible */
+      });
+    return () => {
+      active = false;
+    };
+  }, [session?.companyId]);
+
+  // Cuántos combos se pueden armar con el stock actual de sus piezas en la
+  // sucursal activa -- el mínimo entre todas las piezas (la más escasa manda).
+  const comboAvailability = useMemo(() => {
+    const byCombo = new Map<string, ComboItemRow[]>();
+    for (const item of comboItems) {
+      const list = byCombo.get(item.comboProductId) ?? [];
+      list.push(item);
+      byCombo.set(item.comboProductId, list);
+    }
+    const map = new Map<string, number>();
+    for (const [comboId, items] of byCombo) {
+      if (!locationStock || items.length === 0) {
+        map.set(comboId, 0);
+        continue;
+      }
+      let available = Infinity;
+      for (const item of items) {
+        const componentStock = locationStock.get(item.componentProductId) ?? 0;
+        available = Math.min(available, Math.floor(componentStock / item.qty));
+      }
+      map.set(comboId, Number.isFinite(available) ? Math.max(available, 0) : 0);
+    }
+    return map;
+  }, [comboItems, locationStock]);
+
   // Productos disponibles en el local activo, con el stock de ese local. Si el
   // stock del local aún no carga, muestra el catálogo completo como respaldo.
+  // Combo/Servicio nunca tienen fila propia en product_locations (no manejan
+  // stock propio), así que el filtro normal los excluiría por completo --
+  // se calculan aparte: Combo usa comboAvailability (mínimo de sus piezas en
+  // esta sucursal), Servicio siempre está "disponible" (SERVICE_STOCK_SENTINEL).
   const locatedProducts = useMemo(() => {
     if (!locationStock) return products;
     return products
-      .filter((product) =>
-        product.hasVariants
+      .filter((product) => {
+        if (
+          product.productType === "combo" ||
+          product.productType === "service"
+        )
+          return true;
+        return product.hasVariants
           ? variantStockByProduct.has(product.id)
-          : locationStock.has(product.id),
-      )
-      .map((product) => ({
-        ...product,
-        stock: product.hasVariants
-          ? (variantStockByProduct.get(product.id) ?? 0)
-          : (locationStock.get(product.id) ?? 0),
-      }));
-  }, [products, locationStock, variantStockByProduct]);
+          : locationStock.has(product.id);
+      })
+      .map((product) => {
+        if (product.productType === "combo") {
+          return { ...product, stock: comboAvailability.get(product.id) ?? 0 };
+        }
+        if (product.productType === "service") {
+          return { ...product, stock: SERVICE_STOCK_SENTINEL };
+        }
+        return {
+          ...product,
+          stock: product.hasVariants
+            ? (variantStockByProduct.get(product.id) ?? 0)
+            : (locationStock.get(product.id) ?? 0),
+        };
+      });
+  }, [products, locationStock, variantStockByProduct, comboAvailability]);
 
   const productById = useMemo(
     () => new Map(locatedProducts.map((product) => [product.id, product])),

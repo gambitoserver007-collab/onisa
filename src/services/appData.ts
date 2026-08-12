@@ -1470,6 +1470,31 @@ export async function fetchComboItems(
   );
 }
 
+export interface ComboItemRow {
+  comboProductId: string;
+  componentProductId: string;
+  qty: number;
+}
+
+// Todas las piezas de todos los combos de la empresa, en una sola consulta
+// -- usado por el POS para calcular cuántos combos se pueden armar con el
+// stock disponible en la sucursal activa, sin una consulta por combo.
+export async function fetchAllComboItems(
+  companyId?: string,
+): Promise<ComboItemRow[]> {
+  let query = supabase
+    .from("product_combo_items")
+    .select("combo_product_id, component_product_id, qty");
+  if (companyId) query = query.eq("company_id", companyId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    comboProductId: row.combo_product_id,
+    componentProductId: row.component_product_id,
+    qty: toNumber(row.qty),
+  }));
+}
+
 // Reemplaza por completo las piezas de un combo (borra las que ya no
 // aplican, agrega/actualiza las nuevas) -- se llama tanto al crear como al
 // editar un combo.
