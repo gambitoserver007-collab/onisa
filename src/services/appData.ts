@@ -665,6 +665,61 @@ export async function fetchRecentSales(
   }));
 }
 
+export interface MySalesSummary {
+  salesTodayCount: number;
+  totalToday: number;
+  salesMonthCount: number;
+  totalMonth: number;
+  recentSales: {
+    id: string;
+    date: string;
+    customer: string;
+    method: string;
+    total: number;
+  }[];
+}
+
+/** Resumen del dashboard de un cajero: solo SUS propias ventas (nunca las de
+ * toda la tienda). Trae las ventas del mes en curso creadas por él/ella y
+ * calcula "hoy" como un subconjunto -- una sola consulta acotada, sin RPC
+ * nueva (el volumen de un solo cajero en un mes es chico). */
+export async function fetchMySalesSummary(
+  userId: string,
+  companyId?: string,
+): Promise<MySalesSummary> {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const todayKey = localDateKey(now);
+
+  let q = supabase
+    .from("sales")
+    .select("id, customer_name, payment_method, sale_date, total")
+    .eq("created_by", userId)
+    .is("deleted_at", null)
+    .gte("sale_date", monthStart.toISOString())
+    .order("sale_date", { ascending: false });
+  if (companyId) q = q.eq("company_id", companyId);
+  const { data, error } = await q;
+  if (error) throw error;
+
+  const rows = (data ?? []).map((row) => ({
+    id: row.id as string,
+    date: localDateKey(new Date(row.sale_date as string)),
+    customer: (row.customer_name as string) ?? "Público general",
+    method: (row.payment_method as string) ?? "Efectivo",
+    total: Number(row.total) || 0,
+  }));
+  const todayRows = rows.filter((row) => row.date === todayKey);
+
+  return {
+    salesTodayCount: todayRows.length,
+    totalToday: todayRows.reduce((sum, row) => sum + row.total, 0),
+    salesMonthCount: rows.length,
+    totalMonth: rows.reduce((sum, row) => sum + row.total, 0),
+    recentSales: rows.slice(0, 5),
+  };
+}
+
 /**
  * Agregados calculados en Postgres (RPCs) — sin el tope de 1000 filas de la Data API.
  * `tz` debe ser la zona horaria del negocio (ej. 'America/Lima').

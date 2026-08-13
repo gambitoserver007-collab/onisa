@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -47,6 +47,7 @@ import { useDashboardData } from "@/hooks/useDashboardData";
 import { useDemoSession } from "@/hooks/useDemoSession";
 import { DateRangeSelect } from "@/components/reports/DateRangeSelect";
 import { OnboardingChecklist } from "@/components/dashboard/OnboardingChecklist";
+import { fetchMySalesSummary, type MySalesSummary } from "@/services/appData";
 
 export const Route = createFileRoute("/dashboard")({ component: Dashboard });
 
@@ -131,7 +132,16 @@ function ProgressRow({
   );
 }
 
+// El cajero ve una versión propia y reducida (solo sus ventas) -- nunca la
+// cifra de toda la tienda. Se decide en un componente aparte para no tener
+// que devolver temprano en medio de los hooks del dashboard completo.
 function Dashboard() {
+  const { session } = useDemoSession();
+  if (session?.role === "user") return <CashierDashboard />;
+  return <AdminDashboard />;
+}
+
+function AdminDashboard() {
   const { formatMoney, settings } = useBusinessSettings();
   const { session } = useDemoSession();
   const { currentLocationId } = useCurrentLocation();
@@ -596,6 +606,117 @@ function Dashboard() {
             </Card>
           </aside>
         </div>
+      </div>
+    </AppShell>
+  );
+}
+
+// Dashboard reducido para el rol cajero: solo SUS ventas (hoy y el mes en
+// curso) y sus ventas recientes -- nunca los totales de toda la tienda, que
+// no le son relevantes y podrían no querer que vea (comisiones de otros
+// cajeros, ganancias del negocio, etc.).
+function CashierDashboard() {
+  const { formatMoney } = useBusinessSettings();
+  const { session, isReady } = useDemoSession();
+  const [summary, setSummary] = useState<MySalesSummary | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!isReady || !session?.userId) return;
+    let active = true;
+    setIsLoading(true);
+    void fetchMySalesSummary(session.userId, session.companyId)
+      .then((result) => {
+        if (active) setSummary(result);
+      })
+      .catch(() => {
+        if (active) setSummary(null);
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isReady, session?.userId, session?.companyId]);
+
+  return (
+    <AppShell>
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-primary">Mi turno</p>
+            <h1 className="mt-1 text-3xl font-black text-foreground">
+              Hola, {session?.name ?? "de nuevo"}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Solo tus ventas -- no las de toda la tienda.
+            </p>
+          </div>
+          <Button asChild>
+            <Link to="/pos">
+              <ShoppingCart className="h-4 w-4" />
+              Nueva venta
+            </Link>
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <MetricCard
+            icon={ShoppingCart}
+            label="Mis ventas de hoy"
+            value={isLoading ? "…" : (summary?.salesTodayCount ?? 0)}
+          />
+          <MetricCard
+            icon={Wallet}
+            label="Cobrado hoy"
+            value={isLoading ? "…" : formatMoney(summary?.totalToday ?? 0)}
+          />
+          <MetricCard
+            icon={Receipt}
+            label="Mis ventas del mes"
+            value={isLoading ? "…" : (summary?.salesMonthCount ?? 0)}
+          />
+          <MetricCard
+            icon={TrendingUp}
+            label="Cobrado este mes"
+            value={isLoading ? "…" : formatMoney(summary?.totalMonth ?? 0)}
+          />
+        </div>
+
+        <Card className="border-0 bg-card/95">
+          <CardHeader>
+            <CardTitle className="text-base">Mis ventas recientes</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {isLoading ? (
+              <p className="text-sm text-muted-foreground">Cargando...</p>
+            ) : !summary?.recentSales.length ? (
+              <p className="text-sm text-muted-foreground">
+                Todavía no registras ventas hoy.
+              </p>
+            ) : (
+              summary.recentSales.map((sale) => (
+                <div
+                  key={sale.id}
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-background/55 p-3"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      {sale.customer}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {sale.method} · {formatDate(sale.date)}
+                    </p>
+                  </div>
+                  <span className="text-sm font-bold">
+                    {formatMoney(sale.total)}
+                  </span>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
       </div>
     </AppShell>
   );
