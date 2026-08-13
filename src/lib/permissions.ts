@@ -173,6 +173,30 @@ export function canAccessPath(
   return ROUTE_ACCESS[key].includes(storeRole);
 }
 
+// Orden de preferencia para "a dónde mando a alguien que no puede ver la
+// pantalla a la que iba" -- /login y /index siempre navegan a "/dashboard"
+// primero sin importar el rol; si ese usuario no tiene Dashboard, esto
+// decide su pantalla de inicio real (ej. un cajero sin Dashboard cae en
+// Punto de venta) en vez de dejarlo varado con un error. "/perfil" al final
+// como red de seguridad -- esa ruta siempre es accesible para cualquiera.
+const HOME_PATH_CANDIDATES = [
+  "/dashboard",
+  "/pos",
+  "/caja",
+  "/ventas",
+  "/perfil",
+];
+
+export function resolveHomePath(
+  role: string | null | undefined,
+  allowedSections?: string[] | null,
+): string {
+  for (const path of HOME_PATH_CANDIDATES) {
+    if (canAccessPath(role, path, allowedSections)) return path;
+  }
+  return "/perfil";
+}
+
 // Solo el administrador de tienda gestiona el catálogo (crear/editar/eliminar
 // productos, categorías, etc.). Finanzas, Cajero y Operador solo ven.
 export function canManageCatalog(role: string | null | undefined): boolean {

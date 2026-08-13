@@ -37,7 +37,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { logout } from "@/lib/demoAuth";
-import { canAccessPath, canAccessSaaS } from "@/lib/permissions";
+import {
+  canAccessPath,
+  canAccessSaaS,
+  resolveHomePath,
+} from "@/lib/permissions";
 import { useDemoSession } from "@/hooks/useDemoSession";
 import { useAccessControl } from "@/hooks/useAccessControl";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
@@ -273,18 +277,28 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (!role) navigate({ to: "/login" });
   }, [isReady, role, navigate]);
 
-  // Redirect away from screens the current role cannot access. Espera a conocer
-  // los accesos (accessReady) para no redirigir/parpadear al navegar. El
-  // destino es "Mi Perfil" (no "/dashboard"): esa ruta es la única que
-  // canAccessPath garantiza abierta para cualquier rol o restricción
-  // personalizada -- mandar siempre a "/dashboard" fallaba justo cuando la
-  // sección prohibida era el propio Dashboard (quedaba "redirigiendo" al
-  // mismo lugar del que se estaba echando al usuario).
+  // Redirect away from screens the current role cannot access. Espera a
+  // conocer los accesos (accessReady) para no redirigir/parpadear al
+  // navegar. El destino es resolveHomePath (no "/dashboard" fijo): esa
+  // función SIEMPRE encuentra una ruta abierta para el rol/restricción del
+  // usuario, así que nunca puede "redirigir" al mismo lugar prohibido del
+  // que se lo está echando.
+  //
+  // "/login" e "/index" mandan a TODOS a "/dashboard" primero, sin importar
+  // el rol -- si ese usuario no tiene Dashboard, esto no es que haya
+  // intentado entrar a algo prohibido, es que aterrizó ahí por default; se
+  // le lleva en silencio a su pantalla de inicio real (ej. un cajero sin
+  // Dashboard cae en Punto de venta) sin alarmarlo con un error. El aviso
+  // solo se muestra cuando de verdad intentó entrar a otra sección (link,
+  // URL escrita a mano, favorito viejo a algo que ya perdió).
   useEffect(() => {
     if (!isReady || !role || !accessReady) return;
     if (!canAccessPath(role, pathname, allowedSections)) {
-      toast.error("No tienes acceso a esta sección.");
-      navigate({ to: "/perfil" });
+      const home = resolveHomePath(role, allowedSections);
+      if (pathname !== "/dashboard") {
+        toast.error("No tienes acceso a esta sección.");
+      }
+      navigate({ to: home });
     }
   }, [isReady, role, accessReady, pathname, allowedSections, navigate]);
 
