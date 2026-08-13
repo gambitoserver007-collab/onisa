@@ -274,12 +274,17 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [isReady, role, navigate]);
 
   // Redirect away from screens the current role cannot access. Espera a conocer
-  // los accesos (accessReady) para no redirigir/parpadear al navegar.
+  // los accesos (accessReady) para no redirigir/parpadear al navegar. El
+  // destino es "Mi Perfil" (no "/dashboard"): esa ruta es la única que
+  // canAccessPath garantiza abierta para cualquier rol o restricción
+  // personalizada -- mandar siempre a "/dashboard" fallaba justo cuando la
+  // sección prohibida era el propio Dashboard (quedaba "redirigiendo" al
+  // mismo lugar del que se estaba echando al usuario).
   useEffect(() => {
     if (!isReady || !role || !accessReady) return;
     if (!canAccessPath(role, pathname, allowedSections)) {
       toast.error("No tienes acceso a esta sección.");
-      navigate({ to: "/dashboard" });
+      navigate({ to: "/perfil" });
     }
   }, [isReady, role, accessReady, pathname, allowedSections, navigate]);
 
@@ -290,6 +295,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   if (!isReady || !session || !hasAppAccess) return null;
+  // Mientras se conocen los accesos personalizados (accessReady), o si la
+  // sección actual resulta prohibida, no se pinta el contenido -- antes se
+  // veía un instante la pantalla completa (con los datos de toda la tienda)
+  // antes de que el efecto de arriba alcanzara a redirigir. El efecto ya se
+  // encarga de mandar a otro lado; aquí solo se evita ese parpadeo.
+  if (!accessReady) return null;
+  if (!canAccessPath(role, pathname, allowedSections)) return null;
   const today = new Date().toLocaleDateString(settings.locale, {
     day: "2-digit",
     month: "long",
