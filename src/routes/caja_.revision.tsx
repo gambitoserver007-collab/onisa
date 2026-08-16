@@ -275,6 +275,14 @@ function CajaRevision() {
                             </span>
                           </div>
                         ))}
+                      {count.manualAdjustment > 0 && (
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Otros / ajuste exacto</span>
+                          <span className="tabular-nums">
+                            {formatMoney(count.manualAdjustment)}
+                          </span>
+                        </div>
+                      )}
                       <div className="flex justify-between border-t border-border/60 pt-1 font-bold">
                         <span>Efectivo contado</span>
                         <span className="tabular-nums">

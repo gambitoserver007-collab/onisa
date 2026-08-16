@@ -36,18 +36,38 @@ import {
   type Promotion,
   type SalePaymentLine,
 } from "@/services/appData";
-import type {
-  CartItem,
-  PausedSale,
-  Product,
-  ProductVariant,
-  Sale,
-} from "@/types";
+import type { CartItem, Product, ProductVariant, Sale } from "@/types";
 
 export const Route = createFileRoute("/pos")({ component: POS });
 
 type SaleDocumentType = Sale["type"];
 type PaymentMethod = Sale["method"];
+
+// 3 "ventanas" de venta simultáneas en el POS -- ver el efecto de
+// sincronización de pestañas más abajo.
+const SLOT_COUNT = 3;
+
+interface SaleSlot {
+  cart: CartItem[];
+  customerId: string;
+  docType: string;
+  method: string;
+  pointsToRedeem: number;
+  splitMode: boolean;
+  splitPayments: SalePaymentLine[];
+}
+
+function makeEmptySlot(): SaleSlot {
+  return {
+    cart: [],
+    customerId: "",
+    docType: "",
+    method: "Efectivo",
+    pointsToRedeem: 0,
+    splitMode: false,
+    splitPayments: [],
+  };
+}
 
 // Un Servicio nunca maneja inventario -- este número solo evita que la
 // lógica de "no pasarse del stock" del carrito lo bloquee; nunca se muestra
@@ -87,7 +107,6 @@ function POS() {
   const [method, setMethod] = useState<PaymentMethod>("Efectivo");
   const [splitMode, setSplitMode] = useState(false);
   const [splitPayments, setSplitPayments] = useState<SalePaymentLine[]>([]);
-  const [pausedSales, setPausedSales] = useState<PausedSale[]>([]);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [success, setSuccess] = useState<{ amount: number; id: string } | null>(
     null,
@@ -222,71 +241,102 @@ function POS() {
     if (!docType && documentTypes.length) setDocType(documentTypes[0].name);
   }, [docType, documentTypes]);
 
-  // Ventas en pausa: solo viven en este dispositivo (localStorage), para
-  // que el cajero pueda atender a otro cliente sin perder el carrito actual.
-  // No reservan stock -- se valida hasta que se cobran, igual que cualquier
-  // venta normal. Escopeadas por empresa, no por sucursal (un mismo equipo
-  // normalmente vende en una sola sucursal).
-  const pausedSalesKey = session?.companyId
-    ? `ventapro:paused-sales:${session.companyId}`
+  // 3 "ventanas" de venta simultáneas -- cambiar de pestaña es instantáneo
+  // (sin pausar/retomar) para no frenar el flujo cuando hay varios clientes
+  // esperando. Cada pestaña guarda su propio carrito completo; viven solo
+  // en este dispositivo (localStorage), escopeadas por empresa. No
+  // reservan stock -- se valida hasta que se cobran, igual que siempre.
+  const slotsKey = session?.companyId
+    ? `ventapro:sale-slots:${session.companyId}`
     : null;
+  const [activeSlot, setActiveSlot] = useState(0);
+  const [slots, setSlots] = useState<SaleSlot[]>(() =>
+    Array.from({ length: SLOT_COUNT }, () => makeEmptySlot()),
+  );
+  const slotsLoadedRef = useRef(false);
 
   useEffect(() => {
-    if (!pausedSalesKey) {
-      setPausedSales([]);
+    slotsLoadedRef.current = false;
+    if (!slotsKey) {
+      setSlots(Array.from({ length: SLOT_COUNT }, () => makeEmptySlot()));
+      setActiveSlot(0);
+      slotsLoadedRef.current = true;
       return;
     }
     try {
-      const raw = localStorage.getItem(pausedSalesKey);
-      setPausedSales(raw ? (JSON.parse(raw) as PausedSale[]) : []);
+      const raw = localStorage.getItem(slotsKey);
+      const parsed = raw
+        ? (JSON.parse(raw) as { activeSlot: number; slots: SaleSlot[] })
+        : null;
+      const loadedSlots =
+        parsed?.slots?.length === SLOT_COUNT
+          ? parsed.slots
+          : Array.from({ length: SLOT_COUNT }, () => makeEmptySlot());
+      setSlots(loadedSlots);
+      const loadedActive = parsed?.activeSlot ?? 0;
+      setActiveSlot(
+        loadedActive >= 0 && loadedActive < SLOT_COUNT ? loadedActive : 0,
+      );
+      const current = loadedSlots[loadedActive] ?? loadedSlots[0];
+      setCart(current.cart);
+      setCustomer(current.customerId);
+      setDocType(current.docType as SaleDocumentType);
+      setMethod(current.method as PaymentMethod);
+      setPointsToRedeem(current.pointsToRedeem);
+      setSplitMode(current.splitMode);
+      setSplitPayments(current.splitPayments);
     } catch {
-      setPausedSales([]);
+      setSlots(Array.from({ length: SLOT_COUNT }, () => makeEmptySlot()));
+      setActiveSlot(0);
+    } finally {
+      slotsLoadedRef.current = true;
     }
-  }, [pausedSalesKey]);
+  }, [slotsKey]);
 
-  const savePausedSales = (next: PausedSale[]) => {
-    setPausedSales(next);
-    if (!pausedSalesKey) return;
-    try {
-      localStorage.setItem(pausedSalesKey, JSON.stringify(next));
-    } catch {
-      // localStorage lleno o deshabilitado: la pausa en memoria sigue
-      // funcionando para esta sesión, solo no sobrevive un refresh.
-    }
-  };
+  // Mantiene la pestaña activa sincronizada con el carrito en tiempo real
+  // (para que cambiar de pestaña nunca pierda lo que se acaba de escribir).
+  useEffect(() => {
+    if (!slotsLoadedRef.current) return;
+    setSlots((current) => {
+      const next = [...current];
+      next[activeSlot] = {
+        cart,
+        customerId: customer,
+        docType,
+        method,
+        pointsToRedeem,
+        splitMode,
+        splitPayments,
+      };
+      if (slotsKey) {
+        try {
+          localStorage.setItem(
+            slotsKey,
+            JSON.stringify({ activeSlot, slots: next }),
+          );
+        } catch {
+          // localStorage lleno o deshabilitado: sigue funcionando en
+          // memoria para esta sesión, solo no sobrevive un refresh.
+        }
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    cart,
+    customer,
+    docType,
+    method,
+    pointsToRedeem,
+    splitMode,
+    splitPayments,
+    activeSlot,
+  ]);
 
-  const pauseSale = (note: string) => {
-    if (cart.length === 0) return;
-    const paused: PausedSale = {
-      id: crypto.randomUUID(),
-      note: note.trim(),
-      pausedAt: new Date().toISOString(),
-      cart,
-      customerId: customers.some((entry) => entry.id === customer)
-        ? customer
-        : "",
-      docType,
-      method,
-      pointsToRedeem,
-      splitMode,
-      splitPayments,
-    };
-    savePausedSales([paused, ...pausedSales]);
-    setCart([]);
-    setPointsToRedeem(0);
-    setSplitMode(false);
-    setSplitPayments([]);
-    pendingSaleRef.current = null;
-    toast.success("Venta pausada. Puedes atender a otro cliente.");
-  };
-
-  const resumeSale = (id: string) => {
-    if (cart.length > 0) {
-      toast.error("Termina o pausa la venta actual antes de retomar otra.");
-      return;
-    }
-    const target = pausedSales.find((entry) => entry.id === id);
-    if (!target) return;
+  const switchSlot = (index: number) => {
+    if (index === activeSlot || isCheckingOut) return;
+    const target = slots[index];
+    setActiveSlot(index);
     setCart(target.cart);
     setCustomer(target.customerId);
     if (target.docType) setDocType(target.docType as SaleDocumentType);
@@ -294,12 +344,14 @@ function POS() {
     setPointsToRedeem(target.pointsToRedeem);
     setSplitMode(target.splitMode);
     setSplitPayments(target.splitPayments);
-    savePausedSales(pausedSales.filter((entry) => entry.id !== id));
+    pendingSaleRef.current = null;
   };
 
-  const deletePausedSale = (id: string) => {
-    savePausedSales(pausedSales.filter((entry) => entry.id !== id));
-  };
+  const slotItemCounts = useMemo(
+    () =>
+      slots.map((slot) => slot.cart.reduce((sum, item) => sum + item.qty, 0)),
+    [slots],
+  );
 
   // Piezas de todos los combos: no dependen de la sucursal (la composición
   // de un combo es la misma en todos lados), solo se usan junto con
@@ -901,10 +953,10 @@ function POS() {
     onSplitModeChange: setSplitMode,
     splitPayments,
     onSplitPaymentsChange: setSplitPayments,
-    pausedSales,
-    onPauseSale: pauseSale,
-    onResumeSale: resumeSale,
-    onDeletePausedSale: deletePausedSale,
+    slotCount: SLOT_COUNT,
+    activeSlot,
+    slotItemCounts,
+    onSwitchSlot: switchSlot,
   };
 
   // Sin sucursal concreta (admin con "Todas las tiendas") no se puede vender:

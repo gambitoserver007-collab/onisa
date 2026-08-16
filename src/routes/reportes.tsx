@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -35,11 +35,25 @@ import { AppShell } from "@/components/layout/AppShell";
 import { FallbackNotice } from "@/components/layout/FallbackNotice";
 import { ALL_LOCATIONS } from "@/lib/currentLocation";
 import { useCurrentLocation } from "@/hooks/useCurrentLocation";
+import { useDemoSession } from "@/hooks/useDemoSession";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { DateRangeSelect } from "@/components/reports/DateRangeSelect";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useDashboardData } from "@/hooks/useDashboardData";
+import {
+  fetchEmployeeCommissions,
+  fetchProfileNames,
+  type EmployeeCommissionSummary,
+} from "@/services/appData";
 
 export const Route = createFileRoute("/reportes")({ component: Reportes });
 
@@ -69,6 +83,7 @@ function Kpi({
 
 function Reportes() {
   const { formatMoney } = useBusinessSettings();
+  const { session } = useDemoSession();
   const { currentLocationId } = useCurrentLocation();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -83,6 +98,44 @@ function Reportes() {
       : (currentLocationId ?? undefined),
     range,
   );
+
+  // Ventas y comisión por vendedor -- para que el dueño vea cómo se
+  // comporta cada quien, no solo el total de la tienda.
+  const [vendorPerf, setVendorPerf] = useState<EmployeeCommissionSummary[]>([]);
+  const [profileNames, setProfileNames] = useState<Record<string, string>>({});
+  const [vendorLoading, setVendorLoading] = useState(true);
+
+  useEffect(() => {
+    if (!session?.companyId) return;
+    let active = true;
+    setVendorLoading(true);
+    const locationId =
+      currentLocationId === ALL_LOCATIONS
+        ? undefined
+        : (currentLocationId ?? undefined);
+    void Promise.all([
+      fetchEmployeeCommissions(session.companyId, {
+        from: from || undefined,
+        to: to || undefined,
+        locationId,
+      }),
+      fetchProfileNames(session.companyId),
+    ])
+      .then(([perf, names]) => {
+        if (!active) return;
+        setVendorPerf(perf.slice().sort((a, b) => b.totalSales - a.totalSales));
+        setProfileNames(names);
+      })
+      .catch(() => {
+        if (active) setVendorPerf([]);
+      })
+      .finally(() => {
+        if (active) setVendorLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [session?.companyId, currentLocationId, from, to]);
   const lowStock = data.lowStockProducts;
   const rangeTotal = useMemo(
     () => data.salesByCategory.reduce((acc, row) => acc + (row.value || 0), 0),
@@ -279,6 +332,69 @@ function Reportes() {
                 </li>
               ))}
             </ul>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-card lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-base">
+              Ventas y comisión por vendedor
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Vendedor</TableHead>
+                    <TableHead className="text-right">Ventas</TableHead>
+                    <TableHead className="text-right">Total vendido</TableHead>
+                    <TableHead className="text-right">Comisión</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {vendorLoading && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={4}
+                        className="py-6 text-center text-muted-foreground"
+                      >
+                        Cargando...
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {!vendorLoading && vendorPerf.length === 0 && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={4}
+                        className="py-6 text-center text-muted-foreground"
+                      >
+                        Sin ventas en este periodo.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {!vendorLoading &&
+                    vendorPerf.map((row) => (
+                      <TableRow key={row.profileId}>
+                        <TableCell className="font-medium">
+                          {profileNames[row.profileId] ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {row.salesCount}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatMoney(row.totalSales)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {row.totalCommission > 0
+                            ? formatMoney(row.totalCommission)
+                            : "—"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
       </div>

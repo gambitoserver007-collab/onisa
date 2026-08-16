@@ -56,8 +56,9 @@ function Clientes() {
   const { customers, error, source, isLoading, reload, session } =
     useCompanyCatalog();
   const { isDemo, role } = useDemoSession();
-  const { formatMoney } = useBusinessSettings();
+  const { formatMoney, settings } = useBusinessSettings();
   const isAdmin = role === "admin";
+  const showLoyalty = settings.loyaltyEnabled;
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -311,6 +312,7 @@ function Clientes() {
                   <TableHead>Documento</TableHead>
                   <TableHead>Teléfono</TableHead>
                   <TableHead>Crédito</TableHead>
+                  {showLoyalty && <TableHead>Puntos</TableHead>}
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
@@ -318,7 +320,7 @@ function Clientes() {
                 {isLoading && (
                   <TableRow>
                     <TableCell
-                      colSpan={5}
+                      colSpan={showLoyalty ? 6 : 5}
                       className="py-8 text-center text-muted-foreground"
                     >
                       Cargando clientes...
@@ -327,7 +329,7 @@ function Clientes() {
                 )}
                 {!isLoading && list.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5}>
+                    <TableCell colSpan={showLoyalty ? 6 : 5}>
                       <EmptyState
                         emoji="🧑‍🤝‍🧑"
                         title="Sin clientes"
@@ -362,6 +364,13 @@ function Clientes() {
                           </span>
                         )}
                       </TableCell>
+                      {showLoyalty && (
+                        <TableCell>
+                          <span className="font-medium tabular-nums">
+                            {customer.loyaltyPoints ?? 0}
+                          </span>
+                        </TableCell>
+                      )}
                       <TableCell className="text-right">
                         {(customer.creditBalance ?? 0) > 0 && (
                           <Button

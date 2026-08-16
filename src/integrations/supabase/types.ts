@@ -2124,6 +2124,7 @@ export type Database = {
           id: string;
           is_demo_data: boolean;
           location_id: string | null;
+          manual_adjustment: number;
           other_total: number;
           till_id: string | null;
           transfer_total: number;
@@ -2140,6 +2141,7 @@ export type Database = {
           id?: string;
           is_demo_data?: boolean;
           location_id?: string | null;
+          manual_adjustment?: number;
           other_total?: number;
           till_id?: string | null;
           transfer_total?: number;
@@ -2156,6 +2158,7 @@ export type Database = {
           id?: string;
           is_demo_data?: boolean;
           location_id?: string | null;
+          manual_adjustment?: number;
           other_total?: number;
           till_id?: string | null;
           transfer_total?: number;
@@ -2474,7 +2477,11 @@ export type Database = {
         Returns: undefined;
       };
       submit_till_count: {
-        Args: { p_denominations: Json; p_session_id: string };
+        Args: {
+          p_denominations: Json;
+          p_manual_adjustment?: number;
+          p_session_id: string;
+        };
         Returns: Json;
       };
       sync_product_variants: {

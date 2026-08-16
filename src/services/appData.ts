@@ -752,6 +752,74 @@ export async function fetchMySalesSummary(
   };
 }
 
+export interface MyCommissionSummary {
+  /** % de comisión vigente ahora mismo (null = no tiene configurada). */
+  commissionRate: number | null;
+  totalCommission: number;
+  salesWithCommissionCount: number;
+}
+
+function periodStartDate(period: "month" | "quarter", now: Date): Date {
+  if (period === "quarter") {
+    const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+    return new Date(now.getFullYear(), quarterStartMonth, 1);
+  }
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
+
+/** Cuánto ha ganado de comisión el propio empleado en el mes o trimestre en
+ * curso -- para que pueda consultarlo él mismo sin pasar por /empleados
+ * (solo-admin). La comisión ya viene "congelada" por venta (commission_amount
+ * en sales, ver create_sale), así que este total nunca cambia con el tiempo
+ * aunque el admin ajuste el % después. */
+export async function fetchMyCommissionSummary(
+  userId: string,
+  companyId: string | undefined,
+  period: "month" | "quarter",
+): Promise<MyCommissionSummary> {
+  const start = periodStartDate(period, new Date());
+
+  let salesQuery = supabase
+    .from("sales")
+    .select("commission_amount")
+    .eq("created_by", userId)
+    .is("deleted_at", null)
+    .gte("sale_date", start.toISOString())
+    .gt("commission_amount", 0);
+  if (companyId) salesQuery = salesQuery.eq("company_id", companyId);
+
+  const [
+    { data: salesRows, error: salesError },
+    { data: profileRow, error: profileError },
+  ] = await Promise.all([
+    salesQuery,
+    supabase
+      .from("profiles")
+      .select("commission_rate")
+      .eq("id", userId)
+      .maybeSingle(),
+  ]);
+  if (salesError) throw salesError;
+  if (profileError) throw profileError;
+
+  const rows = salesRows ?? [];
+  return {
+    commissionRate:
+      (profileRow as { commission_rate?: number | string | null } | null)
+        ?.commission_rate == null
+        ? null
+        : Number(
+            (profileRow as { commission_rate?: number | string | null })
+              .commission_rate,
+          ),
+    totalCommission: rows.reduce(
+      (sum, row) => sum + (Number(row.commission_amount) || 0),
+      0,
+    ),
+    salesWithCommissionCount: rows.length,
+  };
+}
+
 /**
  * Agregados calculados en Postgres (RPCs) — sin el tope de 1000 filas de la Data API.
  * `tz` debe ser la zona horaria del negocio (ej. 'America/Lima').
@@ -2002,6 +2070,8 @@ export interface TillCount {
   cardTotal: number;
   transferTotal: number;
   otherTotal: number;
+  /** Monto exacto capturado a mano (no representable con las denominaciones). */
+  manualAdjustment: number;
   lines: TillCountLine[];
 }
 
@@ -2016,15 +2086,18 @@ export interface SubmitTillCountResult {
   cardTotal: number;
   transferTotal: number;
   otherTotal: number;
+  manualAdjustment: number;
 }
 
 export async function submitTillCount(
   sessionId: string,
   denominations: { denomination: number; quantity: number }[],
+  manualAdjustment = 0,
 ): Promise<SubmitTillCountResult> {
   const { data, error } = await supabase.rpc("submit_till_count", {
     p_session_id: sessionId,
     p_denominations: denominations,
+    p_manual_adjustment: manualAdjustment,
   });
   if (error) throw error;
   const row = data as {
@@ -2034,6 +2107,7 @@ export async function submitTillCount(
     card_total: number;
     transfer_total: number;
     other_total: number;
+    manual_adjustment: number;
   };
   return {
     countId: row.count_id,
@@ -2042,6 +2116,7 @@ export async function submitTillCount(
     cardTotal: toNumber(row.card_total),
     transferTotal: toNumber(row.transfer_total),
     otherTotal: toNumber(row.other_total),
+    manualAdjustment: toNumber(row.manual_adjustment),
   };
 }
 
@@ -2090,7 +2165,7 @@ export async function fetchTillCounts(sessionId: string): Promise<TillCount[]> {
   const { data: counts, error } = await supabase
     .from("till_counts")
     .select(
-      "id, count_number, counted_by, counted_at, counted_cash_total, card_total, transfer_total, other_total",
+      "id, count_number, counted_by, counted_at, counted_cash_total, card_total, transfer_total, other_total, manual_adjustment",
     )
     .eq("cash_session_id", sessionId)
     .order("count_number", { ascending: true });
@@ -2122,6 +2197,9 @@ export async function fetchTillCounts(sessionId: string): Promise<TillCount[]> {
     cardTotal: toNumber(c.card_total),
     transferTotal: toNumber(c.transfer_total),
     otherTotal: toNumber(c.other_total),
+    manualAdjustment: toNumber(
+      (c as { manual_adjustment?: number }).manual_adjustment,
+    ),
     lines: (linesByCount[c.id] ?? []).sort(
       (a, b) => b.denomination - a.denomination,
     ),
@@ -3984,7 +4062,7 @@ export interface EmployeeCommissionSummary {
  * se desactualiza aunque el admin cambie el % de un empleado después. */
 export async function fetchEmployeeCommissions(
   companyId?: string,
-  opts: { from?: string; to?: string } = {},
+  opts: { from?: string; to?: string; locationId?: string } = {},
 ): Promise<EmployeeCommissionSummary[]> {
   let q = supabase
     .from("sales")
@@ -3994,6 +4072,7 @@ export async function fetchEmployeeCommissions(
   if (companyId) q = q.eq("company_id", companyId);
   if (opts.from) q = q.gte("sale_date", opts.from);
   if (opts.to) q = q.lte("sale_date", opts.to);
+  if (opts.locationId) q = q.eq("location_id", opts.locationId);
   const { data, error } = await q;
   if (error) throw error;
 

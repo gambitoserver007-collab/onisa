@@ -273,6 +273,7 @@ export async function submitTillCount(
   db: PGlite,
   sessionId: string,
   denominations: { denomination: number; quantity: number }[],
+  manualAdjustment = 0,
 ): Promise<{
   count_id: string;
   count_number: number;
@@ -280,10 +281,11 @@ export async function submitTillCount(
   card_total: number;
   transfer_total: number;
   other_total: number;
+  manual_adjustment: number;
 }> {
   const { rows } = await db.query<{ submit_till_count: unknown }>(
-    "select submit_till_count($1, $2::jsonb) as submit_till_count",
-    [sessionId, JSON.stringify(denominations)],
+    "select submit_till_count($1, $2::jsonb, $3) as submit_till_count",
+    [sessionId, JSON.stringify(denominations), manualAdjustment],
   );
   return rows[0].submit_till_count as {
     count_id: string;
@@ -292,6 +294,7 @@ export async function submitTillCount(
     card_total: number;
     transfer_total: number;
     other_total: number;
+    manual_adjustment: number;
   };
 }
 

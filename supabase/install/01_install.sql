@@ -5619,13 +5619,23 @@ revoke all on function public.compute_cash_session_expected(uuid) from public, a
 -- submit_till_count + finish_till_count + authorize_cash_session.
 drop function if exists public.close_cash_session(uuid, numeric);
 
+-- Monto exacto en pesos y centavos que no se puede armar con las
+-- denominaciones físicas contables (ej. $3.75 sueltos) -- sin esto, un
+-- corte con ventas de precio decimal nunca podía cuadrar porque la
+-- denominación más chica es $0.50. Se suma al total contado, aparte del
+-- conteo por denominación.
+alter table public.till_counts add column if not exists manual_adjustment numeric(12,2) not null default 0;
+
+drop function if exists public.submit_till_count(uuid, jsonb);
+
 -- submit_till_count: RPC del arqueo ciego que llama la cajera. NUNCA
 -- calcula ni devuelve el esperado ni la diferencia -- solo recalcula (server-
 -- side, nunca confía en el total que mande el cliente) lo que ella misma
 -- acaba de contar, y jala tarjeta/transferencia/otros automáticamente.
 create or replace function public.submit_till_count(
   p_session_id uuid,
-  p_denominations jsonb
+  p_denominations jsonb,
+  p_manual_adjustment numeric default 0
 ) returns jsonb
 language plpgsql
 security definer
@@ -5686,6 +5696,10 @@ begin
     raise exception 'Captura al menos una denominación.';
   end if;
 
+  if p_manual_adjustment is null or p_manual_adjustment < 0 then
+    raise exception 'El ajuste manual debe ser un monto válido (0 o mayor).';
+  end if;
+
   for v_item in select * from jsonb_array_elements(p_denominations) loop
     v_denom := (v_item ->> 'denomination')::numeric;
     v_qty := coalesce((v_item ->> 'quantity')::integer, 0);
@@ -5718,9 +5732,9 @@ begin
     and s.sale_date <= v_cutoff;
 
   insert into public.till_counts
-    (company_id, cash_session_id, till_id, location_id, count_number, counted_by, card_total, transfer_total, other_total)
+    (company_id, cash_session_id, till_id, location_id, count_number, counted_by, card_total, transfer_total, other_total, manual_adjustment)
   values
-    (v_company_id, p_session_id, v_session.till_id, v_session.location_id, v_count_number, auth.uid(), v_card_total, v_transfer_total, v_other_total)
+    (v_company_id, p_session_id, v_session.till_id, v_session.location_id, v_count_number, auth.uid(), v_card_total, v_transfer_total, v_other_total, round(p_manual_adjustment, 2))
   returning id into v_count_id;
 
   for v_item in select * from jsonb_array_elements(p_denominations) loop
@@ -5733,6 +5747,7 @@ begin
 
   select coalesce(sum(subtotal), 0) into v_counted_total
   from public.till_count_lines where till_count_id = v_count_id;
+  v_counted_total := round(v_counted_total + p_manual_adjustment, 2);
 
   update public.till_counts set counted_cash_total = v_counted_total where id = v_count_id;
 
@@ -5753,13 +5768,14 @@ begin
     'counted_cash_total', v_counted_total,
     'card_total', v_card_total,
     'transfer_total', v_transfer_total,
-    'other_total', v_other_total
+    'other_total', v_other_total,
+    'manual_adjustment', round(p_manual_adjustment, 2)
   );
 end;
 $function$;
 
-revoke all on function public.submit_till_count(uuid, jsonb) from public, anon;
-grant execute on function public.submit_till_count(uuid, jsonb) to authenticated;
+revoke all on function public.submit_till_count(uuid, jsonb, numeric) from public, anon;
+grant execute on function public.submit_till_count(uuid, jsonb, numeric) to authenticated;
 
 -- finish_till_count: lo llama la cajera para terminar. Si el primer conteo
 -- cuadra exacto, cierra de una vez. Si no cuadra y todavía no hay segundo

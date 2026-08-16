@@ -404,12 +404,15 @@ function Caja() {
     }
   };
 
-  const handleSubmitCount = async (lines: DenominationLine[]) => {
+  const handleSubmitCount = async (
+    lines: DenominationLine[],
+    manualAdjustment: number,
+  ) => {
     if (isDemo) return blockDemoAction();
     if (!session || !activeSessionId) return;
     setCountBusy(true);
     try {
-      await submitTillCount(activeSessionId, lines);
+      await submitTillCount(activeSessionId, lines, manualAdjustment);
       const finish = await finishTillCount(activeSessionId);
       setCountDialog(false);
       if (finish.status === "closed") {

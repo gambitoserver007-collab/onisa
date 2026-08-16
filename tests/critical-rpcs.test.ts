@@ -806,6 +806,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "count_id",
           "count_number",
           "counted_cash_total",
+          "manual_adjustment",
           "other_total",
           "transfer_total",
         ].sort(),
@@ -828,6 +829,54 @@ describe("RPCs críticas de dinero y stock", () => {
             { denomination: 999, quantity: 1 },
           ]),
         ).rejects.toThrow(/denominaci[oó]n inv[aá]lida/i);
+      });
+    });
+
+    it("el ajuste manual se suma al total contado, para poder cuadrar montos con centavos que no caben en las denominaciones", async () => {
+      const company = await makeCompany(db, "Empresa Ajuste Decimal Test");
+      const cajero = await makeUser(db, company.id, "user");
+      let sessionId = "";
+      await asUser(db, cajero, async () => {
+        // Fondo de $100.25 -- ese ".25" no se puede armar con la
+        // denominación más chica ($0.50), solo con el ajuste manual.
+        const { rows: openRows } = await db.query<{
+          open_cash_session: string;
+        }>("select open_cash_session(100.25, $1) as open_cash_session", [
+          company.loc1,
+        ]);
+        sessionId = openRows[0].open_cash_session;
+
+        const result = await submitTillCount(
+          db,
+          sessionId,
+          [{ denomination: 100, quantity: 1 }],
+          0.25,
+        );
+        expect(Number(result.manual_adjustment)).toBeCloseTo(0.25, 2);
+        expect(Number(result.counted_cash_total)).toBeCloseTo(100.25, 2);
+
+        const finish = await finishTillCount(db, sessionId);
+        expect(finish.status).toBe("closed");
+      });
+    });
+
+    it("rechaza un ajuste manual negativo", async () => {
+      const company = await makeCompany(db, "Empresa Ajuste Negativo Test");
+      const cajero = await makeUser(db, company.id, "user");
+      await asUser(db, cajero, async () => {
+        const { rows: openRows } = await db.query<{
+          open_cash_session: string;
+        }>("select open_cash_session(100, $1) as open_cash_session", [
+          company.loc1,
+        ]);
+        await expect(
+          submitTillCount(
+            db,
+            openRows[0].open_cash_session,
+            [{ denomination: 100, quantity: 1 }],
+            -0.5,
+          ),
+        ).rejects.toThrow(/ajuste manual debe ser un monto v[aá]lido/i);
       });
     });
 

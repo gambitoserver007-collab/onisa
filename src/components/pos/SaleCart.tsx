@@ -1,10 +1,7 @@
 import { useState } from "react";
 import {
-  Clock,
   Minus,
-  PauseCircle,
   Plus,
-  PlayCircle,
   Search,
   ShoppingBag,
   ShoppingCart,
@@ -14,13 +11,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import type {
-  CartItem,
-  Customer,
-  DocumentType,
-  PausedSale,
-  Sale,
-} from "@/types";
+import type { CartItem, Customer, DocumentType, Sale } from "@/types";
 import type { Promotion, SalePaymentLine } from "@/services/appData";
 import {
   PAYMENT_METHOD_KIND_LABELS,
@@ -112,11 +103,13 @@ export interface SaleCartProps {
    * sumen exacto al total final. */
   splitPayments?: SalePaymentLine[];
   onSplitPaymentsChange?: (payments: SalePaymentLine[]) => void;
-  /** Ventas pausadas en este dispositivo (para atender a otro cliente). */
-  pausedSales?: PausedSale[];
-  onPauseSale?: (note: string) => void;
-  onResumeSale?: (id: string) => void;
-  onDeletePausedSale?: (id: string) => void;
+  /** Ventanas de venta simultáneas (para atender a varios clientes sin
+   * pausar/retomar) -- cada una guarda su propio carrito en el dispositivo. */
+  slotCount?: number;
+  activeSlot?: number;
+  /** Ítems en cada pestaña, en el mismo orden (para el badge). */
+  slotItemCounts?: number[];
+  onSwitchSlot?: (index: number) => void;
 }
 
 function SaleCartContent({
@@ -150,10 +143,10 @@ function SaleCartContent({
   onSplitModeChange,
   splitPayments = [],
   onSplitPaymentsChange,
-  pausedSales = [],
-  onPauseSale,
-  onResumeSale,
-  onDeletePausedSale,
+  slotCount = 0,
+  activeSlot = 0,
+  slotItemCounts = [],
+  onSwitchSlot,
 }: SaleCartProps) {
   const { formatMoney, settings } = useBusinessSettings();
   const itemCount = cart.reduce((sum, item) => sum + item.qty, 0);
@@ -168,9 +161,6 @@ function SaleCartContent({
 
   const [newOpen, setNewOpen] = useState(false);
   const [splitEditorOpen, setSplitEditorOpen] = useState(false);
-  const [pauseDialogOpen, setPauseDialogOpen] = useState(false);
-  const [pauseNote, setPauseNote] = useState("");
-  const [pausedListOpen, setPausedListOpen] = useState(false);
   const [ncName, setNcName] = useState("");
   const [ncDoc, setNcDoc] = useState("");
   const [ncPhone, setNcPhone] = useState("");
@@ -226,9 +216,6 @@ function SaleCartContent({
     }
   };
 
-  const pausedSaleTotal = (sale: PausedSale) =>
-    sale.cart.reduce((sum, item) => sum + item.price * item.qty, 0);
-
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex shrink-0 items-center justify-between">
@@ -238,34 +225,37 @@ function SaleCartContent({
           </span>
           Carrito
         </div>
-        <div className="flex items-center gap-1.5">
-          {onPauseSale && (
-            <button
-              type="button"
-              disabled={cart.length === 0}
-              onClick={() => {
-                setPauseNote("");
-                setPauseDialogOpen(true);
-              }}
-              className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold text-muted-foreground transition hover:bg-muted disabled:opacity-30"
-            >
-              <PauseCircle className="h-3.5 w-3.5" /> Pausar
-            </button>
-          )}
-          {onResumeSale && pausedSales.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setPausedListOpen(true)}
-              className="inline-flex items-center gap-1 rounded-full bg-warm/15 px-2 py-1 text-xs font-semibold text-warm transition hover:bg-warm/25"
-            >
-              <Clock className="h-3.5 w-3.5" /> En pausa ({pausedSales.length})
-            </button>
-          )}
-          <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-bold text-primary">
-            {itemCount} {itemCount === 1 ? "ítem" : "ítems"}
-          </span>
-        </div>
+        <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-bold text-primary">
+          {itemCount} {itemCount === 1 ? "ítem" : "ítems"}
+        </span>
       </div>
+
+      {slotCount > 1 && (
+        <div className="flex shrink-0 gap-1.5">
+          {Array.from({ length: slotCount }, (_, index) => {
+            const count = slotItemCounts[index] ?? 0;
+            const isActive = index === activeSlot;
+            return (
+              <button
+                key={index}
+                type="button"
+                onClick={() => onSwitchSlot?.(index)}
+                className={cn(
+                  "flex-1 rounded-xl px-2 py-1.5 text-xs font-semibold transition",
+                  isActive
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-muted/70",
+                )}
+              >
+                Venta {index + 1}
+                {count > 0 && (
+                  <span className="ml-1 opacity-80">({count})</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="shrink-0 space-y-2.5">
         <div className="space-y-1">
@@ -822,105 +812,6 @@ function SaleCartContent({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <Dialog open={pauseDialogOpen} onOpenChange={setPauseDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Pausar esta venta</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-1">
-            <Label>Nota (opcional)</Label>
-            <Input
-              autoFocus
-              value={pauseNote}
-              onChange={(event) => setPauseNote(event.target.value)}
-              placeholder="Ej. Sr. López"
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  onPauseSale?.(pauseNote);
-                  setPauseDialogOpen(false);
-                }
-              }}
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            El carrito actual se guarda para retomarlo después, y queda libre
-            para atender a otro cliente.
-          </p>
-          <DialogFooter>
-            <Button
-              variant="brand"
-              onClick={() => {
-                onPauseSale?.(pauseNote);
-                setPauseDialogOpen(false);
-              }}
-            >
-              Pausar venta
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={pausedListOpen} onOpenChange={setPausedListOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Ventas en pausa</DialogTitle>
-          </DialogHeader>
-          <div className="max-h-[60vh] space-y-2 overflow-y-auto">
-            {pausedSales.length === 0 && (
-              <p className="py-4 text-center text-sm text-muted-foreground">
-                No hay ventas en pausa.
-              </p>
-            )}
-            {pausedSales.map((sale) => {
-              const saleItemCount = sale.cart.reduce(
-                (sum, item) => sum + item.qty,
-                0,
-              );
-              return (
-                <div
-                  key={sale.id}
-                  className="flex items-center justify-between gap-2 rounded-xl border border-border/60 p-3"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">
-                      {sale.note || "Venta pausada"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(sale.pausedAt).toLocaleTimeString(
-                        settings.locale,
-                        { hour: "2-digit", minute: "2-digit" },
-                      )}{" "}
-                      · {saleItemCount} {saleItemCount === 1 ? "ítem" : "ítems"}{" "}
-                      · {formatMoney(pausedSaleTotal(sale))}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        onResumeSale?.(sale.id);
-                        setPausedListOpen(false);
-                      }}
-                    >
-                      <PlayCircle className="h-3.5 w-3.5" /> Retomar
-                    </Button>
-                    <button
-                      type="button"
-                      aria-label="Eliminar venta en pausa"
-                      onClick={() => onDeletePausedSale?.(sale.id)}
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-destructive"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
@@ -960,10 +851,7 @@ export function MobileSaleCart(props: SaleCartProps) {
             <Button
               variant="brand"
               className="h-12 shrink-0"
-              disabled={
-                props.cart.length === 0 &&
-                (!props.pausedSales || props.pausedSales.length === 0)
-              }
+              disabled={props.cart.length === 0 && (props.slotCount ?? 0) <= 1}
             >
               <ShoppingCart className="h-4 w-4" />
               Ver carrito

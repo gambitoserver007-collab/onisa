@@ -47,7 +47,13 @@ import { useDashboardData } from "@/hooks/useDashboardData";
 import { useDemoSession } from "@/hooks/useDemoSession";
 import { DateRangeSelect } from "@/components/reports/DateRangeSelect";
 import { OnboardingChecklist } from "@/components/dashboard/OnboardingChecklist";
-import { fetchMySalesSummary, type MySalesSummary } from "@/services/appData";
+import { cn } from "@/lib/utils";
+import {
+  fetchMyCommissionSummary,
+  fetchMySalesSummary,
+  type MyCommissionSummary,
+  type MySalesSummary,
+} from "@/services/appData";
 
 export const Route = createFileRoute("/dashboard")({ component: Dashboard });
 
@@ -620,6 +626,13 @@ function CashierDashboard() {
   const { session, isReady } = useDemoSession();
   const [summary, setSummary] = useState<MySalesSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [commissionPeriod, setCommissionPeriod] = useState<"month" | "quarter">(
+    "month",
+  );
+  const [commission, setCommission] = useState<MyCommissionSummary | null>(
+    null,
+  );
+  const [commissionLoading, setCommissionLoading] = useState(true);
 
   useEffect(() => {
     if (!isReady || !session?.userId) return;
@@ -639,6 +652,29 @@ function CashierDashboard() {
       active = false;
     };
   }, [isReady, session?.userId, session?.companyId]);
+
+  useEffect(() => {
+    if (!isReady || !session?.userId) return;
+    let active = true;
+    setCommissionLoading(true);
+    void fetchMyCommissionSummary(
+      session.userId,
+      session.companyId,
+      commissionPeriod,
+    )
+      .then((result) => {
+        if (active) setCommission(result);
+      })
+      .catch(() => {
+        if (active) setCommission(null);
+      })
+      .finally(() => {
+        if (active) setCommissionLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isReady, session?.userId, session?.companyId, commissionPeriod]);
 
   return (
     <AppShell>
@@ -683,6 +719,53 @@ function CashierDashboard() {
             value={isLoading ? "…" : formatMoney(summary?.totalMonth ?? 0)}
           />
         </div>
+
+        {(commissionLoading || commission?.commissionRate != null) && (
+          <Card className="border-0 bg-card/95">
+            <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+              <CardTitle className="text-base">Mi comisión</CardTitle>
+              <div className="flex gap-1 rounded-full bg-muted p-1">
+                {(["month", "quarter"] as const).map((period) => (
+                  <button
+                    key={period}
+                    type="button"
+                    onClick={() => setCommissionPeriod(period)}
+                    className={cn(
+                      "rounded-full px-3 py-1 text-xs font-semibold transition",
+                      commissionPeriod === period
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {period === "month" ? "Este mes" : "Este trimestre"}
+                  </button>
+                ))}
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <p className="text-3xl font-black text-foreground">
+                    {commissionLoading
+                      ? "…"
+                      : formatMoney(commission?.totalCommission ?? 0)}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {commissionLoading
+                      ? "Calculando..."
+                      : `${commission?.salesWithCommissionCount ?? 0} venta(s) con comisión`}
+                  </p>
+                </div>
+                {!commissionLoading && commission?.commissionRate != null && (
+                  <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary">
+                    {(commission.commissionRate * 100).toFixed(1)}% sobre el
+                    total cobrado
+                  </span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="border-0 bg-card/95">
           <CardHeader>
