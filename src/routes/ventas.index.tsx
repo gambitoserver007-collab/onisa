@@ -1,11 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Download, FileSpreadsheet, Plus, Receipt } from "lucide-react";
 import { toast } from "sonner";
 import {
   exportSalesToExcel,
   filterSalesByDate,
   printReceipts,
+  type TicketDisplaySettings,
 } from "@/lib/salesExport";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -33,20 +34,47 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
+import { useDemoSession } from "@/hooks/useDemoSession";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSales } from "@/hooks/useSales";
+import { fetchCompanyProfile, type CompanyProfile } from "@/services/appData";
 
 export const Route = createFileRoute("/ventas/")({ component: VentasPage });
 
 function VentasPage() {
   const { formatMoney, settings } = useBusinessSettings();
+  const { session } = useDemoSession();
   const { activeMethods } = usePaymentMethods(settings.countryCode);
-  const { currentLocationId } = useCurrentLocation();
+  const { currentLocationId, locations } = useCurrentLocation();
   const { sales, error, source, isLoading } = useSales(
     currentLocationId === ALL_LOCATIONS
       ? undefined
       : (currentLocationId ?? undefined),
   );
+
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!session?.companyId) return;
+    void fetchCompanyProfile(session.companyId)
+      .then(setCompanyProfile)
+      .catch(() => undefined);
+  }, [session?.companyId]);
+
+  // Qué mostrar/ocultar del ticket, por sucursal -- ver puntos-de-venta.tsx.
+  const ticketByLocation = useMemo(() => {
+    const map = new Map<string, TicketDisplaySettings>();
+    for (const loc of locations) {
+      map.set(loc.id, {
+        showFiscalInfo: loc.ticketShowFiscalInfo,
+        showTaxBreakdown: loc.ticketShowTaxBreakdown,
+        showPaymentMethod: loc.ticketShowPaymentMethod,
+        footerText: loc.ticketFooterText,
+      });
+    }
+    return map;
+  }, [locations]);
   const [method, setMethod] = useState("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -73,6 +101,8 @@ function VentasPage() {
     fiscalIdLabel: settings.fiscalIdLabel,
     sampleFiscalId: settings.sampleFiscalId,
     taxName: settings.taxName,
+    address: companyProfile?.address,
+    phone: companyProfile?.phone,
   };
 
   const handleExcel = async () => {
@@ -142,7 +172,12 @@ function VentasPage() {
               <Button
                 variant="outline"
                 onClick={() =>
-                  printReceipts(filtered, exportSettings, formatMoney)
+                  printReceipts(
+                    filtered,
+                    exportSettings,
+                    formatMoney,
+                    ticketByLocation,
+                  )
                 }
                 disabled={filtered.length === 0}
               >
@@ -210,7 +245,12 @@ function VentasPage() {
                             size="icon"
                             aria-label={`Descargar recibo ${sale.id}`}
                             onClick={() =>
-                              printReceipts([sale], exportSettings, formatMoney)
+                              printReceipts(
+                                [sale],
+                                exportSettings,
+                                formatMoney,
+                                ticketByLocation,
+                              )
                             }
                           >
                             <Download className="h-4 w-4" />

@@ -8952,3 +8952,19 @@ $function$;
 
 revoke execute on function public.create_sale(uuid, text, text, jsonb, uuid, uuid, uuid, integer, jsonb, text) from public, anon;
 grant execute on function public.create_sale(uuid, text, text, jsonb, uuid, uuid, uuid, integer, jsonb, text) to authenticated, service_role;
+
+-- ============================================================
+-- Configuración del ticket, por sucursal (no por empresa): cada sucursal
+-- puede mostrar/ocultar partes del ticket impreso y tener su propio texto
+-- de pie de página. Los VALORES (logo, RFC, dirección, teléfono) siguen
+-- viviendo en companies -- estas columnas solo deciden si se muestran.
+-- Escritura directa: "locations write scoped" (can_write_company) ya cubre
+-- estas columnas igual que el resto de la tabla; no hace falta una RPC.
+-- ============================================================
+alter table public.locations add column if not exists ticket_show_logo boolean not null default true;
+alter table public.locations add column if not exists ticket_show_fiscal_info boolean not null default true;
+alter table public.locations add column if not exists ticket_show_cashier_name boolean not null default false;
+alter table public.locations add column if not exists ticket_footer_text text;
+alter table public.locations add column if not exists ticket_show_tax_breakdown boolean not null default true;
+alter table public.locations add column if not exists ticket_show_loyalty_points boolean not null default true;
+alter table public.locations add column if not exists ticket_show_payment_method boolean not null default true;

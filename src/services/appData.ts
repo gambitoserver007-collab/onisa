@@ -308,6 +308,7 @@ function mapSale(row: SaleRow, items: SaleItemRow[]): Sale {
     customer: row.customer_name,
     customerId: row.customer_id ?? null,
     createdBy: (row as { created_by?: string | null }).created_by ?? null,
+    locationId: (row as { location_id?: string | null }).location_id ?? null,
     commissionRate:
       (row as { commission_rate?: number | string | null }).commission_rate ==
       null
@@ -609,7 +610,7 @@ export async function fetchSales(
   let salesQuery = supabase
     .from("sales")
     .select(
-      "id, company_id, customer_id, sale_number, document_type, payment_method, customer_name, sale_date, subtotal, tax, total, status, created_by, commission_rate, commission_amount, is_demo_data, created_at, updated_at, deleted_at",
+      "id, company_id, location_id, customer_id, sale_number, document_type, payment_method, customer_name, sale_date, subtotal, tax, total, status, created_by, commission_rate, commission_amount, is_demo_data, created_at, updated_at, deleted_at",
     )
     .is("deleted_at", null);
   if (companyId) salesQuery = salesQuery.eq("company_id", companyId);
@@ -674,6 +675,26 @@ export async function fetchRecentSales(
     method: (row.payment_method as string) ?? "Efectivo",
     total: Number(row.total) || 0,
   }));
+}
+
+/** Puntos de lealtad ganados/canjeados en una venta puntual (para el
+ * ticket) -- create_sale los registra en loyalty_ledger, no en sales. */
+export async function fetchSaleLoyaltySummary(
+  saleId: string,
+): Promise<{ earned: number; redeemed: number }> {
+  const { data, error } = await supabase
+    .from("loyalty_ledger")
+    .select("points, type")
+    .eq("sale_id", saleId);
+  if (error) throw error;
+  let earned = 0;
+  let redeemed = 0;
+  for (const row of data ?? []) {
+    const points = Number(row.points) || 0;
+    if (row.type === "earned") earned += points;
+    else if (row.type === "redeemed") redeemed += Math.abs(points);
+  }
+  return { earned, redeemed };
 }
 
 export interface MySalesSummary {
@@ -2590,6 +2611,13 @@ export interface Location {
   managerName: string | null;
   openingHours: string | null;
   isActive: boolean;
+  ticketShowLogo: boolean;
+  ticketShowFiscalInfo: boolean;
+  ticketShowCashierName: boolean;
+  ticketFooterText: string | null;
+  ticketShowTaxBreakdown: boolean;
+  ticketShowLoyaltyPoints: boolean;
+  ticketShowPaymentMethod: boolean;
 }
 
 export interface LocationInput {
@@ -2601,6 +2629,19 @@ export interface LocationInput {
   managerName?: string;
   openingHours?: string;
   isActive?: boolean;
+}
+
+/** Qué partes del ticket impreso se muestran en esta sucursal. Los valores
+ * (logo, RFC, dirección, teléfono) siguen viviendo en companies -- esto
+ * solo decide si se muestran. */
+export interface TicketSettingsInput {
+  showLogo: boolean;
+  showFiscalInfo: boolean;
+  showCashierName: boolean;
+  footerText: string | null;
+  showTaxBreakdown: boolean;
+  showLoyaltyPoints: boolean;
+  showPaymentMethod: boolean;
 }
 
 // `onlyActive` para selectores de operación (POS); el gestor pide todos.
@@ -2625,7 +2666,50 @@ export async function fetchLocations(
     openingHours:
       (row as { opening_hours?: string | null }).opening_hours ?? null,
     isActive: row.is_active,
+    ticketShowLogo:
+      (row as { ticket_show_logo?: boolean | null }).ticket_show_logo ?? true,
+    ticketShowFiscalInfo:
+      (row as { ticket_show_fiscal_info?: boolean | null })
+        .ticket_show_fiscal_info ?? true,
+    ticketShowCashierName:
+      (row as { ticket_show_cashier_name?: boolean | null })
+        .ticket_show_cashier_name ?? false,
+    ticketFooterText:
+      (row as { ticket_footer_text?: string | null }).ticket_footer_text ??
+      null,
+    ticketShowTaxBreakdown:
+      (row as { ticket_show_tax_breakdown?: boolean | null })
+        .ticket_show_tax_breakdown ?? true,
+    ticketShowLoyaltyPoints:
+      (row as { ticket_show_loyalty_points?: boolean | null })
+        .ticket_show_loyalty_points ?? true,
+    ticketShowPaymentMethod:
+      (row as { ticket_show_payment_method?: boolean | null })
+        .ticket_show_payment_method ?? true,
   }));
+}
+
+/** Guarda la configuración de ticket de una sucursal. Escritura directa:
+ * "locations write scoped" ya cubre estas columnas igual que el resto de
+ * la tabla, no hace falta una RPC nueva. */
+export async function updateLocationTicketSettings(
+  locationId: string,
+  input: TicketSettingsInput,
+) {
+  const { error } = await supabase
+    .from("locations")
+    .update({
+      ticket_show_logo: input.showLogo,
+      ticket_show_fiscal_info: input.showFiscalInfo,
+      ticket_show_cashier_name: input.showCashierName,
+      ticket_footer_text: input.footerText?.trim() || null,
+      ticket_show_tax_breakdown: input.showTaxBreakdown,
+      ticket_show_loyalty_points: input.showLoyaltyPoints,
+      ticket_show_payment_method: input.showPaymentMethod,
+      updated_at: new Date().toISOString(),
+    } as never)
+    .eq("id", locationId);
+  if (error) throw error;
 }
 
 export async function createLocation(

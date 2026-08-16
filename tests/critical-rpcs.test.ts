@@ -3824,4 +3824,85 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(await getCommission(admin)).toBeNull();
     });
   });
+
+  describe("25. Configuración de ticket por sucursal", () => {
+    interface TicketSettingsRow {
+      ticket_show_logo: boolean;
+      ticket_show_fiscal_info: boolean;
+      ticket_show_cashier_name: boolean;
+      ticket_footer_text: string | null;
+      ticket_show_tax_breakdown: boolean;
+      ticket_show_loyalty_points: boolean;
+      ticket_show_payment_method: boolean;
+    }
+
+    async function getTicketSettings(
+      locationId: string,
+    ): Promise<TicketSettingsRow> {
+      const { rows } = await db.query<TicketSettingsRow>(
+        `select ticket_show_logo, ticket_show_fiscal_info, ticket_show_cashier_name,
+                ticket_footer_text, ticket_show_tax_breakdown, ticket_show_loyalty_points,
+                ticket_show_payment_method
+         from public.locations where id = $1`,
+        [locationId],
+      );
+      return rows[0];
+    }
+
+    it("una sucursal nueva trae los valores por defecto esperados", async () => {
+      const company = await makeCompany(db, "Empresa Ticket Defaults Test");
+      const settings = await getTicketSettings(company.loc1);
+      expect(settings.ticket_show_logo).toBe(true);
+      expect(settings.ticket_show_fiscal_info).toBe(true);
+      expect(settings.ticket_show_cashier_name).toBe(false);
+      expect(settings.ticket_footer_text).toBeNull();
+      expect(settings.ticket_show_tax_breakdown).toBe(true);
+      expect(settings.ticket_show_loyalty_points).toBe(true);
+      expect(settings.ticket_show_payment_method).toBe(true);
+    });
+
+    it("el admin de la empresa puede editar la configuración de ticket de su sucursal", async () => {
+      const company = await makeCompany(db, "Empresa Ticket Edit Test");
+      const admin = await makeUser(db, company.id, "admin");
+
+      await asUser(db, admin, () =>
+        db.query(
+          `update public.locations set
+             ticket_show_logo = false,
+             ticket_show_cashier_name = true,
+             ticket_footer_text = 'Gracias por su compra'
+           where id = $1`,
+          [company.loc1],
+        ),
+      );
+
+      const settings = await getTicketSettings(company.loc1);
+      expect(settings.ticket_show_logo).toBe(false);
+      expect(settings.ticket_show_cashier_name).toBe(true);
+      expect(settings.ticket_footer_text).toBe("Gracias por su compra");
+    });
+
+    it("un admin de OTRA empresa no puede leer ni editar la configuración de ticket ajena", async () => {
+      const companyA = await makeCompany(db, "Empresa Ticket A Test");
+      const companyB = await makeCompany(db, "Empresa Ticket B Test");
+      const adminB = await makeUser(db, companyB.id, "admin");
+
+      await asUser(db, adminB, async () => {
+        const { rows } = await db.query(
+          "select id from public.locations where id = $1",
+          [companyA.loc1],
+        );
+        expect(rows.length).toBe(0);
+
+        const result = await db.query(
+          "update public.locations set ticket_footer_text = 'hackeado' where id = $1",
+          [companyA.loc1],
+        );
+        expect(result.affectedRows ?? 0).toBe(0);
+      });
+
+      const settings = await getTicketSettings(companyA.loc1);
+      expect(settings.ticket_footer_text).toBeNull();
+    });
+  });
 });

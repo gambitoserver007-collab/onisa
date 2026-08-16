@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
-import { Pencil, Plus, Store, Wallet } from "lucide-react";
+import { Pencil, Plus, Receipt, Store, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -18,6 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -37,6 +38,7 @@ import {
   setLocationActive,
   setTillActive,
   updateLocation,
+  updateLocationTicketSettings,
   updateTill,
   type Location,
   type Till,
@@ -88,6 +90,17 @@ function PuntosDeVenta() {
   const [tillName, setTillName] = useState("");
   const [tillCode, setTillCode] = useState("");
   const [tillSaving, setTillSaving] = useState(false);
+
+  // Configuración del ticket impreso, por sucursal.
+  const [ticketFor, setTicketFor] = useState<Location | null>(null);
+  const [tShowLogo, setTShowLogo] = useState(true);
+  const [tShowFiscalInfo, setTShowFiscalInfo] = useState(true);
+  const [tShowCashierName, setTShowCashierName] = useState(false);
+  const [tFooterText, setTFooterText] = useState("");
+  const [tShowTaxBreakdown, setTShowTaxBreakdown] = useState(true);
+  const [tShowLoyaltyPoints, setTShowLoyaltyPoints] = useState(true);
+  const [tShowPaymentMethod, setTShowPaymentMethod] = useState(true);
+  const [ticketSaving, setTicketSaving] = useState(false);
 
   const reload = useCallback(async () => {
     setIsLoading(true);
@@ -261,6 +274,46 @@ function PuntosDeVenta() {
     }
   };
 
+  const openTicketSettings = (location: Location) => {
+    setTicketFor(location);
+    setTShowLogo(location.ticketShowLogo);
+    setTShowFiscalInfo(location.ticketShowFiscalInfo);
+    setTShowCashierName(location.ticketShowCashierName);
+    setTFooterText(location.ticketFooterText ?? "");
+    setTShowTaxBreakdown(location.ticketShowTaxBreakdown);
+    setTShowLoyaltyPoints(location.ticketShowLoyaltyPoints);
+    setTShowPaymentMethod(location.ticketShowPaymentMethod);
+  };
+
+  const handleTicketSave = async () => {
+    if (isDemo) {
+      blockDemoAction();
+      return;
+    }
+    if (!ticketFor) return;
+    setTicketSaving(true);
+    try {
+      await updateLocationTicketSettings(ticketFor.id, {
+        showLogo: tShowLogo,
+        showFiscalInfo: tShowFiscalInfo,
+        showCashierName: tShowCashierName,
+        footerText: tFooterText,
+        showTaxBreakdown: tShowTaxBreakdown,
+        showLoyaltyPoints: tShowLoyaltyPoints,
+        showPaymentMethod: tShowPaymentMethod,
+      });
+      toast.success(`Configuración de ticket de ${ticketFor.name} guardada.`);
+      setTicketFor(null);
+      await reload();
+    } catch (error) {
+      toast.error(
+        getErrorMessage(error, "No se pudo guardar la configuración."),
+      );
+    } finally {
+      setTicketSaving(false);
+    }
+  };
+
   const handleTillToggle = async (till: Till, isActive: boolean) => {
     if (isDemo) {
       blockDemoAction();
@@ -369,6 +422,14 @@ function PuntosDeVenta() {
                           onClick={() => openTills(location)}
                         >
                           <Wallet className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="Configurar ticket"
+                          onClick={() => openTicketSettings(location)}
+                        >
+                          <Receipt className="h-4 w-4" />
                         </Button>
                         <Button
                           size="icon"
@@ -596,6 +657,90 @@ function PuntosDeVenta() {
                 : editingTill
                   ? "Guardar cambios"
                   : "Agregar caja"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!ticketFor}
+        onOpenChange={(open) => !open && setTicketFor(null)}
+      >
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Ticket — {ticketFor?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground">
+                Datos del negocio
+              </p>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="font-normal">Mostrar logo</Label>
+                <Switch checked={tShowLogo} onCheckedChange={setTShowLogo} />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="font-normal">
+                  Mostrar RFC/ID fiscal, dirección y teléfono
+                </Label>
+                <Switch
+                  checked={tShowFiscalInfo}
+                  onCheckedChange={setTShowFiscalInfo}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="font-normal">Mostrar nombre del cajero</Label>
+                <Switch
+                  checked={tShowCashierName}
+                  onCheckedChange={setTShowCashierName}
+                />
+              </div>
+            </div>
+            <div className="space-y-3 border-t border-border/60 pt-3">
+              <p className="text-xs font-semibold text-muted-foreground">
+                Datos de la venta
+              </p>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="font-normal">
+                  Mostrar desglose de IVA/impuesto
+                </Label>
+                <Switch
+                  checked={tShowTaxBreakdown}
+                  onCheckedChange={setTShowTaxBreakdown}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="font-normal">Mostrar puntos de lealtad</Label>
+                <Switch
+                  checked={tShowLoyaltyPoints}
+                  onCheckedChange={setTShowLoyaltyPoints}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="font-normal">Mostrar método de pago</Label>
+                <Switch
+                  checked={tShowPaymentMethod}
+                  onCheckedChange={setTShowPaymentMethod}
+                />
+              </div>
+            </div>
+            <div className="space-y-1 border-t border-border/60 pt-3">
+              <Label>Pie de página</Label>
+              <Textarea
+                value={tFooterText}
+                onChange={(event) => setTFooterText(event.target.value)}
+                placeholder="Ej. Gracias por su compra. No se aceptan devoluciones sin ticket."
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="brand"
+              disabled={ticketSaving}
+              onClick={handleTicketSave}
+            >
+              {ticketSaving ? "Guardando..." : "Guardar"}
             </Button>
           </DialogFooter>
         </DialogContent>

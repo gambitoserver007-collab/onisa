@@ -625,6 +625,64 @@ export type Database = {
           },
         ];
       };
+      loyalty_ledger: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          created_by: string | null;
+          customer_id: string;
+          id: string;
+          is_demo_data: boolean;
+          points: number;
+          sale_id: string | null;
+          type: string;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          customer_id: string;
+          id?: string;
+          is_demo_data?: boolean;
+          points: number;
+          sale_id?: string | null;
+          type: string;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          customer_id?: string;
+          id?: string;
+          is_demo_data?: boolean;
+          points?: number;
+          sale_id?: string | null;
+          type?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "loyalty_ledger_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "loyalty_ledger_customer_id_fkey";
+            columns: ["customer_id"];
+            isOneToOne: false;
+            referencedRelation: "customers";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "loyalty_ledger_sale_id_fkey";
+            columns: ["sale_id"];
+            isOneToOne: false;
+            referencedRelation: "sales";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       locations: {
         Row: {
           address: string | null;
@@ -639,6 +697,13 @@ export type Database = {
           opening_hours: string | null;
           phone: string | null;
           short_code: string | null;
+          ticket_footer_text: string | null;
+          ticket_show_cashier_name: boolean;
+          ticket_show_fiscal_info: boolean;
+          ticket_show_loyalty_points: boolean;
+          ticket_show_logo: boolean;
+          ticket_show_payment_method: boolean;
+          ticket_show_tax_breakdown: boolean;
           updated_at: string;
         };
         Insert: {
@@ -654,6 +719,13 @@ export type Database = {
           opening_hours?: string | null;
           phone?: string | null;
           short_code?: string | null;
+          ticket_footer_text?: string | null;
+          ticket_show_cashier_name?: boolean;
+          ticket_show_fiscal_info?: boolean;
+          ticket_show_loyalty_points?: boolean;
+          ticket_show_logo?: boolean;
+          ticket_show_payment_method?: boolean;
+          ticket_show_tax_breakdown?: boolean;
           updated_at?: string;
         };
         Update: {
@@ -669,6 +741,13 @@ export type Database = {
           opening_hours?: string | null;
           phone?: string | null;
           short_code?: string | null;
+          ticket_footer_text?: string | null;
+          ticket_show_cashier_name?: boolean;
+          ticket_show_fiscal_info?: boolean;
+          ticket_show_loyalty_points?: boolean;
+          ticket_show_logo?: boolean;
+          ticket_show_payment_method?: boolean;
+          ticket_show_tax_breakdown?: boolean;
           updated_at?: string;
         };
         Relationships: [

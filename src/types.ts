@@ -135,6 +135,8 @@ export interface Sale {
   /** % de comisión y monto ganado por el vendedor, congelados al momento de la venta. */
   commissionRate?: number | null;
   commissionAmount?: number;
+  /** Sucursal donde se hizo la venta (para aplicar su configuración de ticket). */
+  locationId?: string | null;
   items: {
     productId: string;
     name: string;
