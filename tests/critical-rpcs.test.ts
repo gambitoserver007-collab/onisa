@@ -3604,4 +3604,224 @@ describe("RPCs críticas de dinero y stock", () => {
       );
     });
   });
+
+  describe("24. Comisión por venta (por empleado, snapshot en la venta)", () => {
+    async function setCommission(
+      adminId: string,
+      profileId: string,
+      rate: number | null,
+    ) {
+      await asUser(db, adminId, () =>
+        db.query("select set_employee_commission($1, $2)", [profileId, rate]),
+      );
+    }
+
+    async function getCommission(profileId: string): Promise<number | null> {
+      const { rows } = await db.query<{ commission_rate: string | null }>(
+        "select commission_rate from public.profiles where id = $1",
+        [profileId],
+      );
+      return rows[0].commission_rate === null
+        ? null
+        : Number(rows[0].commission_rate);
+    }
+
+    it("el admin fija el % de un cajero y la venta guarda su comisión sobre el total cobrado", async () => {
+      const company = await makeCompany(db, "Empresa Comisión Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const cajero = await makeUser(db, company.id, "user");
+      const prod = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Comisión",
+        5,
+        10,
+        100,
+      );
+
+      await setCommission(admin, cajero, 0.05); // 5%
+      expect(await getCommission(cajero)).toBeCloseTo(0.05, 4);
+
+      const sale = await asUser(db, cajero, () =>
+        createSale(
+          db,
+          [{ product_id: prod, qty: 2, unit_price: 10 }],
+          company.loc1,
+        ),
+      );
+      expect(sale.total).toBeCloseTo(20, 2);
+
+      const { rows } = await db.query<{
+        commission_rate: string;
+        commission_amount: string;
+      }>(
+        "select commission_rate, commission_amount from public.sales where id = $1",
+        [sale.sale_id],
+      );
+      expect(Number(rows[0].commission_rate)).toBeCloseTo(0.05, 4);
+      expect(Number(rows[0].commission_amount)).toBeCloseTo(1, 2); // 5% de 20
+    });
+
+    it("sin % configurado, la venta no genera comisión (y no bloquea la venta)", async () => {
+      const company = await makeCompany(db, "Empresa Sin Comisión Test");
+      const cajero = await makeUser(db, company.id, "user");
+      const prod = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Sin Comisión",
+        5,
+        10,
+        100,
+      );
+
+      const sale = await asUser(db, cajero, () =>
+        createSale(
+          db,
+          [{ product_id: prod, qty: 1, unit_price: 10 }],
+          company.loc1,
+        ),
+      );
+
+      const { rows } = await db.query<{
+        commission_rate: string | null;
+        commission_amount: string;
+      }>(
+        "select commission_rate, commission_amount from public.sales where id = $1",
+        [sale.sale_id],
+      );
+      expect(rows[0].commission_rate).toBeNull();
+      expect(Number(rows[0].commission_amount)).toBe(0);
+    });
+
+    it("cambiar el % después NO recalcula ventas ya hechas (snapshot histórico intacto)", async () => {
+      const company = await makeCompany(db, "Empresa Snapshot Comisión Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const cajero = await makeUser(db, company.id, "user");
+      const prod = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Snapshot",
+        5,
+        10,
+        100,
+      );
+
+      await setCommission(admin, cajero, 0.1); // 10%
+      const sale1 = await asUser(db, cajero, () =>
+        createSale(
+          db,
+          [{ product_id: prod, qty: 1, unit_price: 10 }],
+          company.loc1,
+        ),
+      );
+
+      // El admin sube la comisión DESPUÉS de la primera venta.
+      await setCommission(admin, cajero, 0.2); // 20%
+      const sale2 = await asUser(db, cajero, () =>
+        createSale(
+          db,
+          [{ product_id: prod, qty: 1, unit_price: 10 }],
+          company.loc1,
+        ),
+      );
+
+      const { rows: rows1 } = await db.query<{ commission_amount: string }>(
+        "select commission_amount from public.sales where id = $1",
+        [sale1.sale_id],
+      );
+      const { rows: rows2 } = await db.query<{ commission_amount: string }>(
+        "select commission_amount from public.sales where id = $1",
+        [sale2.sale_id],
+      );
+      expect(Number(rows1[0].commission_amount)).toBeCloseTo(1, 2); // 10% de 10, no cambia
+      expect(Number(rows2[0].commission_amount)).toBeCloseTo(2, 2); // 20% de 10
+    });
+
+    it("un cajero no puede configurar comisiones (solo el admin de la empresa)", async () => {
+      const company = await makeCompany(db, "Empresa Comisión No Admin Test");
+      const cajero = await makeUser(db, company.id, "user");
+      const otroCajero = await makeUser(db, company.id, "user");
+
+      await expect(
+        asUser(db, cajero, () =>
+          db.query("select set_employee_commission($1, $2)", [otroCajero, 0.5]),
+        ),
+      ).rejects.toThrow(/Solo el administrador/i);
+    });
+
+    it("el admin no puede configurar la comisión de un empleado de OTRA empresa", async () => {
+      const companyA = await makeCompany(db, "Empresa Comisión A Test");
+      const companyB = await makeCompany(db, "Empresa Comisión B Test");
+      const adminA = await makeUser(db, companyA.id, "admin");
+      const cajeroB = await makeUser(db, companyB.id, "user");
+
+      await expect(
+        asUser(db, adminA, () =>
+          db.query("select set_employee_commission($1, $2)", [cajeroB, 0.5]),
+        ),
+      ).rejects.toThrow(/no pertenece a tu empresa/i);
+    });
+
+    it("set_employee_commission rechaza porcentajes fuera de rango (0 a 1)", async () => {
+      const company = await makeCompany(db, "Empresa Comisión Rango Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const cajero = await makeUser(db, company.id, "user");
+
+      await expect(
+        asUser(db, admin, () =>
+          db.query("select set_employee_commission($1, $2)", [cajero, 1.5]),
+        ),
+      ).rejects.toThrow(/entre 0 y 100/i);
+
+      await expect(
+        asUser(db, admin, () =>
+          db.query("select set_employee_commission($1, $2)", [cajero, -0.1]),
+        ),
+      ).rejects.toThrow(/entre 0 y 100/i);
+    });
+
+    it("nadie puede subir su propia comisión con un UPDATE directo a profiles (ni el propio admin)", async () => {
+      const company = await makeCompany(db, "Empresa Anti-Escalación Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const cajero = await makeUser(db, company.id, "user");
+
+      await expect(
+        asUser(db, cajero, () =>
+          db.query(
+            "update public.profiles set commission_rate = 0.9 where id = $1",
+            [cajero],
+          ),
+        ),
+      ).rejects.toThrow(/campos protegidos/i);
+
+      // Ni siquiera el admin puede escribirlo directo -- debe pasar por
+      // set_employee_commission, que limpia el claim de sesión antes del UPDATE.
+      await expect(
+        asUser(db, admin, () =>
+          db.query(
+            "update public.profiles set commission_rate = 0.9 where id = $1",
+            [admin],
+          ),
+        ),
+      ).rejects.toThrow(/campos protegidos/i);
+    });
+
+    it("restablecer el sistema limpia la comisión propia del admin que restablece", async () => {
+      const companyName = "Empresa Reset Comisión Test";
+      const company = await makeCompany(db, companyName);
+      const admin = await makeUser(db, company.id, "admin");
+      // El admin también vende y tiene su propia comisión configurada.
+      await setCommission(admin, admin, 0.07);
+      expect(await getCommission(admin)).toBeCloseTo(0.07, 4);
+
+      await asUser(db, admin, () =>
+        db.query("select reset_company_data($1)", [companyName]),
+      );
+
+      expect(await getCommission(admin)).toBeNull();
+    });
+  });
 });

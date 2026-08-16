@@ -132,6 +132,9 @@ export interface Sale {
   customerId?: string | null;
   /** Id del perfil que registró la venta (para ventas por empleado). */
   createdBy?: string | null;
+  /** % de comisión y monto ganado por el vendedor, congelados al momento de la venta. */
+  commissionRate?: number | null;
+  commissionAmount?: number;
   items: {
     productId: string;
     name: string;

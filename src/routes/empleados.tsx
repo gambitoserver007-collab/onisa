@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Clock,
   KeyRound,
+  Percent,
   Trash2,
   UserCheck,
   UserX,
@@ -65,6 +66,7 @@ import {
   fetchTeam,
   fetchTimeEvents,
   punchEmployee,
+  setEmployeeCommission,
   setEmployeePin,
   updateEmployeeSchedule,
   getErrorMessage,
@@ -172,6 +174,11 @@ function Empleados() {
   const [scheduleStart, setScheduleStart] = useState("");
   const [scheduleEnd, setScheduleEnd] = useState("");
   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+  const [commissionTarget, setCommissionTarget] = useState<TeamMember | null>(
+    null,
+  );
+  const [commissionValue, setCommissionValue] = useState("");
+  const [isSavingCommission, setIsSavingCommission] = useState(false);
 
   const todayAttendance = useMemo(
     () =>
@@ -271,6 +278,35 @@ function Empleados() {
     }
   };
 
+  const handleSaveCommission = async () => {
+    if (!commissionTarget) return;
+    if (isDemo) {
+      blockDemoAction();
+      return;
+    }
+    const trimmed = commissionValue.trim();
+    let rate: number | null = null;
+    if (trimmed) {
+      const pct = Number(trimmed);
+      if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+        toast.error("La comisión debe ser un porcentaje entre 0 y 100.");
+        return;
+      }
+      rate = pct / 100;
+    }
+    setIsSavingCommission(true);
+    try {
+      await setEmployeeCommission(commissionTarget.id, rate);
+      toast.success(`Comisión de ${commissionTarget.name} actualizada.`);
+      setCommissionTarget(null);
+      await reload();
+    } catch (error) {
+      toast.error(getErrorMessage(error, "No se pudo guardar la comisión."));
+    } finally {
+      setIsSavingCommission(false);
+    }
+  };
+
   // ---- Ventas / Mermas por empleado ----
   const [salesEmployeeId, setSalesEmployeeId] = useState(ALL);
   const employeeSales = useMemo(
@@ -281,6 +317,10 @@ function Empleados() {
     [sales, salesEmployeeId],
   );
   const employeeSalesTotal = employeeSales.reduce((sum, s) => sum + s.total, 0);
+  const employeeCommissionTotal = employeeSales.reduce(
+    (sum, s) => sum + (s.commissionAmount ?? 0),
+    0,
+  );
 
   const [mermasEmployeeId, setMermasEmployeeId] = useState(ALL);
   const employeeMermas = useMemo(
@@ -501,6 +541,7 @@ function Empleados() {
                       <TableHead>Nombre</TableHead>
                       <TableHead>PIN</TableHead>
                       <TableHead>Horario</TableHead>
+                      <TableHead>Comisión</TableHead>
                       <TableHead className="text-right">Acción</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -528,6 +569,17 @@ function Empleados() {
                           ) : (
                             <span className="text-sm text-muted-foreground">
                               Horario de sucursal
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {m.commissionRate ? (
+                            <span className="text-sm font-medium">
+                              {(m.commissionRate * 100).toFixed(1)}%
+                            </span>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">
+                              Sin comisión
                             </span>
                           )}
                         </TableCell>
@@ -562,6 +614,22 @@ function Empleados() {
                             }}
                           >
                             <Clock className="h-3.5 w-3.5" /> Horario
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setCommissionTarget(m);
+                              setCommissionValue(
+                                m.commissionRate
+                                  ? String(
+                                      Math.round(m.commissionRate * 1000) / 10,
+                                    )
+                                  : "",
+                              );
+                            }}
+                          >
+                            <Percent className="h-3.5 w-3.5" /> Comisión
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -612,6 +680,7 @@ function Empleados() {
                         <TableHead>Fecha</TableHead>
                         <TableHead>Cliente</TableHead>
                         <TableHead className="text-right">Total</TableHead>
+                        <TableHead className="text-right">Comisión</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -623,12 +692,17 @@ function Empleados() {
                           <TableCell className="text-right">
                             {s.total.toFixed(2)}
                           </TableCell>
+                          <TableCell className="text-right">
+                            {s.commissionAmount
+                              ? s.commissionAmount.toFixed(2)
+                              : "—"}
+                          </TableCell>
                         </TableRow>
                       ))}
                       {employeeSales.length === 0 && (
                         <TableRow>
                           <TableCell
-                            colSpan={4}
+                            colSpan={5}
                             className="text-center text-muted-foreground"
                           >
                             Sin ventas registradas.
@@ -644,6 +718,9 @@ function Empleados() {
                           </TableCell>
                           <TableCell className="text-right font-semibold">
                             {employeeSalesTotal.toFixed(2)}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">
+                            {employeeCommissionTotal.toFixed(2)}
                           </TableCell>
                         </TableRow>
                       </tfoot>
@@ -958,6 +1035,55 @@ function Empleados() {
               onClick={handleSaveSchedule}
             >
               {isSavingSchedule ? "Guardando..." : "Guardar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!commissionTarget}
+        onOpenChange={(open) => !open && setCommissionTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Comisión de {commissionTarget?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1">
+            <Label>Porcentaje sobre el total cobrado</Label>
+            <div className="relative">
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={100}
+                step="0.1"
+                placeholder="0"
+                value={commissionValue}
+                onChange={(e) => setCommissionValue(e.target.value)}
+                className="pr-8"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                %
+              </span>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Se calcula sobre el total ya cobrado de cada venta (con impuestos y
+            después de descuentos). Deja el campo vacío para que este empleado
+            no gane comisión.
+          </p>
+          <DialogFooter className="gap-2 sm:gap-0">
+            {commissionValue && (
+              <Button variant="ghost" onClick={() => setCommissionValue("")}>
+                Quitar comisión
+              </Button>
+            )}
+            <Button
+              variant="brand"
+              disabled={isSavingCommission}
+              onClick={handleSaveCommission}
+            >
+              {isSavingCommission ? "Guardando..." : "Guardar"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -308,6 +308,17 @@ function mapSale(row: SaleRow, items: SaleItemRow[]): Sale {
     customer: row.customer_name,
     customerId: row.customer_id ?? null,
     createdBy: (row as { created_by?: string | null }).created_by ?? null,
+    commissionRate:
+      (row as { commission_rate?: number | string | null }).commission_rate ==
+      null
+        ? null
+        : Number(
+            (row as { commission_rate?: number | string | null })
+              .commission_rate,
+          ),
+    commissionAmount: toNumber(
+      (row as { commission_amount?: number | string | null }).commission_amount,
+    ),
     items: items.map((item) => ({
       productId: item.product_id ?? item.id,
       name: item.product_name,
@@ -598,7 +609,7 @@ export async function fetchSales(
   let salesQuery = supabase
     .from("sales")
     .select(
-      "id, company_id, customer_id, sale_number, document_type, payment_method, customer_name, sale_date, subtotal, tax, total, status, created_by, is_demo_data, created_at, updated_at, deleted_at",
+      "id, company_id, customer_id, sale_number, document_type, payment_method, customer_name, sale_date, subtotal, tax, total, status, created_by, commission_rate, commission_amount, is_demo_data, created_at, updated_at, deleted_at",
     )
     .is("deleted_at", null);
   if (companyId) salesQuery = salesQuery.eq("company_id", companyId);
@@ -3475,6 +3486,8 @@ export interface TeamMember {
   /** Horario propio del checador ("HH:MM"); null = usa el horario de la sucursal. */
   shiftStart: string | null;
   shiftEnd: string | null;
+  /** % de comisión por venta (fracción, 0.05 = 5%). null = no gana comisión. */
+  commissionRate: number | null;
 }
 
 export interface CreateTeamUserInput {
@@ -3622,7 +3635,7 @@ export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
   const query = supabase
     .from("profiles")
     .select(
-      "id, full_name, email, role, is_active, location_id, is_platform_admin, pin_hash, shift_start, shift_end, created_at",
+      "id, full_name, email, role, is_active, location_id, is_platform_admin, pin_hash, shift_start, shift_end, commission_rate, created_at",
     )
     .order("created_at", { ascending: true });
   const { data, error } = await (companyId
@@ -3636,6 +3649,14 @@ export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
     hasPin: Boolean((row as { pin_hash?: string | null }).pin_hash),
     shiftStart: (row as { shift_start?: string | null }).shift_start ?? null,
     shiftEnd: (row as { shift_end?: string | null }).shift_end ?? null,
+    commissionRate:
+      (row as { commission_rate?: number | string | null }).commission_rate ==
+      null
+        ? null
+        : Number(
+            (row as { commission_rate?: number | string | null })
+              .commission_rate,
+          ),
     role: row.role,
     active: row.is_active,
     locationId: (row as { location_id?: string | null }).location_id ?? null,
@@ -3848,6 +3869,68 @@ export async function updateEmployeeSchedule(
     } as never)
     .eq("id", profileId);
   if (error) throw error;
+}
+
+/** Fija (o quita, con null) el % de comisión por venta de un empleado.
+ * Solo el admin de la empresa puede llamarla -- pasa por la RPC
+ * set_employee_commission porque commission_rate es un campo protegido
+ * (bloqueado a escritura directa para evitar que alguien se auto-asigne
+ * comisión). rate en fracción (0.05 = 5%), null = sin comisión. */
+export async function setEmployeeCommission(
+  profileId: string,
+  rate: number | null,
+): Promise<void> {
+  const { error } = await supabase.rpc("set_employee_commission", {
+    p_profile_id: profileId,
+    p_commission_rate: rate,
+  });
+  if (error) throw error;
+}
+
+export interface EmployeeCommissionSummary {
+  profileId: string;
+  salesCount: number;
+  totalSales: number;
+  totalCommission: number;
+}
+
+/** Comisión acumulada por empleado en un periodo -- suma directa de las
+ * ventas ya "congeladas" (commission_amount se calcula y guarda en cada
+ * venta al momento de crearla, ver create_sale), así que este reporte nunca
+ * se desactualiza aunque el admin cambie el % de un empleado después. */
+export async function fetchEmployeeCommissions(
+  companyId?: string,
+  opts: { from?: string; to?: string } = {},
+): Promise<EmployeeCommissionSummary[]> {
+  let q = supabase
+    .from("sales")
+    .select("created_by, total, commission_amount")
+    .is("deleted_at", null)
+    .not("created_by", "is", null);
+  if (companyId) q = q.eq("company_id", companyId);
+  if (opts.from) q = q.gte("sale_date", opts.from);
+  if (opts.to) q = q.lte("sale_date", opts.to);
+  const { data, error } = await q;
+  if (error) throw error;
+
+  const byEmployee = new Map<
+    string,
+    { count: number; total: number; commission: number }
+  >();
+  for (const row of data ?? []) {
+    const id = row.created_by as string;
+    const entry = byEmployee.get(id) ?? { count: 0, total: 0, commission: 0 };
+    entry.count += 1;
+    entry.total += Number(row.total) || 0;
+    entry.commission += Number(row.commission_amount) || 0;
+    byEmployee.set(id, entry);
+  }
+  return Array.from(byEmployee.entries()).map(([profileId, v]) => ({
+    profileId,
+    salesCount: v.count,
+    totalSales: v.total,
+    totalCommission: v.commission,
+  }));
 }
 
 export interface TimeEvent {

@@ -1073,6 +1073,7 @@ export type Database = {
       profiles: {
         Row: {
           allowed_sections: string[] | null;
+          commission_rate: number | null;
           company_id: string | null;
           created_at: string;
           demo_mode: Database["public"]["Enums"]["demo_mode"];
@@ -1091,6 +1092,7 @@ export type Database = {
         };
         Insert: {
           allowed_sections?: string[] | null;
+          commission_rate?: number | null;
           company_id?: string | null;
           created_at?: string;
           demo_mode?: Database["public"]["Enums"]["demo_mode"];
@@ -1109,6 +1111,7 @@ export type Database = {
         };
         Update: {
           allowed_sections?: string[] | null;
+          commission_rate?: number | null;
           company_id?: string | null;
           created_at?: string;
           demo_mode?: Database["public"]["Enums"]["demo_mode"];
@@ -1716,6 +1719,8 @@ export type Database = {
       };
       sales: {
         Row: {
+          commission_amount: number;
+          commission_rate: number | null;
           company_id: string;
           created_at: string;
           created_by: string | null;
@@ -1738,6 +1743,8 @@ export type Database = {
           updated_at: string;
         };
         Insert: {
+          commission_amount?: number;
+          commission_rate?: number | null;
           company_id: string;
           created_at?: string;
           created_by?: string | null;
@@ -1760,6 +1767,8 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          commission_amount?: number;
+          commission_rate?: number | null;
           company_id?: string;
           created_at?: string;
           created_by?: string | null;
@@ -2372,6 +2381,10 @@ export type Database = {
           method: string;
           total: number;
         }[];
+      };
+      set_employee_commission: {
+        Args: { p_commission_rate: number | null; p_profile_id: string };
+        Returns: undefined;
       };
       set_employee_pin: {
         Args: { p_pin: string; p_profile_id: string };

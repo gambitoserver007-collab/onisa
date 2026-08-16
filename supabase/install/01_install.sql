@@ -7948,6 +7948,7 @@ begin
     pin_hash = null,
     shift_start = null,
     shift_end = null,
+    commission_rate = null,
     updated_at = now()
   where id = v_caller_id;
 
@@ -8341,6 +8342,98 @@ grant execute on function public.soft_delete_product(uuid) to authenticated;
 -- "nunca confiar en datos que pudieron quedar viejos" que ya aplica en
 -- todo el resto de esta función.
 -- ============================================================
+-- ============================================================
+-- Comisión por venta: cada empleado puede tener su propio % de comisión
+-- (nulo = no gana comisión), configurable SOLO por el admin. Se calcula
+-- sobre el total cobrado de cada venta y se guarda ("snapshot") en la
+-- propia venta al momento de crearla -- si el admin cambia el % después,
+-- las ventas ya hechas NO se recalculan solas (mismo principio que el
+-- costo de un producto: lo que ya se vendió, se vendió con las reglas de
+-- ese momento).
+-- ============================================================
+alter table public.profiles add column if not exists commission_rate numeric(5,4);
+alter table public.sales add column if not exists commission_rate numeric(5,4);
+alter table public.sales add column if not exists commission_amount numeric(12,2) not null default 0;
+
+-- protect_profile_sensitive_columns: se agrega commission_rate a la lista de
+-- campos protegidos -- si no, la propia política "profiles update scoped"
+-- (que permite id = auth.uid()) dejaría a cualquier empleado subirse su
+-- propia comisión con un UPDATE directo. Solo se llega aquí vía
+-- set_employee_commission (más abajo), que limpia el claim de sesión igual
+-- que ya hace reset_company_data.
+create or replace function public.protect_profile_sensitive_columns()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null or public.current_user_is_platform_admin() then
+    return new;
+  end if;
+
+  if new.role is distinct from old.role
+     or new.is_platform_admin is distinct from old.is_platform_admin
+     or new.company_id is distinct from old.company_id
+     or new.is_demo is distinct from old.is_demo
+     or new.demo_mode is distinct from old.demo_mode
+     or new.is_active is distinct from old.is_active
+     or new.allowed_sections is distinct from old.allowed_sections
+     or new.location_id is distinct from old.location_id
+     or new.commission_rate is distinct from old.commission_rate
+  then
+    raise exception 'No tienes permiso para modificar campos protegidos del perfil.';
+  end if;
+
+  return new;
+end;
+$$;
+
+-- Solo el admin de la empresa asigna/quita el % de comisión de un empleado
+-- de esa misma empresa. p_commission_rate en fracción (0.03 = 3%); null o 0
+-- = sin comisión. Limpia el claim de sesión antes del UPDATE por la misma
+-- razón que reset_company_data (ver protect_profile_sensitive_columns arriba).
+create or replace function public.set_employee_commission(
+  p_profile_id uuid,
+  p_commission_rate numeric
+)
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_target_company_id uuid;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null or not public.can_admin_company(v_company_id) then
+    raise exception 'Solo el administrador de la empresa puede configurar comisiones.';
+  end if;
+
+  select company_id into v_target_company_id from public.profiles where id = p_profile_id;
+  if v_target_company_id is null or v_target_company_id <> v_company_id then
+    raise exception 'Ese empleado no pertenece a tu empresa.';
+  end if;
+
+  if p_commission_rate is not null and (p_commission_rate < 0 or p_commission_rate > 1) then
+    raise exception 'La comisión debe ser un porcentaje entre 0 y 100.';
+  end if;
+
+  perform set_config('request.jwt.claim.sub', '', true);
+  update public.profiles
+    set commission_rate = p_commission_rate, updated_at = now()
+    where id = p_profile_id;
+end;
+$$;
+
+revoke execute on function public.set_employee_commission(uuid, numeric) from public, anon;
+grant execute on function public.set_employee_commission(uuid, numeric) to authenticated;
+
+-- create_sale: agrega el cálculo de comisión al final, sobre el total ya
+-- final (post-promociones y post-lealtad, lo que de verdad se cobró) -- se
+-- reusa la misma firma, solo cambia el cuerpo.
 create or replace function public.create_sale(
   p_customer_id uuid,
   p_document_type text,
@@ -8402,6 +8495,10 @@ declare
   v_credit_limit numeric(12,2);
   v_credit_balance numeric(12,2);
   v_credit_available numeric(12,2);
+  -- Comisión del vendedor: % propio del empleado (snapshot -- nunca se
+  -- recalcula si el admin cambia el % después de esta venta).
+  v_commission_rate numeric(5,4);
+  v_commission_amount numeric(12,2) := 0;
 begin
   if auth.uid() is null then raise exception 'No autenticado.'; end if;
   if public.current_user_is_demo() then raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.'; end if;
@@ -8827,7 +8924,17 @@ begin
     end if;
   end if;
 
-  update public.sales set subtotal = v_subtotal, tax = v_tax, total = v_total, discount_total = v_discount + v_promo_discount where id = v_sale_id;
+  -- Comisión del vendedor: sobre el total ya final (post-promociones y
+  -- post-lealtad -- lo que de verdad se cobró), con SU propio % vigente en
+  -- este momento. Sin % configurado = sin comisión, nunca bloquea la venta.
+  select commission_rate into v_commission_rate from public.profiles where id = auth.uid();
+  if v_commission_rate is not null and v_commission_rate > 0 then
+    v_commission_amount := round(v_total * v_commission_rate, 2);
+  end if;
+
+  update public.sales set subtotal = v_subtotal, tax = v_tax, total = v_total, discount_total = v_discount + v_promo_discount,
+    commission_rate = v_commission_rate, commission_amount = v_commission_amount
+  where id = v_sale_id;
 
   return jsonb_build_object(
     'sale_id', v_sale_id,
@@ -8837,7 +8944,8 @@ begin
     'discount_total', v_discount + v_promo_discount,
     'promo_discount', v_promo_discount,
     'points_earned', v_points_earned,
-    'points_redeemed', v_points_redeemed_actual
+    'points_redeemed', v_points_redeemed_actual,
+    'commission_amount', v_commission_amount
   );
 end;
 $function$;
