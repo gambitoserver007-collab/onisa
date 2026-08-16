@@ -186,3 +186,20 @@ export interface CartItem {
   /** Texto legible de la variante, ej. "Talla M / Color Rojo". */
   variantLabel?: string;
 }
+
+/** Carrito guardado en el POS para atender a otro cliente mientras tanto.
+ * Vive solo en este dispositivo (localStorage) -- no reserva stock, se
+ * valida hasta que se cobra, igual que cualquier venta normal. */
+export interface PausedSale {
+  id: string;
+  /** Nota corta opcional para identificarla, ej. "Sr. López". */
+  note: string;
+  pausedAt: string;
+  cart: CartItem[];
+  customerId: string;
+  docType: string;
+  method: string;
+  pointsToRedeem: number;
+  splitMode: boolean;
+  splitPayments: { method: string; amount: number; kind: string }[];
+}

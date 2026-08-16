@@ -36,7 +36,13 @@ import {
   type Promotion,
   type SalePaymentLine,
 } from "@/services/appData";
-import type { CartItem, Product, ProductVariant, Sale } from "@/types";
+import type {
+  CartItem,
+  PausedSale,
+  Product,
+  ProductVariant,
+  Sale,
+} from "@/types";
 
 export const Route = createFileRoute("/pos")({ component: POS });
 
@@ -81,6 +87,7 @@ function POS() {
   const [method, setMethod] = useState<PaymentMethod>("Efectivo");
   const [splitMode, setSplitMode] = useState(false);
   const [splitPayments, setSplitPayments] = useState<SalePaymentLine[]>([]);
+  const [pausedSales, setPausedSales] = useState<PausedSale[]>([]);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [success, setSuccess] = useState<{ amount: number; id: string } | null>(
     null,
@@ -214,6 +221,85 @@ function POS() {
   useEffect(() => {
     if (!docType && documentTypes.length) setDocType(documentTypes[0].name);
   }, [docType, documentTypes]);
+
+  // Ventas en pausa: solo viven en este dispositivo (localStorage), para
+  // que el cajero pueda atender a otro cliente sin perder el carrito actual.
+  // No reservan stock -- se valida hasta que se cobran, igual que cualquier
+  // venta normal. Escopeadas por empresa, no por sucursal (un mismo equipo
+  // normalmente vende en una sola sucursal).
+  const pausedSalesKey = session?.companyId
+    ? `ventapro:paused-sales:${session.companyId}`
+    : null;
+
+  useEffect(() => {
+    if (!pausedSalesKey) {
+      setPausedSales([]);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(pausedSalesKey);
+      setPausedSales(raw ? (JSON.parse(raw) as PausedSale[]) : []);
+    } catch {
+      setPausedSales([]);
+    }
+  }, [pausedSalesKey]);
+
+  const savePausedSales = (next: PausedSale[]) => {
+    setPausedSales(next);
+    if (!pausedSalesKey) return;
+    try {
+      localStorage.setItem(pausedSalesKey, JSON.stringify(next));
+    } catch {
+      // localStorage lleno o deshabilitado: la pausa en memoria sigue
+      // funcionando para esta sesión, solo no sobrevive un refresh.
+    }
+  };
+
+  const pauseSale = (note: string) => {
+    if (cart.length === 0) return;
+    const paused: PausedSale = {
+      id: crypto.randomUUID(),
+      note: note.trim(),
+      pausedAt: new Date().toISOString(),
+      cart,
+      customerId: customers.some((entry) => entry.id === customer)
+        ? customer
+        : "",
+      docType,
+      method,
+      pointsToRedeem,
+      splitMode,
+      splitPayments,
+    };
+    savePausedSales([paused, ...pausedSales]);
+    setCart([]);
+    setPointsToRedeem(0);
+    setSplitMode(false);
+    setSplitPayments([]);
+    pendingSaleRef.current = null;
+    toast.success("Venta pausada. Puedes atender a otro cliente.");
+  };
+
+  const resumeSale = (id: string) => {
+    if (cart.length > 0) {
+      toast.error("Termina o pausa la venta actual antes de retomar otra.");
+      return;
+    }
+    const target = pausedSales.find((entry) => entry.id === id);
+    if (!target) return;
+    setCart(target.cart);
+    setCustomer(target.customerId);
+    if (target.docType) setDocType(target.docType as SaleDocumentType);
+    setMethod(target.method as PaymentMethod);
+    setPointsToRedeem(target.pointsToRedeem);
+    setSplitMode(target.splitMode);
+    setSplitPayments(target.splitPayments);
+    savePausedSales(pausedSales.filter((entry) => entry.id !== id));
+  };
+
+  const deletePausedSale = (id: string) => {
+    savePausedSales(pausedSales.filter((entry) => entry.id !== id));
+  };
 
   // Piezas de todos los combos: no dependen de la sucursal (la composición
   // de un combo es la misma en todos lados), solo se usan junto con
@@ -815,6 +901,10 @@ function POS() {
     onSplitModeChange: setSplitMode,
     splitPayments,
     onSplitPaymentsChange: setSplitPayments,
+    pausedSales,
+    onPauseSale: pauseSale,
+    onResumeSale: resumeSale,
+    onDeletePausedSale: deletePausedSale,
   };
 
   // Sin sucursal concreta (admin con "Todas las tiendas") no se puede vender:
