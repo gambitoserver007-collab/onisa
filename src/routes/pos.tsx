@@ -13,6 +13,8 @@ import { AppShell } from "@/components/layout/AppShell";
 import { MobileSaleCart, SaleCart } from "@/components/pos/SaleCart";
 import { ProductCatalog } from "@/components/pos/ProductCatalog";
 import { VariantSelectorDialog } from "@/components/pos/VariantSelectorDialog";
+import { PriceCheckDialog } from "@/components/pos/PriceCheckDialog";
+import { CashMovementDialog } from "@/components/pos/CashMovementDialog";
 import { SuccessOverlay } from "@/components/feedback/SuccessOverlay";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useCompanyCatalog } from "@/hooks/useCompanyCatalog";
@@ -23,16 +25,20 @@ import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { blockDemoAction } from "@/lib/demoMode";
 import { getProductImage } from "@/lib/productVisuals";
 import { DEFAULT_DOCUMENT_TYPES } from "@/data/markets";
+import { printReceipts, type TicketDisplaySettings } from "@/lib/salesExport";
 import {
   createCustomer,
   createSaleFromCart,
   fetchAllComboItems,
+  fetchCompanyProfile,
   fetchLocationStock,
   fetchLocationVariantStock,
+  fetchOpenCashSession,
   fetchProductVariants,
   fetchPromotions,
   getErrorMessage,
   type ComboItemRow,
+  type CompanyProfile,
   type Promotion,
   type SalePaymentLine,
 } from "@/services/appData";
@@ -111,10 +117,26 @@ function POS() {
   const [success, setSuccess] = useState<{ amount: number; id: string } | null>(
     null,
   );
+  // Última venta cobrada -- para F1 (reimprimir), solo mientras se muestra
+  // la pantalla de éxito justo después de cobrar.
+  const lastSaleRef = useRef<Sale | null>(null);
   // Clave de idempotencia del cobro en curso: se mantiene igual mientras el
   // carrito no cambie, para que un reintento tras un error de red reutilice
   // la misma venta en vez de duplicarla (ver create_sale, p_client_request_id).
   const pendingSaleRef = useRef<{ key: string; signature: string } | null>(
+    null,
+  );
+  // Atajos de teclado (F1/F4/F6/F7/F8/F9/F10): verificador de precios,
+  // entrada/salida de efectivo, y estado auxiliar para imprimir el ticket
+  // justo después de cobrar.
+  const [priceCheckOpen, setPriceCheckOpen] = useState(false);
+  const [cashMovementType, setCashMovementType] = useState<
+    "ingreso" | "egreso" | null
+  >(null);
+  const [openCashSessionId, setOpenCashSessionId] = useState<string | null>(
+    null,
+  );
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(
     null,
   );
   // Un lector de código de barras físico solo "escribe" en el elemento que
@@ -161,6 +183,49 @@ function POS() {
     !!posLocationId &&
     locations.length > 0 &&
     !locations.some((loc) => loc.id === posLocationId);
+
+  // Caja abierta de esta sucursal -- para F7/F8 (entrada/salida de
+  // efectivo) sin tener que salir del POS a /caja.
+  useEffect(() => {
+    if (!session?.companyId || !posLocationId) {
+      setOpenCashSessionId(null);
+      return;
+    }
+    let active = true;
+    void fetchOpenCashSession(session.companyId, posLocationId)
+      .then((result) => {
+        if (active) setOpenCashSessionId(result?.id ?? null);
+      })
+      .catch(() => {
+        if (active) setOpenCashSessionId(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [session?.companyId, posLocationId]);
+
+  // RFC/dirección/teléfono para el ticket que imprime F1 justo después de
+  // cobrar (mismo patrón que /ventas).
+  useEffect(() => {
+    if (!session?.companyId) return;
+    void fetchCompanyProfile(session.companyId)
+      .then(setCompanyProfile)
+      .catch(() => undefined);
+  }, [session?.companyId]);
+
+  // Qué mostrar/ocultar del ticket, por sucursal -- ver puntos-de-venta.tsx.
+  const ticketByLocation = useMemo(() => {
+    const map = new Map<string, TicketDisplaySettings>();
+    for (const loc of locations) {
+      map.set(loc.id, {
+        showFiscalInfo: loc.ticketShowFiscalInfo,
+        showTaxBreakdown: loc.ticketShowTaxBreakdown,
+        showPaymentMethod: loc.ticketShowPaymentMethod,
+        footerText: loc.ticketFooterText,
+      });
+    }
+    return map;
+  }, [locations]);
 
   const reloadLocationStock = useCallback(async () => {
     if (!posLocationId) {
@@ -890,6 +955,7 @@ function POS() {
       });
       const saleId = sale?.id ?? "reciente";
       const amount = sale?.total ?? Math.max(0, total - loyaltyDiscount);
+      lastSaleRef.current = sale ?? null;
       pendingSaleRef.current = null;
       setCart([]);
       setPointsToRedeem(0);
@@ -912,6 +978,107 @@ function POS() {
       setIsCheckingOut(false);
     }
   };
+
+  // Atajos de teclado del punto de venta (F1/F4/F6/F7/F8/F9/F10). En Mac,
+  // estas teclas están tomadas de fábrica por brillo/multimedia/volumen --
+  // hay que mantener presionada "fn" al usarlas, o activar en Ajustes del
+  // Sistema → Teclado → "Usar F1, F2, etc. como teclas de función estándar".
+  // F12 se evitó a propósito para "Cobrar" porque es el atajo de Chrome/
+  // Firefox para abrir las Herramientas de Desarrollador -- se usa F4, que
+  // no tiene ningún atajo reservado en los navegadores.
+  //
+  // El handler se registra UNA sola vez (efecto con deps vacías) y lee todo
+  // lo que necesita de este ref, que se actualiza en cada render -- así
+  // nunca queda "atrapado" con un carrito o pestaña vieja de cuando se
+  // registró el listener por primera vez.
+  const shortcutsRef = useRef({
+    refocusScanner,
+    switchSlot,
+    checkout,
+    activeSlot,
+    isCheckingOut,
+    openCashSessionId,
+    success,
+    companyProfile,
+    ticketByLocation,
+    settings,
+    formatMoney,
+  });
+  shortcutsRef.current = {
+    refocusScanner,
+    switchSlot,
+    checkout,
+    activeSlot,
+    isCheckingOut,
+    openCashSessionId,
+    success,
+    companyProfile,
+    ticketByLocation,
+    settings,
+    formatMoney,
+  };
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const h = shortcutsRef.current;
+      switch (event.key) {
+        case "F10":
+          event.preventDefault();
+          h.refocusScanner();
+          break;
+        case "F6":
+          event.preventDefault();
+          h.switchSlot((h.activeSlot + 1) % SLOT_COUNT);
+          break;
+        case "F4":
+          event.preventDefault();
+          if (!h.isCheckingOut) void h.checkout();
+          break;
+        case "F7":
+          event.preventDefault();
+          if (!h.openCashSessionId) {
+            toast.error("No hay una caja abierta en esta sucursal.");
+          } else {
+            setCashMovementType("ingreso");
+          }
+          break;
+        case "F8":
+          event.preventDefault();
+          if (!h.openCashSessionId) {
+            toast.error("No hay una caja abierta en esta sucursal.");
+          } else {
+            setCashMovementType("egreso");
+          }
+          break;
+        case "F9":
+          event.preventDefault();
+          setPriceCheckOpen(true);
+          break;
+        case "F1":
+          if (h.success && lastSaleRef.current) {
+            event.preventDefault();
+            printReceipts(
+              [lastSaleRef.current],
+              {
+                businessName: h.settings.businessName,
+                fiscalIdLabel: h.settings.fiscalIdLabel,
+                sampleFiscalId: h.settings.sampleFiscalId,
+                taxName: h.settings.taxName,
+                address: h.companyProfile?.address,
+                phone: h.companyProfile?.phone,
+              },
+              h.formatMoney,
+              h.ticketByLocation,
+            );
+          }
+          break;
+        default:
+          break;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const cartProps = {
     cart,
@@ -1040,6 +1207,18 @@ function POS() {
             ? `Cobro de ${formatMoney(success.amount)} completado`
             : undefined
         }
+      />
+      <PriceCheckDialog
+        open={priceCheckOpen}
+        onOpenChange={setPriceCheckOpen}
+        products={locatedProducts}
+      />
+      <CashMovementDialog
+        open={!!cashMovementType}
+        onOpenChange={(open) => !open && setCashMovementType(null)}
+        type={cashMovementType ?? "ingreso"}
+        session={session}
+        cashSessionId={openCashSessionId}
       />
     </AppShell>
   );
