@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Printer } from "lucide-react";
 import { useEffect, useState } from "react";
 import { DemoGuardedButton } from "@/components/demo/DemoGuardedButton";
@@ -18,10 +18,18 @@ import {
   type CompanyProfile,
 } from "@/services/appData";
 
-export const Route = createFileRoute("/ventas/$id")({ component: VentaDetail });
+export const Route = createFileRoute("/ventas/$id")({
+  // "from=pos": se llegó aquí recién cobrando en el POS -- Volver/Imprimir
+  // regresan ahí para seguir vendiendo, en vez de ir a la lista de ventas.
+  validateSearch: (s: Record<string, unknown>): { from?: "pos" } =>
+    s.from === "pos" ? { from: "pos" } : {},
+  component: VentaDetail,
+});
 
 function VentaDetail() {
   const { id } = Route.useParams();
+  const { from } = Route.useSearch();
+  const navigate = useNavigate();
   const { formatMoney, settings } = useBusinessSettings();
   const { session } = useDemoSession();
   const { locations } = useCurrentLocation();
@@ -254,15 +262,28 @@ function VentaDetail() {
               </CardContent>
             </Card>
             <div className="mt-4 flex gap-2">
-              <Link to="/ventas" className="flex-1">
-                <Button variant="outline" className="w-full">
+              {from === "pos" ? (
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => navigate({ to: "/pos" })}
+                >
                   Volver
                 </Button>
-              </Link>
+              ) : (
+                <Link to="/ventas" className="flex-1">
+                  <Button variant="outline" className="w-full">
+                    Volver
+                  </Button>
+                </Link>
+              )}
               <DemoGuardedButton
                 variant="brand"
                 className="flex-1"
-                onAllowedClick={() => window.print()}
+                onAllowedClick={() => {
+                  window.print();
+                  if (from === "pos") navigate({ to: "/pos" });
+                }}
               >
                 <Printer className="mr-1 h-4 w-4" /> Imprimir
               </DemoGuardedButton>

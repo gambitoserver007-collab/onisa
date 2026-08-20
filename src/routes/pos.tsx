@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   useCallback,
   useDeferredValue,
@@ -7,9 +7,10 @@ import {
   useRef,
   useState,
 } from "react";
-import { Store } from "lucide-react";
+import { Store, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
+import { Button } from "@/components/ui/button";
 import { MobileSaleCart, SaleCart } from "@/components/pos/SaleCart";
 import { ProductCatalog } from "@/components/pos/ProductCatalog";
 import { VariantSelectorDialog } from "@/components/pos/VariantSelectorDialog";
@@ -31,6 +32,7 @@ import {
   fetchAllComboItems,
   fetchLocationStock,
   fetchLocationVariantStock,
+  fetchOpenCashSession,
   fetchProductVariants,
   fetchPromotions,
   getErrorMessage,
@@ -168,6 +170,32 @@ function POS() {
     locations.length > 0 &&
     !locations.some((loc) => loc.id === posLocationId);
 
+  // No se puede vender sin una caja abierta en esta sucursal. null = todavía
+  // no se sabe (no bloquea mientras carga, para no parpadear); false = se
+  // confirmó que no hay caja abierta, ahí sí se bloquea la pantalla entera.
+  const [hasOpenCashSession, setHasOpenCashSession] = useState<boolean | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (!session?.companyId || !posLocationId) {
+      setHasOpenCashSession(null);
+      return;
+    }
+    let active = true;
+    setHasOpenCashSession(null);
+    void fetchOpenCashSession(session.companyId, posLocationId)
+      .then((result) => {
+        if (active) setHasOpenCashSession(!!result);
+      })
+      .catch(() => {
+        if (active) setHasOpenCashSession(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [session?.companyId, posLocationId]);
+
   const reloadLocationStock = useCallback(async () => {
     if (!posLocationId) {
       setLocationStock(null);
@@ -259,14 +287,27 @@ function POS() {
   const [slots, setSlots] = useState<SaleSlot[]>(() =>
     Array.from({ length: SLOT_COUNT }, () => makeEmptySlot()),
   );
-  const slotsLoadedRef = useRef(false);
+  // Se vuelve true recién en el render que YA refleja los datos cargados
+  // (batchea con los setState de abajo). Antes usaba un ref actualizado de
+  // forma síncrona, pero eso dejaba correr el efecto de sincronización de
+  // abajo en el MISMO flush con el carrito todavía vacío (valor inicial de
+  // useState, previo a la carga) -- y como ese efecto siempre escribía en
+  // slots[activeSlot] con activeSlot también en su valor inicial (0), cada
+  // vez que el POS se volvía a montar (ej. al volver de /ventas/:id tras
+  // cobrar) borraba sin querer los datos de la pestaña "Venta 1".
+  const [slotsReady, setSlotsReady] = useState(false);
 
   useEffect(() => {
-    slotsLoadedRef.current = false;
+    setSlotsReady(false);
     if (!slotsKey) {
       setSlots(Array.from({ length: SLOT_COUNT }, () => makeEmptySlot()));
       setActiveSlot(0);
-      slotsLoadedRef.current = true;
+      setCart([]);
+      setCustomer("");
+      setPointsToRedeem(0);
+      setSplitMode(false);
+      setSplitPayments([]);
+      setSlotsReady(true);
       return;
     }
     try {
@@ -278,12 +319,12 @@ function POS() {
         parsed?.slots?.length === SLOT_COUNT
           ? parsed.slots
           : Array.from({ length: SLOT_COUNT }, () => makeEmptySlot());
-      setSlots(loadedSlots);
       const loadedActive = parsed?.activeSlot ?? 0;
-      setActiveSlot(
-        loadedActive >= 0 && loadedActive < SLOT_COUNT ? loadedActive : 0,
-      );
-      const current = loadedSlots[loadedActive] ?? loadedSlots[0];
+      const normalizedActive =
+        loadedActive >= 0 && loadedActive < SLOT_COUNT ? loadedActive : 0;
+      const current = loadedSlots[normalizedActive] ?? loadedSlots[0];
+      setSlots(loadedSlots);
+      setActiveSlot(normalizedActive);
       setCart(current.cart);
       setCustomer(current.customerId);
       setDocType(current.docType as SaleDocumentType);
@@ -294,15 +335,22 @@ function POS() {
     } catch {
       setSlots(Array.from({ length: SLOT_COUNT }, () => makeEmptySlot()));
       setActiveSlot(0);
+      setCart([]);
+      setCustomer("");
+      setPointsToRedeem(0);
+      setSplitMode(false);
+      setSplitPayments([]);
     } finally {
-      slotsLoadedRef.current = true;
+      setSlotsReady(true);
     }
   }, [slotsKey]);
 
   // Mantiene la pestaña activa sincronizada con el carrito en tiempo real
   // (para que cambiar de pestaña nunca pierda lo que se acaba de escribir).
+  // Solo corre una vez que `slotsReady` es true EN EL MISMO RENDER que ya
+  // trae el carrito recién cargado -- así nunca ve un carrito viejo/vacío.
   useEffect(() => {
-    if (!slotsLoadedRef.current) return;
+    if (!slotsReady) return;
     setSlots((current) => {
       const next = [...current];
       next[activeSlot] = {
@@ -329,6 +377,7 @@ function POS() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    slotsReady,
     cart,
     customer,
     docType,
@@ -839,6 +888,11 @@ function POS() {
       return;
     }
 
+    if (hasOpenCashSession === false) {
+      toast.error("Abre la caja de esta sucursal antes de cobrar.");
+      return;
+    }
+
     if (isDemo) {
       blockDemoAction();
       return;
@@ -910,7 +964,11 @@ function POS() {
         );
       }
       setTimeout(() => {
-        navigate({ to: "/ventas/$id", params: { id: saleId } });
+        navigate({
+          to: "/ventas/$id",
+          params: { id: saleId },
+          search: { from: "pos" },
+        });
       }, 1700);
     } catch (error) {
       toast.error(getErrorMessage(error, "No se pudo registrar la venta."));
@@ -1051,6 +1109,33 @@ function POS() {
               Tu sucursal asignada está desactivada. Pide a un administrador que
               te asigne una sucursal activa para poder vender.
             </p>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
+  // Sin caja abierta en esta sucursal, no se puede vender -- primero hay
+  // que abrirla en /caja. null (todavía cargando) no bloquea, para no
+  // parpadear la pantalla completa mientras se confirma.
+  if (hasOpenCashSession === false) {
+    return (
+      <AppShell>
+        <div className="grid min-h-[60vh] place-items-center px-4">
+          <div className="max-w-sm text-center">
+            <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-primary/10 text-primary">
+              <Wallet className="h-7 w-7" />
+            </div>
+            <h2 className="mt-4 text-lg font-bold">Abre la caja primero</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              No hay una caja abierta en esta sucursal. Ábrela para poder
+              empezar a vender.
+            </p>
+            <Link to="/caja" className="mt-4 inline-block">
+              <Button variant="brand">
+                <Wallet className="h-4 w-4" /> Ir a Caja
+              </Button>
+            </Link>
           </div>
         </div>
       </AppShell>
