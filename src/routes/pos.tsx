@@ -1111,9 +1111,7 @@ function POS() {
         products={locatedProducts}
         onSelect={(product) => {
           addProduct(product);
-          // Si tiene variantes, se abre el selector encima -- se cierra este
-          // diálogo para no dejar dos ventanas apiladas.
-          if (product.hasVariants) setProductSearchOpen(false);
+          setProductSearchOpen(false);
         }}
       />
     </AppShell>

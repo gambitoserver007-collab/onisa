@@ -13,9 +13,8 @@ import type { Product } from "@/types";
 
 // Buscador de productos (F10): para catálogos grandes donde escanear o
 // escribir en la barra chica del catálogo no alcanza -- una ventana con
-// buscador propio; al elegir un producto se agrega directo al carrito.
-// El diálogo se queda abierto después de agregar (con la búsqueda limpia)
-// para poder seguir agregando varios productos seguidos sin reabrirlo.
+// buscador propio; al elegir un producto se agrega directo al carrito y
+// el diálogo se cierra.
 export interface ProductSearchDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -53,12 +52,6 @@ export function ProductSearchDialog({
       .slice(0, 8);
   }, [products, query]);
 
-  const handleSelect = (product: Product) => {
-    onSelect(product);
-    setQuery("");
-    requestAnimationFrame(() => inputRef.current?.focus());
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -89,7 +82,7 @@ export function ProductSearchDialog({
                 key={product.id}
                 type="button"
                 disabled={outOfStock}
-                onClick={() => handleSelect(product)}
+                onClick={() => onSelect(product)}
                 className={cn(
                   "flex w-full items-center justify-between gap-3 rounded-xl border border-border/60 p-3 text-left transition hover:border-primary/50 hover:bg-primary/5",
                   outOfStock &&
