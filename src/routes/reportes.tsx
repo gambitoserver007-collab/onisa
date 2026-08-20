@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/table";
 import { DateRangeSelect } from "@/components/reports/DateRangeSelect";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
+import { useCompanyCatalog } from "@/hooks/useCompanyCatalog";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import {
   fetchEmployeeCommissions,
@@ -82,9 +83,10 @@ function Kpi({
 }
 
 function Reportes() {
-  const { formatMoney } = useBusinessSettings();
+  const { formatMoney, settings } = useBusinessSettings();
   const { session } = useDemoSession();
   const { currentLocationId } = useCurrentLocation();
+  const { customers } = useCompanyCatalog();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const range = useMemo(
@@ -136,6 +138,23 @@ function Reportes() {
       active = false;
     };
   }, [session?.companyId, currentLocationId, from, to]);
+  // Puntos de fidelidad acumulados por cliente -- saldo actual, no historial
+  // (el historial de canje/ganancia vive por venta, ver ventas.$id.tsx).
+  const showLoyalty = settings.loyaltyEnabled;
+  const topLoyalty = useMemo(
+    () =>
+      customers
+        .filter((c) => (c.loyaltyPoints ?? 0) > 0)
+        .slice()
+        .sort((a, b) => (b.loyaltyPoints ?? 0) - (a.loyaltyPoints ?? 0))
+        .slice(0, 15),
+    [customers],
+  );
+  const totalLoyaltyPoints = useMemo(
+    () => customers.reduce((sum, c) => sum + (c.loyaltyPoints ?? 0), 0),
+    [customers],
+  );
+
   const lowStock = data.lowStockProducts;
   const rangeTotal = useMemo(
     () => data.salesByCategory.reduce((acc, row) => acc + (row.value || 0), 0),
@@ -397,6 +416,57 @@ function Reportes() {
             </div>
           </CardContent>
         </Card>
+
+        {showLoyalty && (
+          <Card className="shadow-card lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-base">
+                Puntos de fidelidad por cliente
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="mb-3 text-sm text-muted-foreground">
+                Saldo total otorgado a clientes:{" "}
+                <span className="font-semibold text-foreground">
+                  {totalLoyaltyPoints}
+                </span>{" "}
+                puntos
+              </p>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Cliente</TableHead>
+                      <TableHead className="text-right">Puntos</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {topLoyalty.length === 0 && (
+                      <TableRow>
+                        <TableCell
+                          colSpan={2}
+                          className="py-6 text-center text-muted-foreground"
+                        >
+                          Ningún cliente tiene puntos acumulados todavía.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {topLoyalty.map((customer) => (
+                      <TableRow key={customer.id}>
+                        <TableCell className="font-medium">
+                          {customer.name}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {customer.loyaltyPoints}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </AppShell>
   );
