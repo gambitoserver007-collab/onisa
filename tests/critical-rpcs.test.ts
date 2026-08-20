@@ -3954,4 +3954,273 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(settings.ticket_footer_text).toBeNull();
     });
   });
+
+  describe("26. Mermas (artículos dañados y errores de empleados)", () => {
+    async function registerMerma(
+      userId: string,
+      params: {
+        locationId: string;
+        reason: string;
+        employeeId?: string | null;
+        productId?: string | null;
+        quantity?: number | null;
+        estimatedLoss?: number | null;
+        notes?: string | null;
+      },
+    ): Promise<string> {
+      const { rows } = await asUser(db, userId, () =>
+        db.query<{ register_merma: string }>(
+          `select register_merma(
+             p_location_id := $1,
+             p_reason_category := $2,
+             p_employee_id := $3,
+             p_product_id := $4,
+             p_quantity := $5,
+             p_estimated_loss := $6,
+             p_notes := $7
+           ) as register_merma`,
+          [
+            params.locationId,
+            params.reason,
+            params.employeeId ?? null,
+            params.productId ?? null,
+            params.quantity ?? null,
+            params.estimatedLoss ?? null,
+            params.notes ?? null,
+          ],
+        ),
+      );
+      return rows[0].register_merma;
+    }
+
+    async function getProductStock(productId: string): Promise<number> {
+      const { rows } = await db.query<{ stock: string }>(
+        "select stock from public.products where id = $1",
+        [productId],
+      );
+      return Number(rows[0].stock);
+    }
+
+    it("un cajero registra su propia merma de un producto dañado y se descuenta el stock", async () => {
+      const company = await makeCompany(db, "Empresa Merma Test");
+      const cajero = await makeUser(db, company.id, "user");
+      const prod = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Vaso",
+        5,
+        10,
+        20,
+      );
+
+      const mermaId = await registerMerma(cajero, {
+        locationId: company.loc1,
+        reason: "danado",
+        productId: prod,
+        quantity: 3,
+      });
+      expect(mermaId).toBeTruthy();
+      expect(await getProductStock(prod)).toBe(17);
+
+      const { rows } = await db.query<{
+        employee_id: string;
+        registered_by: string;
+        unit_cost: string;
+        estimated_loss: string;
+      }>(
+        "select employee_id, registered_by, unit_cost, estimated_loss from public.mermas where id = $1",
+        [mermaId],
+      );
+      expect(rows[0].employee_id).toBe(cajero);
+      expect(rows[0].registered_by).toBe(cajero);
+      expect(Number(rows[0].unit_cost)).toBeCloseTo(5, 2); // costo congelado
+      expect(Number(rows[0].estimated_loss)).toBeCloseTo(15, 2); // 3 * 5
+    });
+
+    it("un cajero NO puede registrar una merma a nombre de otro empleado", async () => {
+      const company = await makeCompany(db, "Empresa Merma Ajena Test");
+      const cajero = await makeUser(db, company.id, "user");
+      const otroCajero = await makeUser(db, company.id, "user");
+
+      await expect(
+        registerMerma(cajero, {
+          locationId: company.loc1,
+          reason: "otro",
+          employeeId: otroCajero,
+          estimatedLoss: 50,
+        }),
+      ).rejects.toThrow(/Solo un administrador o finanzas/i);
+    });
+
+    it("un admin sí puede registrar una merma de alto valor a nombre de un empleado", async () => {
+      const company = await makeCompany(db, "Empresa Merma Admin Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const cajero = await makeUser(db, company.id, "user");
+
+      const mermaId = await registerMerma(admin, {
+        locationId: company.loc1,
+        reason: "danado",
+        employeeId: cajero,
+        estimatedLoss: 500,
+        notes: "Pantalla rota",
+      });
+
+      const { rows } = await db.query<{
+        employee_id: string;
+        registered_by: string;
+        estimated_loss: string;
+      }>(
+        "select employee_id, registered_by, estimated_loss from public.mermas where id = $1",
+        [mermaId],
+      );
+      expect(rows[0].employee_id).toBe(cajero);
+      expect(rows[0].registered_by).toBe(admin);
+      expect(Number(rows[0].estimated_loss)).toBe(500);
+    });
+
+    it("finanzas también puede registrar una merma a nombre de otro empleado", async () => {
+      const company = await makeCompany(db, "Empresa Merma Finanzas Test");
+      const finanzas = await makeUser(db, company.id, "finanzas");
+      const cajero = await makeUser(db, company.id, "user");
+
+      await expect(
+        registerMerma(finanzas, {
+          locationId: company.loc1,
+          reason: "otro",
+          employeeId: cajero,
+          estimatedLoss: 20,
+        }),
+      ).resolves.toBeTruthy();
+    });
+
+    it("una merma sin producto no toca el inventario, solo registra la pérdida capturada", async () => {
+      const company = await makeCompany(db, "Empresa Merma Sin Producto Test");
+      const cajero = await makeUser(db, company.id, "user");
+
+      const mermaId = await registerMerma(cajero, {
+        locationId: company.loc1,
+        reason: "error_impresion",
+        estimatedLoss: 30,
+        notes: "10 copias mal impresas",
+      });
+
+      const { rows } = await db.query<{
+        product_id: string | null;
+        quantity: string | null;
+        estimated_loss: string;
+      }>(
+        "select product_id, quantity, estimated_loss from public.mermas where id = $1",
+        [mermaId],
+      );
+      expect(rows[0].product_id).toBeNull();
+      expect(rows[0].quantity).toBeNull();
+      expect(Number(rows[0].estimated_loss)).toBe(30);
+    });
+
+    it("no se puede registrar una merma que deje el stock de la sucursal en negativo", async () => {
+      const company = await makeCompany(db, "Empresa Merma Sin Stock Test");
+      const cajero = await makeUser(db, company.id, "user");
+      const prod = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Escaso",
+        2,
+        5,
+        1,
+      );
+
+      await expect(
+        registerMerma(cajero, {
+          locationId: company.loc1,
+          reason: "danado",
+          productId: prod,
+          quantity: 5,
+        }),
+      ).rejects.toThrow(/No hay suficiente stock/i);
+      expect(await getProductStock(prod)).toBe(1);
+    });
+
+    it("delete_merma repone el stock descontado y solo lo puede hacer admin/finanzas", async () => {
+      const company = await makeCompany(db, "Empresa Merma Delete Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const cajero = await makeUser(db, company.id, "user");
+      const prod = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Taza",
+        4,
+        8,
+        10,
+      );
+
+      const mermaId = await registerMerma(cajero, {
+        locationId: company.loc1,
+        reason: "danado",
+        productId: prod,
+        quantity: 4,
+      });
+      expect(await getProductStock(prod)).toBe(6);
+
+      // Ni siquiera el cajero dueño de la merma puede eliminarla.
+      await expect(
+        asUser(db, cajero, () =>
+          db.query("select delete_merma($1)", [mermaId]),
+        ),
+      ).rejects.toThrow(/Solo un administrador o finanzas/i);
+
+      await asUser(db, admin, () => db.query("select delete_merma($1)", [mermaId]));
+      expect(await getProductStock(prod)).toBe(10);
+
+      const { rows } = await db.query<{ deleted_at: string | null }>(
+        "select deleted_at from public.mermas where id = $1",
+        [mermaId],
+      );
+      expect(rows[0].deleted_at).not.toBeNull();
+    });
+
+    it("un cajero solo ve sus propias mermas; admin ve las de todos (RLS)", async () => {
+      const company = await makeCompany(db, "Empresa Merma RLS Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const cajeroA = await makeUser(db, company.id, "user");
+      const cajeroB = await makeUser(db, company.id, "user");
+
+      await registerMerma(cajeroA, {
+        locationId: company.loc1,
+        reason: "otro",
+        estimatedLoss: 10,
+      });
+      await registerMerma(cajeroB, {
+        locationId: company.loc1,
+        reason: "otro",
+        estimatedLoss: 15,
+      });
+
+      const seenByA = await asUser(db, cajeroA, () =>
+        db.query("select id from public.mermas"),
+      );
+      expect(seenByA.rows.length).toBe(1);
+
+      const seenByAdmin = await asUser(db, admin, () =>
+        db.query("select id from public.mermas"),
+      );
+      expect(seenByAdmin.rows.length).toBe(2);
+    });
+
+    it("no se puede registrar una merma en una sucursal de otra empresa", async () => {
+      const companyA = await makeCompany(db, "Empresa Merma Cruzada A Test");
+      const companyB = await makeCompany(db, "Empresa Merma Cruzada B Test");
+      const cajeroA = await makeUser(db, companyA.id, "user");
+
+      await expect(
+        registerMerma(cajeroA, {
+          locationId: companyB.loc1,
+          reason: "otro",
+          estimatedLoss: 10,
+        }),
+      ).rejects.toThrow(/Sucursal invalida/i);
+    });
+  });
 });

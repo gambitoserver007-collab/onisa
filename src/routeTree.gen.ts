@@ -22,6 +22,7 @@ import { Route as EtiquetasRouteImport } from './routes/etiquetas'
 import { Route as GananciasRouteImport } from './routes/ganancias'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as McpRouteImport } from './routes/mcp'
+import { Route as MermasRouteImport } from './routes/mermas'
 import { Route as PerfilRouteImport } from './routes/perfil'
 import { Route as PosRouteImport } from './routes/pos'
 import { Route as ProductosRouteImport } from './routes/productos'
@@ -47,6 +48,7 @@ import { Route as ComprasNuevaRouteImport } from './routes/compras.nueva'
 import { Route as InventarioIndexRouteImport } from './routes/inventario.index'
 import { Route as InventarioKardexRouteImport } from './routes/inventario.kardex'
 import { Route as InventarioProyeccionRouteImport } from './routes/inventario.proyeccion'
+import { Route as MermasMonitorRouteImport } from './routes/mermas_.monitor'
 import { Route as VentasIndexRouteImport } from './routes/ventas.index'
 import { Route as VentasIdRouteImport } from './routes/ventas.$id'
 import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
@@ -115,6 +117,11 @@ const LoginRoute = LoginRouteImport.update({
 const McpRoute = McpRouteImport.update({
   id: '/mcp',
   path: '/mcp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MermasRoute = MermasRouteImport.update({
+  id: '/mermas',
+  path: '/mermas',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PerfilRoute = PerfilRouteImport.update({
@@ -244,6 +251,11 @@ const InventarioProyeccionRoute = InventarioProyeccionRouteImport.update({
   path: '/inventario/proyeccion',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MermasMonitorRoute = MermasMonitorRouteImport.update({
+  id: '/mermas_/monitor',
+  path: '/mermas/monitor',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const VentasIndexRoute = VentasIndexRouteImport.update({
   id: '/ventas/',
   path: '/ventas/',
@@ -280,6 +292,7 @@ export interface FileRoutesByFullPath {
   '/ganancias': typeof GananciasRoute
   '/login': typeof LoginRoute
   '/mcp': typeof McpRoute
+  '/mermas': typeof MermasRoute
   '/perfil': typeof PerfilRoute
   '/pos': typeof PosRoute
   '/productos': typeof ProductosRoute
@@ -302,6 +315,7 @@ export interface FileRoutesByFullPath {
   '/compras/nueva': typeof ComprasNuevaRoute
   '/inventario/kardex': typeof InventarioKardexRoute
   '/inventario/proyeccion': typeof InventarioProyeccionRoute
+  '/mermas/monitor': typeof MermasMonitorRoute
   '/ventas/$id': typeof VentasIdRoute
   '/admin/': typeof AdminIndexRoute
   '/compras/': typeof ComprasIndexRoute
@@ -324,6 +338,7 @@ export interface FileRoutesByTo {
   '/ganancias': typeof GananciasRoute
   '/login': typeof LoginRoute
   '/mcp': typeof McpRoute
+  '/mermas': typeof MermasRoute
   '/perfil': typeof PerfilRoute
   '/pos': typeof PosRoute
   '/productos': typeof ProductosRoute
@@ -346,6 +361,7 @@ export interface FileRoutesByTo {
   '/compras/nueva': typeof ComprasNuevaRoute
   '/inventario/kardex': typeof InventarioKardexRoute
   '/inventario/proyeccion': typeof InventarioProyeccionRoute
+  '/mermas/monitor': typeof MermasMonitorRoute
   '/ventas/$id': typeof VentasIdRoute
   '/admin': typeof AdminIndexRoute
   '/compras': typeof ComprasIndexRoute
@@ -369,6 +385,7 @@ export interface FileRoutesById {
   '/ganancias': typeof GananciasRoute
   '/login': typeof LoginRoute
   '/mcp': typeof McpRoute
+  '/mermas': typeof MermasRoute
   '/perfil': typeof PerfilRoute
   '/pos': typeof PosRoute
   '/productos': typeof ProductosRoute
@@ -391,6 +408,7 @@ export interface FileRoutesById {
   '/compras/nueva': typeof ComprasNuevaRoute
   '/inventario/kardex': typeof InventarioKardexRoute
   '/inventario/proyeccion': typeof InventarioProyeccionRoute
+  '/mermas_/monitor': typeof MermasMonitorRoute
   '/ventas/$id': typeof VentasIdRoute
   '/admin/': typeof AdminIndexRoute
   '/compras/': typeof ComprasIndexRoute
@@ -415,6 +433,7 @@ export interface FileRouteTypes {
     | '/ganancias'
     | '/login'
     | '/mcp'
+    | '/mermas'
     | '/perfil'
     | '/pos'
     | '/productos'
@@ -437,6 +456,7 @@ export interface FileRouteTypes {
     | '/compras/nueva'
     | '/inventario/kardex'
     | '/inventario/proyeccion'
+    | '/mermas/monitor'
     | '/ventas/$id'
     | '/admin/'
     | '/compras/'
@@ -459,6 +479,7 @@ export interface FileRouteTypes {
     | '/ganancias'
     | '/login'
     | '/mcp'
+    | '/mermas'
     | '/perfil'
     | '/pos'
     | '/productos'
@@ -481,6 +502,7 @@ export interface FileRouteTypes {
     | '/compras/nueva'
     | '/inventario/kardex'
     | '/inventario/proyeccion'
+    | '/mermas/monitor'
     | '/ventas/$id'
     | '/admin'
     | '/compras'
@@ -503,6 +525,7 @@ export interface FileRouteTypes {
     | '/ganancias'
     | '/login'
     | '/mcp'
+    | '/mermas'
     | '/perfil'
     | '/pos'
     | '/productos'
@@ -525,6 +548,7 @@ export interface FileRouteTypes {
     | '/compras/nueva'
     | '/inventario/kardex'
     | '/inventario/proyeccion'
+    | '/mermas_/monitor'
     | '/ventas/$id'
     | '/admin/'
     | '/compras/'
@@ -548,6 +572,7 @@ export interface RootRouteChildren {
   GananciasRoute: typeof GananciasRoute
   LoginRoute: typeof LoginRoute
   McpRoute: typeof McpRoute
+  MermasRoute: typeof MermasRoute
   PerfilRoute: typeof PerfilRoute
   PosRoute: typeof PosRoute
   ProductosRoute: typeof ProductosRoute
@@ -570,6 +595,7 @@ export interface RootRouteChildren {
   ComprasNuevaRoute: typeof ComprasNuevaRoute
   InventarioKardexRoute: typeof InventarioKardexRoute
   InventarioProyeccionRoute: typeof InventarioProyeccionRoute
+  MermasMonitorRoute: typeof MermasMonitorRoute
   VentasIdRoute: typeof VentasIdRoute
   AdminIndexRoute: typeof AdminIndexRoute
   ComprasIndexRoute: typeof ComprasIndexRoute
@@ -670,6 +696,13 @@ declare module '@tanstack/react-router' {
       path: '/mcp'
       fullPath: '/mcp'
       preLoaderRoute: typeof McpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mermas': {
+      id: '/mermas'
+      path: '/mermas'
+      fullPath: '/mermas'
+      preLoaderRoute: typeof MermasRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/perfil': {
@@ -847,6 +880,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InventarioProyeccionRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/mermas_/monitor': {
+      id: '/mermas_/monitor'
+      path: '/mermas/monitor'
+      fullPath: '/mermas/monitor'
+      preLoaderRoute: typeof MermasMonitorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/ventas/': {
       id: '/ventas/'
       path: '/ventas'
@@ -892,6 +932,7 @@ const rootRouteChildren: RootRouteChildren = {
   GananciasRoute: GananciasRoute,
   LoginRoute: LoginRoute,
   McpRoute: McpRoute,
+  MermasRoute: MermasRoute,
   PerfilRoute: PerfilRoute,
   PosRoute: PosRoute,
   ProductosRoute: ProductosRoute,
@@ -915,6 +956,7 @@ const rootRouteChildren: RootRouteChildren = {
   ComprasNuevaRoute: ComprasNuevaRoute,
   InventarioKardexRoute: InventarioKardexRoute,
   InventarioProyeccionRoute: InventarioProyeccionRoute,
+  MermasMonitorRoute: MermasMonitorRoute,
   VentasIdRoute: VentasIdRoute,
   AdminIndexRoute: AdminIndexRoute,
   ComprasIndexRoute: ComprasIndexRoute,

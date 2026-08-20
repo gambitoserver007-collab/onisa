@@ -34,6 +34,7 @@ import {
   ChevronRight,
   ArrowLeft,
   Clock,
+  PackageX,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logout } from "@/lib/demoAuth";
@@ -85,6 +86,7 @@ const sections: { title: string; items: Item[] }[] = [
     items: [
       { to: "/ventas", label: "Ventas", icon: Receipt },
       { to: "/caja", label: "Caja", icon: Wallet },
+      { to: "/mermas", label: "Mermas", icon: PackageX },
       { to: "/promociones", label: "Promociones", icon: BadgePercent },
       { to: "/devoluciones", label: "Devoluciones", icon: RotateCcw },
     ],

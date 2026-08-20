@@ -4105,6 +4105,224 @@ export async function fetchEmployeeCommissions(
   }));
 }
 
+export type MermaReasonCategory =
+  | "danado"
+  | "vencido"
+  | "error_impresion"
+  | "error_caja"
+  | "robo_interno"
+  | "otro";
+
+export interface Merma {
+  id: string;
+  locationId: string;
+  productId: string | null;
+  productName: string | null;
+  quantity: number | null;
+  unitCost: number | null;
+  estimatedLoss: number;
+  reasonCategory: MermaReasonCategory;
+  notes: string | null;
+  employeeId: string;
+  registeredBy: string;
+  createdAt: string;
+}
+
+function mapMerma(row: {
+  id: string;
+  location_id: string;
+  product_id: string | null;
+  quantity: number | string | null;
+  unit_cost: number | string | null;
+  estimated_loss: number | string;
+  reason_category: string;
+  notes: string | null;
+  employee_id: string;
+  registered_by: string;
+  created_at: string;
+  products?: { name: string } | { name: string }[] | null;
+}): Merma {
+  const productRow = Array.isArray(row.products)
+    ? row.products[0]
+    : row.products;
+  return {
+    id: row.id,
+    locationId: row.location_id,
+    productId: row.product_id,
+    productName: productRow?.name ?? null,
+    quantity: row.quantity == null ? null : toNumber(row.quantity),
+    unitCost: row.unit_cost == null ? null : toNumber(row.unit_cost),
+    estimatedLoss: toNumber(row.estimated_loss),
+    reasonCategory: (row.reason_category as MermaReasonCategory) ?? "otro",
+    notes: row.notes,
+    employeeId: row.employee_id,
+    registeredBy: row.registered_by,
+    createdAt: row.created_at,
+  };
+}
+
+/** Registra una merma (artículo dañado/vencido o error de un empleado). Si
+ * lleva producto, la RPC descuenta el stock de esa sucursal en el mismo
+ * movimiento. `employeeId` solo se puede omitir/usar el propio -- ponerlo
+ * distinto exige ser admin o finanzas (lo valida la RPC, no el cliente). */
+export async function registerMerma(params: {
+  locationId: string;
+  reasonCategory: MermaReasonCategory;
+  employeeId?: string | null;
+  productId?: string | null;
+  quantity?: number | null;
+  estimatedLoss?: number | null;
+  notes?: string | null;
+}): Promise<string> {
+  const { data, error } = await supabase.rpc("register_merma", {
+    p_location_id: params.locationId,
+    p_reason_category: params.reasonCategory,
+    p_employee_id: params.employeeId ?? undefined,
+    p_product_id: params.productId ?? undefined,
+    p_quantity: params.quantity ?? undefined,
+    p_estimated_loss: params.estimatedLoss ?? undefined,
+    p_notes: params.notes ?? undefined,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Elimina (soft-delete) una merma y repone el stock que había descontado.
+ * Solo admin/finanzas -- lo valida la RPC. */
+export async function deleteMerma(mermaId: string): Promise<void> {
+  const { error } = await supabase.rpc("delete_merma", {
+    p_merma_id: mermaId,
+  });
+  if (error) throw error;
+}
+
+/** Lista de mermas para "Control de mermas". RLS ya limita lo que puede
+ * ver un cajero (las suyas) vs. admin/finanzas (todas de la empresa) --
+ * este filtro de `employeeId` es solo para que admin/finanzas acoten la
+ * vista a un empleado en particular, no una restricción de seguridad. */
+export async function fetchMermas(
+  companyId?: string,
+  opts: {
+    from?: string;
+    to?: string;
+    locationId?: string;
+    employeeId?: string;
+    reasonCategory?: MermaReasonCategory;
+  } = {},
+): Promise<Merma[]> {
+  let q = supabase
+    .from("mermas")
+    .select(
+      "id, location_id, product_id, quantity, unit_cost, estimated_loss, reason_category, notes, employee_id, registered_by, created_at, products(name)",
+    )
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+  if (companyId) q = q.eq("company_id", companyId);
+  if (opts.locationId) q = q.eq("location_id", opts.locationId);
+  if (opts.employeeId) q = q.eq("employee_id", opts.employeeId);
+  if (opts.reasonCategory) q = q.eq("reason_category", opts.reasonCategory);
+  if (opts.from) q = q.gte("created_at", `${opts.from}T00:00:00`);
+  if (opts.to) {
+    const toExclusive = new Date(
+      new Date(`${opts.to}T00:00:00`).getTime() + 24 * 60 * 60 * 1000,
+    ).toISOString();
+    q = q.lt("created_at", toExclusive);
+  }
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []).map((row) => mapMerma(row as never));
+}
+
+export interface MermaSummaryRow {
+  key: string;
+  label: string;
+  count: number;
+  totalLoss: number;
+}
+
+export interface MermaSummary {
+  totalLoss: number;
+  totalCount: number;
+  byEmployee: MermaSummaryRow[];
+  byLocation: MermaSummaryRow[];
+  byReason: MermaSummaryRow[];
+}
+
+const MERMA_REASON_LABELS: Record<MermaReasonCategory, string> = {
+  danado: "Dañado",
+  vencido: "Vencido/caducado",
+  error_impresion: "Error de impresión/copias",
+  error_caja: "Error de caja",
+  robo_interno: "Robo/extravío",
+  otro: "Otro",
+};
+
+/** Agregados para el Monitor de mermas: por cajero, por sucursal y por
+ * motivo -- para ver quién comete más fallas y qué sucursal pierde más. */
+export async function fetchMermaSummary(
+  companyId?: string,
+  opts: { from?: string; to?: string; locationId?: string } = {},
+): Promise<MermaSummary> {
+  const mermas = await fetchMermas(companyId, opts);
+  const [profileNames, locations] = await Promise.all([
+    fetchProfileNames(companyId),
+    fetchLocations(companyId),
+  ]);
+  const locationNames: Record<string, string> = {};
+  for (const loc of locations) locationNames[loc.id] = loc.name;
+
+  const byEmployee = new Map<string, { count: number; total: number }>();
+  const byLocation = new Map<string, { count: number; total: number }>();
+  const byReason = new Map<string, { count: number; total: number }>();
+  let totalLoss = 0;
+
+  for (const merma of mermas) {
+    totalLoss += merma.estimatedLoss;
+
+    const emp = byEmployee.get(merma.employeeId) ?? { count: 0, total: 0 };
+    emp.count += 1;
+    emp.total += merma.estimatedLoss;
+    byEmployee.set(merma.employeeId, emp);
+
+    const loc = byLocation.get(merma.locationId) ?? { count: 0, total: 0 };
+    loc.count += 1;
+    loc.total += merma.estimatedLoss;
+    byLocation.set(merma.locationId, loc);
+
+    const reason = byReason.get(merma.reasonCategory) ?? {
+      count: 0,
+      total: 0,
+    };
+    reason.count += 1;
+    reason.total += merma.estimatedLoss;
+    byReason.set(merma.reasonCategory, reason);
+  }
+
+  const toRows = (
+    map: Map<string, { count: number; total: number }>,
+    labelFor: (key: string) => string,
+  ): MermaSummaryRow[] =>
+    Array.from(map.entries())
+      .map(([key, v]) => ({
+        key,
+        label: labelFor(key),
+        count: v.count,
+        totalLoss: v.total,
+      }))
+      .sort((a, b) => b.totalLoss - a.totalLoss);
+
+  return {
+    totalLoss,
+    totalCount: mermas.length,
+    byEmployee: toRows(byEmployee, (id) => profileNames[id] ?? "—"),
+    byLocation: toRows(byLocation, (id) => locationNames[id] ?? "—"),
+    byReason: toRows(
+      byReason,
+      (key) => MERMA_REASON_LABELS[key as MermaReasonCategory] ?? key,
+    ),
+  };
+}
+
 export interface TimeEvent {
   id: string;
   profileId: string;

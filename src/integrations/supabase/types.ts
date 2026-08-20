@@ -760,6 +760,93 @@ export type Database = {
           },
         ];
       };
+      mermas: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          deleted_at: string | null;
+          employee_id: string;
+          estimated_loss: number;
+          id: string;
+          is_demo_data: boolean;
+          location_id: string;
+          notes: string | null;
+          product_id: string | null;
+          quantity: number | null;
+          reason_category: string;
+          registered_by: string;
+          unit_cost: number | null;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          deleted_at?: string | null;
+          employee_id: string;
+          estimated_loss?: number;
+          id?: string;
+          is_demo_data?: boolean;
+          location_id: string;
+          notes?: string | null;
+          product_id?: string | null;
+          quantity?: number | null;
+          reason_category?: string;
+          registered_by: string;
+          unit_cost?: number | null;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          deleted_at?: string | null;
+          employee_id?: string;
+          estimated_loss?: number;
+          id?: string;
+          is_demo_data?: boolean;
+          location_id?: string;
+          notes?: string | null;
+          product_id?: string | null;
+          quantity?: number | null;
+          reason_category?: string;
+          registered_by?: string;
+          unit_cost?: number | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "mermas_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "mermas_location_id_fkey";
+            columns: ["location_id"];
+            isOneToOne: false;
+            referencedRelation: "locations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "mermas_product_id_fkey";
+            columns: ["product_id"];
+            isOneToOne: false;
+            referencedRelation: "products";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "mermas_employee_id_fkey";
+            columns: ["employee_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "mermas_registered_by_fkey";
+            columns: ["registered_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       platform_settings: {
         Row: {
           brand_name: string;
@@ -2426,6 +2513,22 @@ export type Database = {
           p_limit?: number;
         };
         Returns: Json;
+      };
+      register_merma: {
+        Args: {
+          p_employee_id?: string;
+          p_estimated_loss?: number;
+          p_location_id: string;
+          p_notes?: string;
+          p_product_id?: string;
+          p_quantity?: number;
+          p_reason_category: string;
+        };
+        Returns: string;
+      };
+      delete_merma: {
+        Args: { p_merma_id: string };
+        Returns: undefined;
       };
       reset_company_data: {
         Args: { p_confirm_name: string };

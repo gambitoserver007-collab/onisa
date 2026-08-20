@@ -48,6 +48,7 @@ export const GRANTABLE_SECTIONS: SectionDef[] = [
   { key: "/devoluciones", label: "Devoluciones", group: "Operaciones" },
   { key: "/compras", label: "Compras", group: "Operaciones" },
   { key: "/caja", label: "Caja", group: "Operaciones" },
+  { key: "/mermas", label: "Mermas", group: "Operaciones" },
   { key: "/promociones", label: "Promociones", group: "Operaciones" },
   { key: "/productos", label: "Productos", group: "Inventario" },
   { key: "/inventario", label: "Control de Stock", group: "Inventario" },
@@ -76,6 +77,7 @@ export const ROLE_DEFAULT_SECTIONS: Record<StoreRole, string[]> = {
     "/devoluciones",
     "/compras",
     "/caja",
+    "/mermas",
     "/productos",
     "/inventario",
     "/clientes",
@@ -90,6 +92,7 @@ export const ROLE_DEFAULT_SECTIONS: Record<StoreRole, string[]> = {
     "/ventas",
     "/devoluciones",
     "/caja",
+    "/mermas",
     "/productos",
     "/inventario",
     "/clientes",
@@ -103,6 +106,7 @@ export const ROLE_DEFAULT_SECTIONS: Record<StoreRole, string[]> = {
     "/etiquetas",
     "/compras",
     "/proveedores",
+    "/mermas",
     "/perfil",
   ],
 };
@@ -127,6 +131,13 @@ const ROUTE_ACCESS: Record<string, StoreRole[]> = {
   // GRANTABLE_SECTIONS, para no heredar acceso por el prefix-match de
   // "/caja".
   "/caja/reportes": ["admin", "finanzas"],
+  "/mermas": ["admin", "finanzas", "user", "operador"],
+  // Mismo criterio que "/caja/reportes": sin casilla propia en
+  // GRANTABLE_SECTIONS, para no heredar acceso por el prefix-match de
+  // "/mermas" -- el monitor agregado (quién comete más fallas, qué
+  // sucursal pierde más) es solo para quien ve reportes, no para cualquier
+  // cajero al que se le otorgue "/mermas" para registrar sus propias.
+  "/mermas/monitor": ["admin", "finanzas"],
   "/promociones": ["admin"],
   "/productos": ["admin", "finanzas", "user", "operador"],
   "/inventario": ["admin", "finanzas", "user", "operador"],

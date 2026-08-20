@@ -8984,3 +8984,253 @@ alter table public.locations add column if not exists ticket_footer_text text;
 alter table public.locations add column if not exists ticket_show_tax_breakdown boolean not null default true;
 alter table public.locations add column if not exists ticket_show_loyalty_points boolean not null default true;
 alter table public.locations add column if not exists ticket_show_payment_method boolean not null default true;
+
+-- ============================================================
+-- Mermas: artículos dañados/caducados y errores de empleados (impresión,
+-- caja, etc.) que representan una pérdida. Se registran por empleado y por
+-- sucursal para poder ver quién comete más fallas y qué sucursal pierde más.
+-- Si la merma está ligada a un producto, se descuenta el stock de esa
+-- sucursal en el mismo movimiento (vía stock_movements, igual que
+-- adjust_stock) -- así el inventario del sistema no se desincroniza del
+-- real. Cualquier empleado registra las suyas; solo admin/finanzas pueden
+-- registrar una merma a nombre de OTRO empleado (para artículos de alto
+-- valor que el gerente prefiere capturar él mismo).
+-- ============================================================
+create table if not exists public.mermas (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  location_id uuid not null references public.locations(id) on delete restrict,
+  product_id uuid references public.products(id) on delete set null,
+  quantity numeric(12, 3),
+  unit_cost numeric(12, 2),
+  estimated_loss numeric(12, 2) not null default 0,
+  reason_category text not null default 'otro'
+    check (reason_category in ('danado', 'vencido', 'error_impresion', 'error_caja', 'robo_interno', 'otro')),
+  notes text,
+  employee_id uuid not null references public.profiles(id) on delete restrict,
+  registered_by uuid not null references public.profiles(id) on delete restrict,
+  is_demo_data boolean not null default false,
+  created_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+
+create index if not exists mermas_company_idx on public.mermas(company_id, created_at desc);
+create index if not exists mermas_location_idx on public.mermas(location_id);
+create index if not exists mermas_employee_idx on public.mermas(employee_id);
+create index if not exists mermas_product_idx on public.mermas(product_id);
+
+alter table public.mermas enable row level security;
+
+drop policy if exists "mermas select scoped" on public.mermas;
+create policy "mermas select scoped" on public.mermas for select to authenticated
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and public.user_can_access_location(location_id)
+    and (
+      public.current_user_role() in ('admin', 'finanzas')
+      or employee_id = auth.uid()
+      or registered_by = auth.uid()
+    )
+  );
+-- Insert/update/delete por separado (nunca "for all"): una política "for
+-- all" también se aplica a SELECT y, al ser permisiva, se combina con OR
+-- junto a "mermas select scoped" -- volvería a dejar ver todas las mermas
+-- de la empresa a cualquiera con permiso de escritura, sin importar el
+-- filtro por empleado de arriba. Los INSERT/UPDATE/DELETE reales siempre
+-- pasan por register_merma/delete_merma (security definer), así que esto
+-- es solo defensa adicional a nivel de tabla.
+drop policy if exists "mermas write scoped" on public.mermas;
+drop policy if exists "mermas insert scoped" on public.mermas;
+create policy "mermas insert scoped" on public.mermas for insert to authenticated
+  with check (public.can_write_company(company_id));
+drop policy if exists "mermas update scoped" on public.mermas;
+create policy "mermas update scoped" on public.mermas for update to authenticated
+  using (public.can_write_company(company_id))
+  with check (public.can_write_company(company_id));
+drop policy if exists "mermas delete scoped" on public.mermas;
+create policy "mermas delete scoped" on public.mermas for delete to authenticated
+  using (public.can_write_company(company_id));
+
+drop trigger if exists prevent_demo_mermas_write on public.mermas;
+create trigger prevent_demo_mermas_write before insert or update or delete on public.mermas
+  for each row execute function public.reject_demo_write();
+
+grant select, insert, update, delete on public.mermas to authenticated;
+grant all on public.mermas to service_role;
+
+create or replace function public.register_merma(
+  p_location_id uuid,
+  p_reason_category text,
+  p_employee_id uuid default null,
+  p_product_id uuid default null,
+  p_quantity numeric default null,
+  p_estimated_loss numeric default null,
+  p_notes text default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_role public.app_role;
+  v_employee_id uuid;
+  v_product public.products%rowtype;
+  v_unit_cost numeric(12, 2);
+  v_qty numeric(12, 3);
+  v_loss numeric(12, 2);
+  v_merma_id uuid;
+  v_row_id uuid;
+  v_current numeric(12, 3);
+  v_next numeric(12, 3);
+  v_total numeric(12, 3);
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+
+  v_role := public.current_user_role();
+
+  v_employee_id := coalesce(p_employee_id, auth.uid());
+  if v_employee_id <> auth.uid() and v_role not in ('admin', 'finanzas') then
+    raise exception 'Solo un administrador o finanzas puede registrar una merma a nombre de otro empleado.';
+  end if;
+
+  perform 1 from public.profiles where id = v_employee_id and company_id = v_company_id;
+  if not found then raise exception 'Empleado no encontrado.'; end if;
+
+  perform 1 from public.locations where id = p_location_id and company_id = v_company_id;
+  if not found then raise exception 'Sucursal invalida.'; end if;
+  if not public.user_can_access_location(p_location_id) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
+
+  if p_reason_category not in ('danado', 'vencido', 'error_impresion', 'error_caja', 'robo_interno', 'otro') then
+    raise exception 'Motivo invalido.';
+  end if;
+
+  if p_product_id is not null then
+    select * into v_product from public.products
+      where id = p_product_id and company_id = v_company_id and deleted_at is null;
+    if not found then raise exception 'Producto no encontrado.'; end if;
+    if v_product.has_variants then
+      raise exception 'Este producto tiene variantes -- ajusta su stock desde Control de Stock y registra la merma sin producto.';
+    end if;
+
+    v_qty := round(coalesce(p_quantity, 1)::numeric, 3);
+    if v_qty <= 0 then raise exception 'La cantidad debe ser mayor a cero.'; end if;
+
+    v_unit_cost := coalesce(nullif(v_product.cost, 0), v_product.price, 0);
+    v_loss := coalesce(p_estimated_loss, round(v_unit_cost * v_qty, 2));
+
+    select id, stock into v_row_id, v_current
+    from public.product_locations
+    where product_id = p_product_id and location_id = p_location_id
+    for update;
+
+    if v_row_id is null then v_current := 0; end if;
+    v_next := v_current - v_qty;
+    if v_next < 0 then
+      raise exception 'No hay suficiente stock en esta sucursal para registrar esa cantidad.';
+    end if;
+
+    if v_row_id is null then
+      insert into public.product_locations (company_id, product_id, location_id, stock, is_active)
+      values (v_company_id, p_product_id, p_location_id, v_next, true);
+    else
+      update public.product_locations set stock = v_next, updated_at = now() where id = v_row_id;
+    end if;
+
+    insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty,
+                                        reference_type, notes, created_by)
+    values (v_company_id, p_location_id, p_product_id, 'merma', -v_qty, 'merma',
+            coalesce(nullif(btrim(coalesce(p_notes, '')), ''), 'Merma registrada'), auth.uid());
+
+    select coalesce(sum(stock), 0) into v_total
+    from public.product_locations where product_id = p_product_id and is_active = true;
+    update public.products set stock = v_total, updated_at = now() where id = p_product_id;
+  else
+    v_qty := null;
+    v_unit_cost := null;
+    v_loss := coalesce(p_estimated_loss, 0);
+    if v_loss < 0 then raise exception 'La perdida estimada no puede ser negativa.'; end if;
+  end if;
+
+  insert into public.mermas (company_id, location_id, product_id, quantity, unit_cost, estimated_loss,
+                             reason_category, notes, employee_id, registered_by)
+  values (v_company_id, p_location_id, p_product_id, v_qty, v_unit_cost, v_loss,
+          p_reason_category, nullif(btrim(coalesce(p_notes, '')), ''), v_employee_id, auth.uid())
+  returning id into v_merma_id;
+
+  return v_merma_id;
+end;
+$$;
+
+revoke execute on function public.register_merma(uuid, text, uuid, uuid, numeric, numeric, text) from public, anon;
+grant execute on function public.register_merma(uuid, text, uuid, uuid, numeric, numeric, text) to authenticated;
+
+-- Revierte una merma: repone el stock que había descontado (si tenía
+-- producto) y la marca como borrada. Solo admin/finanzas -- un cajero no
+-- puede "deshacer" un registro después de capturado, ni el suyo.
+create or replace function public.delete_merma(p_merma_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_role public.app_role;
+  v_merma public.mermas%rowtype;
+  v_row_id uuid;
+  v_current numeric(12, 3);
+  v_next numeric(12, 3);
+  v_total numeric(12, 3);
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+
+  v_company_id := public.current_user_company_id();
+  v_role := public.current_user_role();
+  if v_role not in ('admin', 'finanzas') then
+    raise exception 'Solo un administrador o finanzas puede eliminar una merma.';
+  end if;
+
+  select * into v_merma from public.mermas
+    where id = p_merma_id and company_id = v_company_id and deleted_at is null;
+  if not found then raise exception 'Merma no encontrada.'; end if;
+
+  if v_merma.product_id is not null and v_merma.quantity is not null then
+    select id, stock into v_row_id, v_current
+    from public.product_locations
+    where product_id = v_merma.product_id and location_id = v_merma.location_id
+    for update;
+
+    if v_row_id is not null then
+      v_next := v_current + v_merma.quantity;
+      update public.product_locations set stock = v_next, updated_at = now() where id = v_row_id;
+
+      insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty,
+                                          reference_type, reference_id, notes, created_by)
+      values (v_company_id, v_merma.location_id, v_merma.product_id, 'merma_revertida', v_merma.quantity,
+              'merma', v_merma.id, 'Merma eliminada -- se repone el stock', auth.uid());
+
+      select coalesce(sum(stock), 0) into v_total
+      from public.product_locations where product_id = v_merma.product_id and is_active = true;
+      update public.products set stock = v_total, updated_at = now() where id = v_merma.product_id;
+    end if;
+  end if;
+
+  update public.mermas set deleted_at = now() where id = p_merma_id;
+end;
+$$;
+
+revoke execute on function public.delete_merma(uuid) from public, anon;
+grant execute on function public.delete_merma(uuid) to authenticated;
