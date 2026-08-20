@@ -14,6 +14,7 @@ import { MobileSaleCart, SaleCart } from "@/components/pos/SaleCart";
 import { ProductCatalog } from "@/components/pos/ProductCatalog";
 import { VariantSelectorDialog } from "@/components/pos/VariantSelectorDialog";
 import { PriceCheckDialog } from "@/components/pos/PriceCheckDialog";
+import { ProductSearchDialog } from "@/components/pos/ProductSearchDialog";
 import { SuccessOverlay } from "@/components/feedback/SuccessOverlay";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useCompanyCatalog } from "@/hooks/useCompanyCatalog";
@@ -119,8 +120,9 @@ function POS() {
     null,
   );
   // Atajos de teclado (F4/F6/F9/F10): cobrar, cambiar de venta, verificador
-  // de precios y enfocar el buscador.
+  // de precios y buscador de productos.
   const [priceCheckOpen, setPriceCheckOpen] = useState(false);
+  const [productSearchOpen, setProductSearchOpen] = useState(false);
   // Un lector de código de barras físico solo "escribe" en el elemento que
   // tenga el foco. Cada click en el catálogo o en el carrito (agregar,
   // +/-, quitar) se lo roba, así que el siguiente escaneo se pierde hasta
@@ -930,14 +932,12 @@ function POS() {
   // nunca queda "atrapado" con un carrito o pestaña vieja de cuando se
   // registró el listener por primera vez.
   const shortcutsRef = useRef({
-    refocusScanner,
     switchSlot,
     checkout,
     activeSlot,
     isCheckingOut,
   });
   shortcutsRef.current = {
-    refocusScanner,
     switchSlot,
     checkout,
     activeSlot,
@@ -950,7 +950,7 @@ function POS() {
       switch (event.key) {
         case "F10":
           event.preventDefault();
-          h.refocusScanner();
+          setProductSearchOpen(true);
           break;
         case "F6":
           event.preventDefault();
@@ -1104,6 +1104,17 @@ function POS() {
         open={priceCheckOpen}
         onOpenChange={setPriceCheckOpen}
         products={locatedProducts}
+      />
+      <ProductSearchDialog
+        open={productSearchOpen}
+        onOpenChange={setProductSearchOpen}
+        products={locatedProducts}
+        onSelect={(product) => {
+          addProduct(product);
+          // Si tiene variantes, se abre el selector encima -- se cierra este
+          // diálogo para no dejar dos ventanas apiladas.
+          if (product.hasVariants) setProductSearchOpen(false);
+        }}
       />
     </AppShell>
   );
