@@ -4070,8 +4070,17 @@ export async function fetchEmployeeCommissions(
     .is("deleted_at", null)
     .not("created_by", "is", null);
   if (companyId) q = q.eq("company_id", companyId);
-  if (opts.from) q = q.gte("sale_date", opts.from);
-  if (opts.to) q = q.lte("sale_date", opts.to);
+  // sale_date es timestamptz -- comparar contra un "yyyy-mm-dd" crudo lo
+  // trunca a la medianoche UTC de ese día, así que un rango from===to (p.ej.
+  // el preset "Hoy") nunca hace match con nada. Se convierte a un rango de
+  // timestamps [from 00:00, to+1 00:00) igual que useDashboardData.
+  if (opts.from) q = q.gte("sale_date", `${opts.from}T00:00:00`);
+  if (opts.to) {
+    const toExclusive = new Date(
+      new Date(`${opts.to}T00:00:00`).getTime() + 24 * 60 * 60 * 1000,
+    ).toISOString();
+    q = q.lt("sale_date", toExclusive);
+  }
   if (opts.locationId) q = q.eq("location_id", opts.locationId);
   const { data, error } = await q;
   if (error) throw error;
