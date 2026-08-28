@@ -30,6 +30,9 @@ import {
 import { FallbackNotice } from "@/components/layout/FallbackNotice";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { ProductFormSheet } from "@/components/productos/ProductFormSheet";
+import { PhysicalCountTab } from "@/components/productos/PhysicalCountTab";
+import { ImportProductsTab } from "@/components/productos/ImportProductsTab";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useCompanyCatalog } from "@/hooks/useCompanyCatalog";
 import { useDemoSession } from "@/hooks/useDemoSession";
@@ -123,182 +126,202 @@ function ProductosPage() {
         No se pudo leer Supabase todavía. Mostrando productos de prueba.
       </FallbackNotice>
 
-      <Card>
-        <CardContent className="p-4">
-          <div className="relative mb-3 max-w-sm">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="pl-10"
-              placeholder="Buscar por nombre o código..."
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Producto</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead>Categoría</TableHead>
-                  <TableHead>Proveedor</TableHead>
-                  <TableHead>Código</TableHead>
-                  <TableHead className="text-right">Costo</TableHead>
-                  <TableHead className="text-right">Precio</TableHead>
-                  <TableHead>Stock</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading && (
-                  <TableRow>
-                    <TableCell
-                      colSpan={9}
-                      className="py-8 text-center text-muted-foreground"
-                    >
-                      Cargando productos...
-                    </TableCell>
-                  </TableRow>
-                )}
-                {!isLoading && list.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={9}>
-                      <EmptyState
-                        emoji="📦"
-                        title="Sin productos"
-                        description="Crea tu primer producto con el botón “Nuevo producto”."
-                      />
-                    </TableCell>
-                  </TableRow>
-                )}
-                {!isLoading &&
-                  list.map((product) => {
-                    const image = getProductImage(product);
-                    const visual = getProductVisual(product);
-                    const status = stockStatus(
-                      product.stock,
-                      effectiveLowStockThreshold(
-                        product,
-                        settings.lowStockThresholdDefault,
-                      ),
-                    );
-                    return (
-                      <TableRow key={product.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <span
-                              className={cn(
-                                "grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-gradient-to-br text-lg",
-                                visual.gradient,
-                              )}
-                            >
-                              {image ? (
-                                <img
-                                  src={image}
-                                  alt={product.name}
-                                  loading="lazy"
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                visual.emoji
-                              )}
-                            </span>
-                            <span className="font-semibold">
-                              {product.name}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="soft">
-                            {product.productType === "combo"
-                              ? "Combo"
-                              : product.productType === "service"
-                                ? "Servicio"
-                                : "Estándar"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{product.category}</TableCell>
-                        <TableCell>
-                          {product.supplierId ? (
-                            (supplierName.get(product.supplierId) ?? "—")
-                          ) : (
-                            <span className="text-muted-foreground">
-                              Sin proveedor
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          <div>{product.barcode}</div>
-                          {product.sku && (
-                            <div className="text-muted-foreground">
-                              SKU: {product.sku}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatMoney(product.cost)}
-                        </TableCell>
-                        <TableCell className="text-right font-semibold">
-                          {formatMoney(product.price)}
-                        </TableCell>
-                        <TableCell>
-                          {product.productType === "service" ? (
-                            <span className="text-muted-foreground">
-                              Sin inventario
-                            </span>
-                          ) : product.productType === "combo" ? (
-                            <span className="text-muted-foreground">
-                              Según piezas
-                            </span>
-                          ) : (
-                            <Badge
-                              variant={
-                                status === "out"
-                                  ? "destructive"
-                                  : status === "low"
-                                    ? "warm"
-                                    : "success"
-                              }
-                            >
-                              {product.stock} {product.unit}
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {canManage ? (
-                            <>
-                              <DemoGuardedButton
-                                size="icon"
-                                variant="ghost"
-                                aria-label={`Editar ${product.name}`}
-                                onAllowedClick={() => openEdit(product)}
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </DemoGuardedButton>
-                              <DemoGuardedButton
-                                size="icon"
-                                variant="ghost"
-                                aria-label={`Eliminar ${product.name}`}
-                                className="text-destructive hover:text-destructive"
-                                onAllowedClick={() => setDeleteTarget(product)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </DemoGuardedButton>
-                            </>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">
-                              Solo lectura
-                            </span>
-                          )}
+      <Tabs defaultValue="catalogo" className="w-full">
+        <TabsList className="h-auto flex-wrap">
+          <TabsTrigger value="catalogo">Catálogo</TabsTrigger>
+          <TabsTrigger value="conteo">Conteo físico</TabsTrigger>
+          <TabsTrigger value="importar">Importar desde Excel</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="catalogo" className="space-y-4">
+          <Card>
+            <CardContent className="p-4">
+              <div className="relative mb-3 max-w-sm">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="pl-10"
+                  placeholder="Buscar por nombre o código..."
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </div>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Producto</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead>Categoría</TableHead>
+                      <TableHead>Proveedor</TableHead>
+                      <TableHead>Código</TableHead>
+                      <TableHead className="text-right">Costo</TableHead>
+                      <TableHead className="text-right">Precio</TableHead>
+                      <TableHead>Stock</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {isLoading && (
+                      <TableRow>
+                        <TableCell
+                          colSpan={9}
+                          className="py-8 text-center text-muted-foreground"
+                        >
+                          Cargando productos...
                         </TableCell>
                       </TableRow>
-                    );
-                  })}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+                    )}
+                    {!isLoading && list.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={9}>
+                          <EmptyState
+                            emoji="📦"
+                            title="Sin productos"
+                            description="Crea tu primer producto con el botón “Nuevo producto”."
+                          />
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {!isLoading &&
+                      list.map((product) => {
+                        const image = getProductImage(product);
+                        const visual = getProductVisual(product);
+                        const status = stockStatus(
+                          product.stock,
+                          effectiveLowStockThreshold(
+                            product,
+                            settings.lowStockThresholdDefault,
+                          ),
+                        );
+                        return (
+                          <TableRow key={product.id}>
+                            <TableCell>
+                              <div className="flex items-center gap-3">
+                                <span
+                                  className={cn(
+                                    "grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-gradient-to-br text-lg",
+                                    visual.gradient,
+                                  )}
+                                >
+                                  {image ? (
+                                    <img
+                                      src={image}
+                                      alt={product.name}
+                                      loading="lazy"
+                                      className="h-full w-full object-cover"
+                                    />
+                                  ) : (
+                                    visual.emoji
+                                  )}
+                                </span>
+                                <span className="font-semibold">
+                                  {product.name}
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="soft">
+                                {product.productType === "combo"
+                                  ? "Combo"
+                                  : product.productType === "service"
+                                    ? "Servicio"
+                                    : "Estándar"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{product.category}</TableCell>
+                            <TableCell>
+                              {product.supplierId ? (
+                                (supplierName.get(product.supplierId) ?? "—")
+                              ) : (
+                                <span className="text-muted-foreground">
+                                  Sin proveedor
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">
+                              <div>{product.barcode}</div>
+                              {product.sku && (
+                                <div className="text-muted-foreground">
+                                  SKU: {product.sku}
+                                </div>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatMoney(product.cost)}
+                            </TableCell>
+                            <TableCell className="text-right font-semibold">
+                              {formatMoney(product.price)}
+                            </TableCell>
+                            <TableCell>
+                              {product.productType === "service" ? (
+                                <span className="text-muted-foreground">
+                                  Sin inventario
+                                </span>
+                              ) : product.productType === "combo" ? (
+                                <span className="text-muted-foreground">
+                                  Según piezas
+                                </span>
+                              ) : (
+                                <Badge
+                                  variant={
+                                    status === "out"
+                                      ? "destructive"
+                                      : status === "low"
+                                        ? "warm"
+                                        : "success"
+                                  }
+                                >
+                                  {product.stock} {product.unit}
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {canManage ? (
+                                <>
+                                  <DemoGuardedButton
+                                    size="icon"
+                                    variant="ghost"
+                                    aria-label={`Editar ${product.name}`}
+                                    onAllowedClick={() => openEdit(product)}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </DemoGuardedButton>
+                                  <DemoGuardedButton
+                                    size="icon"
+                                    variant="ghost"
+                                    aria-label={`Eliminar ${product.name}`}
+                                    className="text-destructive hover:text-destructive"
+                                    onAllowedClick={() =>
+                                      setDeleteTarget(product)
+                                    }
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </DemoGuardedButton>
+                                </>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">
+                                  Solo lectura
+                                </span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="conteo">
+          <PhysicalCountTab onChanged={() => reload()} />
+        </TabsContent>
+
+        <TabsContent value="importar">
+          <ImportProductsTab onImported={() => reload()} />
+        </TabsContent>
+      </Tabs>
 
       {/* Create / edit sheet (componente reutilizable) */}
       <ProductFormSheet
