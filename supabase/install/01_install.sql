@@ -8492,6 +8492,18 @@ declare
   v_points_redeemed_actual numeric := 0;
   v_points_earned numeric := 0;
   v_discount numeric(12,2) := 0;
+  -- Niveles de fidelidad (Bronce/Plata/Oro), opcionales -- si
+  -- v_tiers_enabled es false, v_earn_rate se queda tal cual se leyó de
+  -- companies y el comportamiento es idéntico al de antes de esta fase.
+  v_tiers_enabled boolean;
+  v_tier2_min numeric(12,2);
+  v_tier3_min numeric(12,2);
+  v_tier1_rate numeric(10,4);
+  v_tier2_rate numeric(10,4);
+  v_tier3_rate numeric(10,4);
+  v_year_spend numeric(12,2);
+  v_year_spend_year integer;
+  v_current_year integer;
   -- Promociones automáticas: cantidades agregadas por producto y por
   -- categoría en TODO el carrito (no solo la línea actual), para que una
   -- promoción por categoría cuente unidades de varios productos distintos.
@@ -8595,8 +8607,11 @@ begin
     end if;
   end if;
 
-  select tax_rate, document_types, loyalty_enabled, loyalty_point_value, loyalty_earn_rate
-    into v_tax_rate, v_doc_types, v_loyalty_enabled, v_point_value, v_earn_rate
+  select tax_rate, document_types, loyalty_enabled, loyalty_point_value, loyalty_earn_rate,
+         coalesce(loyalty_tiers_enabled, false), loyalty_tier2_min_spend, loyalty_tier3_min_spend,
+         loyalty_tier1_earn_rate, loyalty_tier2_earn_rate, loyalty_tier3_earn_rate
+    into v_tax_rate, v_doc_types, v_loyalty_enabled, v_point_value, v_earn_rate,
+         v_tiers_enabled, v_tier2_min, v_tier3_min, v_tier1_rate, v_tier2_rate, v_tier3_rate
     from public.companies where id = v_company_id;
   v_tax_rate := coalesce(v_tax_rate, 0.18);
   select (dt ->> 'charges_iva')::boolean into v_charges_iva from jsonb_array_elements(coalesce(v_doc_types,'[]'::jsonb)) dt
@@ -8819,9 +8834,16 @@ begin
   -- compute_cash_session_expected, sales_by_payment_method y los reportes
   -- de caja.
   if p_customer_id is not null and coalesce(v_loyalty_enabled, false) then
-    select loyalty_points into v_customer_balance
+    v_current_year := extract(year from now())::int;
+    select loyalty_points, coalesce(loyalty_year_spend, 0), loyalty_year_spend_year
+      into v_customer_balance, v_year_spend, v_year_spend_year
       from public.customers where id = p_customer_id and company_id = v_company_id
       for update;
+    -- El acumulado del año se reinicia solo (sin cron) la primera vez que
+    -- se toca en un año calendario distinto al guardado.
+    if v_year_spend_year is distinct from v_current_year then
+      v_year_spend := 0;
+    end if;
 
     if coalesce(p_points_redeemed, 0) > 0 and coalesce(v_point_value, 0) > 0 then
       v_points_redeemed_actual := least(
@@ -8838,6 +8860,22 @@ begin
 
     v_total := v_total - v_discount;
 
+    -- Niveles de fidelidad: el nivel para ESTA venta se decide con el
+    -- acumulado ANTES de sumarle esta compra (igual que cualquier programa
+    -- de nivel -- lo que ya gastaste en el año, no lo que estás gastando
+    -- ahora mismo, es lo que te da el nivel). Si los niveles están
+    -- apagados, v_earn_rate se queda tal cual se leyó de companies
+    -- (comportamiento idéntico al de antes de esta fase).
+    if v_tiers_enabled then
+      if coalesce(v_tier3_min, 0) > 0 and v_year_spend >= v_tier3_min then
+        v_earn_rate := v_tier3_rate;
+      elsif coalesce(v_tier2_min, 0) > 0 and v_year_spend >= v_tier2_min then
+        v_earn_rate := v_tier2_rate;
+      else
+        v_earn_rate := v_tier1_rate;
+      end if;
+    end if;
+
     if coalesce(v_earn_rate, 0) > 0 then
       v_points_earned := floor(v_total / v_earn_rate);
       if v_points_earned > 0 then
@@ -8846,8 +8884,14 @@ begin
       end if;
     end if;
 
+    -- El acumulado del año suma lo que el cliente de verdad pagó en esta
+    -- venta (post-descuento por canje), se haya usado o no para el nivel.
+    v_year_spend := v_year_spend + greatest(v_total, 0);
+
     update public.customers
       set loyalty_points = coalesce(loyalty_points, 0) + v_points_earned - v_points_redeemed_actual,
+          loyalty_year_spend = v_year_spend,
+          loyalty_year_spend_year = v_current_year,
           updated_at = now()
       where id = p_customer_id;
   end if;
@@ -9234,3 +9278,27 @@ $$;
 
 revoke execute on function public.delete_merma(uuid) from public, anon;
 grant execute on function public.delete_merma(uuid) to authenticated;
+
+-- ============================================================
+-- Niveles de fidelidad (Bronce/Plata/Oro), opcionales sobre el programa de
+-- puntos ya existente. Apagado por defecto (loyalty_tiers_enabled = false)
+-- -- mientras esté apagado, create_sale se comporta exactamente igual que
+-- antes de esta fase (usa loyalty_earn_rate tal cual). El valor de canje
+-- (loyalty_point_value, 1 punto = $X al cobrar) NO cambia entre niveles,
+-- solo la velocidad con la que se ganan puntos.
+--
+-- El nivel se decide por el gasto acumulado en el AÑO CALENDARIO en curso
+-- (customers.loyalty_year_spend), que se reinicia solo -- sin cron/job --
+-- la primera vez que create_sale toca a ese cliente en un año distinto al
+-- guardado en loyalty_year_spend_year. Ver el bloque de puntos de lealtad
+-- dentro de create_sale para la lógica completa.
+-- ============================================================
+alter table public.companies add column if not exists loyalty_tiers_enabled boolean not null default false;
+alter table public.companies add column if not exists loyalty_tier2_min_spend numeric(12,2) not null default 1500;
+alter table public.companies add column if not exists loyalty_tier3_min_spend numeric(12,2) not null default 5000;
+alter table public.companies add column if not exists loyalty_tier1_earn_rate numeric(10,4) not null default 65;
+alter table public.companies add column if not exists loyalty_tier2_earn_rate numeric(10,4) not null default 50;
+alter table public.companies add column if not exists loyalty_tier3_earn_rate numeric(10,4) not null default 33;
+
+alter table public.customers add column if not exists loyalty_year_spend numeric(12,2) not null default 0;
+alter table public.customers add column if not exists loyalty_year_spend_year integer;

@@ -137,6 +137,19 @@ export interface UpdateCompanySettingsInput {
   loyaltyPointValue?: number;
   /** Cuánto gasto equivale a 1 punto ganado. */
   loyaltyEarnRate?: number;
+  /** Niveles de fidelidad (Bronce/Plata/Oro) opcionales -- apagado por
+   * defecto; mientras esté apagado, loyaltyEarnRate se usa tal cual. */
+  loyaltyTiersEnabled?: boolean;
+  /** Gasto acumulado en el año para pasar a Plata. */
+  loyaltyTier2MinSpend?: number;
+  /** Gasto acumulado en el año para pasar a Oro. */
+  loyaltyTier3MinSpend?: number;
+  /** $ gastados = 1 punto ganado en Bronce. */
+  loyaltyTier1EarnRate?: number;
+  /** $ gastados = 1 punto ganado en Plata. */
+  loyaltyTier2EarnRate?: number;
+  /** $ gastados = 1 punto ganado en Oro. */
+  loyaltyTier3EarnRate?: number;
   /** Umbral de stock bajo por defecto (unidades) para productos sin uno propio. */
   lowStockThresholdDefault?: number;
 }
@@ -280,6 +293,10 @@ function mapCustomer(row: CustomerRow): Customer {
       (row as { loyalty_points?: number }).loyalty_points,
       0,
     ),
+    loyaltyYearSpend: toNumber(
+      (row as { loyalty_year_spend?: number }).loyalty_year_spend,
+      0,
+    ),
     creditLimit: toNumber((row as { credit_limit?: number }).credit_limit, 0),
     creditBalance: toNumber(
       (row as { credit_balance?: number }).credit_balance,
@@ -419,7 +436,7 @@ export async function fetchCompanyCatalog(
   const customersQuery = supabase
     .from("customers")
     .select(
-      "id, company_id, name, document_number, phone, email, loyalty_points, credit_limit, credit_balance, is_demo_data, created_at, updated_at, deleted_at",
+      "id, company_id, name, document_number, phone, email, loyalty_points, loyalty_year_spend, credit_limit, credit_balance, is_demo_data, created_at, updated_at, deleted_at",
     )
     .is("deleted_at", null);
   const suppliersQuery = supabase
@@ -2458,6 +2475,18 @@ export async function updateCompanySettings(
     updates.loyalty_point_value = input.loyaltyPointValue;
   if (input.loyaltyEarnRate !== undefined)
     updates.loyalty_earn_rate = input.loyaltyEarnRate;
+  if (input.loyaltyTiersEnabled !== undefined)
+    updates.loyalty_tiers_enabled = input.loyaltyTiersEnabled;
+  if (input.loyaltyTier2MinSpend !== undefined)
+    updates.loyalty_tier2_min_spend = input.loyaltyTier2MinSpend;
+  if (input.loyaltyTier3MinSpend !== undefined)
+    updates.loyalty_tier3_min_spend = input.loyaltyTier3MinSpend;
+  if (input.loyaltyTier1EarnRate !== undefined)
+    updates.loyalty_tier1_earn_rate = input.loyaltyTier1EarnRate;
+  if (input.loyaltyTier2EarnRate !== undefined)
+    updates.loyalty_tier2_earn_rate = input.loyaltyTier2EarnRate;
+  if (input.loyaltyTier3EarnRate !== undefined)
+    updates.loyalty_tier3_earn_rate = input.loyaltyTier3EarnRate;
   if (input.lowStockThresholdDefault !== undefined)
     updates.low_stock_threshold_default = input.lowStockThresholdDefault;
   const { data, error } = await supabase
@@ -2592,6 +2621,29 @@ export function mapCompanyToBusinessSettings(
     loyaltyEarnRate: toNumber(
       (row as { loyalty_earn_rate?: number }).loyalty_earn_rate,
       0,
+    ),
+    loyaltyTiersEnabled:
+      (row as { loyalty_tiers_enabled?: boolean }).loyalty_tiers_enabled ??
+      false,
+    loyaltyTier2MinSpend: toNumber(
+      (row as { loyalty_tier2_min_spend?: number }).loyalty_tier2_min_spend,
+      1500,
+    ),
+    loyaltyTier3MinSpend: toNumber(
+      (row as { loyalty_tier3_min_spend?: number }).loyalty_tier3_min_spend,
+      5000,
+    ),
+    loyaltyTier1EarnRate: toNumber(
+      (row as { loyalty_tier1_earn_rate?: number }).loyalty_tier1_earn_rate,
+      65,
+    ),
+    loyaltyTier2EarnRate: toNumber(
+      (row as { loyalty_tier2_earn_rate?: number }).loyalty_tier2_earn_rate,
+      50,
+    ),
+    loyaltyTier3EarnRate: toNumber(
+      (row as { loyalty_tier3_earn_rate?: number }).loyalty_tier3_earn_rate,
+      33,
     ),
     logoUrl: (row as { logo_url?: string | null }).logo_url ?? undefined,
     businessType:

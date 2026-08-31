@@ -39,6 +39,11 @@ import { useCompanyCatalog } from "@/hooks/useCompanyCatalog";
 import { useDemoSession } from "@/hooks/useDemoSession";
 import { blockDemoAction } from "@/lib/demoMode";
 import {
+  getLoyaltyTier,
+  LOYALTY_TIER_LABELS,
+  type LoyaltyTier,
+} from "@/lib/loyaltyTiers";
+import {
   collectCustomerCredit,
   createCustomer,
   deleteCustomer,
@@ -50,6 +55,15 @@ import type { Customer } from "@/types";
 
 export const Route = createFileRoute("/clientes")({ component: Clientes });
 
+const TIER_BADGE_VARIANT: Record<
+  LoyaltyTier,
+  "secondary" | "outline" | "warm"
+> = {
+  bronce: "secondary",
+  plata: "outline",
+  oro: "warm",
+};
+
 const clean = (value: string) => (value === "-" ? "" : value);
 
 function Clientes() {
@@ -59,6 +73,8 @@ function Clientes() {
   const { formatMoney, settings } = useBusinessSettings();
   const isAdmin = role === "admin";
   const showLoyalty = settings.loyaltyEnabled;
+  const showTiers = showLoyalty && settings.loyaltyTiersEnabled;
+  const columnCount = 5 + (showLoyalty ? 1 : 0) + (showTiers ? 1 : 0);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -313,6 +329,7 @@ function Clientes() {
                   <TableHead>Teléfono</TableHead>
                   <TableHead>Crédito</TableHead>
                   {showLoyalty && <TableHead>Puntos</TableHead>}
+                  {showTiers && <TableHead>Nivel</TableHead>}
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
@@ -320,7 +337,7 @@ function Clientes() {
                 {isLoading && (
                   <TableRow>
                     <TableCell
-                      colSpan={showLoyalty ? 6 : 5}
+                      colSpan={columnCount}
                       className="py-8 text-center text-muted-foreground"
                     >
                       Cargando clientes...
@@ -329,7 +346,7 @@ function Clientes() {
                 )}
                 {!isLoading && list.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={showLoyalty ? 6 : 5}>
+                    <TableCell colSpan={columnCount}>
                       <EmptyState
                         emoji="🧑‍🤝‍🧑"
                         title="Sin clientes"
@@ -371,6 +388,20 @@ function Clientes() {
                           </span>
                         </TableCell>
                       )}
+                      {showTiers &&
+                        (() => {
+                          const tier = getLoyaltyTier(
+                            customer.loyaltyYearSpend ?? 0,
+                            settings,
+                          );
+                          return (
+                            <TableCell>
+                              <Badge variant={TIER_BADGE_VARIANT[tier]}>
+                                {LOYALTY_TIER_LABELS[tier]}
+                              </Badge>
+                            </TableCell>
+                          );
+                        })()}
                       <TableCell className="text-right">
                         {(customer.creditBalance ?? 0) > 0 && (
                           <Button

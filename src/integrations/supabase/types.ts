@@ -307,6 +307,12 @@ export type Database = {
           loyalty_earn_rate: number;
           loyalty_enabled: boolean;
           loyalty_point_value: number;
+          loyalty_tier1_earn_rate: number;
+          loyalty_tier2_earn_rate: number;
+          loyalty_tier2_min_spend: number;
+          loyalty_tier3_earn_rate: number;
+          loyalty_tier3_min_spend: number;
+          loyalty_tiers_enabled: boolean;
           name: string;
           phone: string | null;
           plan_id: string | null;
@@ -336,6 +342,12 @@ export type Database = {
           loyalty_earn_rate?: number;
           loyalty_enabled?: boolean;
           loyalty_point_value?: number;
+          loyalty_tier1_earn_rate?: number;
+          loyalty_tier2_earn_rate?: number;
+          loyalty_tier2_min_spend?: number;
+          loyalty_tier3_earn_rate?: number;
+          loyalty_tier3_min_spend?: number;
+          loyalty_tiers_enabled?: boolean;
           name: string;
           phone?: string | null;
           plan_id?: string | null;
@@ -365,6 +377,12 @@ export type Database = {
           loyalty_earn_rate?: number;
           loyalty_enabled?: boolean;
           loyalty_point_value?: number;
+          loyalty_tier1_earn_rate?: number;
+          loyalty_tier2_earn_rate?: number;
+          loyalty_tier2_min_spend?: number;
+          loyalty_tier3_earn_rate?: number;
+          loyalty_tier3_min_spend?: number;
+          loyalty_tiers_enabled?: boolean;
           name?: string;
           phone?: string | null;
           plan_id?: string | null;
@@ -468,6 +486,8 @@ export type Database = {
           id: string;
           is_demo_data: boolean;
           loyalty_points: number;
+          loyalty_year_spend: number;
+          loyalty_year_spend_year: number | null;
           name: string;
           phone: string | null;
           updated_at: string;
@@ -484,6 +504,8 @@ export type Database = {
           id?: string;
           is_demo_data?: boolean;
           loyalty_points?: number;
+          loyalty_year_spend?: number;
+          loyalty_year_spend_year?: number | null;
           name: string;
           phone?: string | null;
           updated_at?: string;
@@ -500,6 +522,8 @@ export type Database = {
           id?: string;
           is_demo_data?: boolean;
           loyalty_points?: number;
+          loyalty_year_spend?: number;
+          loyalty_year_spend_year?: number | null;
           name?: string;
           phone?: string | null;
           updated_at?: string;

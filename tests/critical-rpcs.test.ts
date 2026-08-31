@@ -22,6 +22,7 @@ import {
   makeProduct,
   makeUser,
   setLoyaltySettings,
+  setLoyaltyTiers,
   submitTillCount,
   type TestCompany,
 } from "./helpers/db";
@@ -4171,7 +4172,9 @@ describe("RPCs críticas de dinero y stock", () => {
         ),
       ).rejects.toThrow(/Solo un administrador o finanzas/i);
 
-      await asUser(db, admin, () => db.query("select delete_merma($1)", [mermaId]));
+      await asUser(db, admin, () =>
+        db.query("select delete_merma($1)", [mermaId]),
+      );
       expect(await getProductStock(prod)).toBe(10);
 
       const { rows } = await db.query<{ deleted_at: string | null }>(
@@ -4221,6 +4224,239 @@ describe("RPCs críticas de dinero y stock", () => {
           estimatedLoss: 10,
         }),
       ).rejects.toThrow(/Sucursal invalida/i);
+    });
+  });
+
+  describe("27. Niveles de fidelidad (Bronce/Plata/Oro)", () => {
+    async function setupTierCompany() {
+      const company = await makeCompany(db, "Empresa Niveles Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Niveles",
+        50,
+        100,
+        1000,
+      );
+      await setLoyaltySettings(db, company.id, {
+        enabled: true,
+        pointValue: 1,
+        earnRate: 999999, // tasa plana absurda -- si algo usa esta por error, se nota (0 puntos)
+      });
+      return { company, admin, product };
+    }
+
+    async function setYearSpend(
+      customerId: string,
+      spend: number,
+      year?: number,
+    ) {
+      await db.query(
+        "update public.customers set loyalty_year_spend = $2, loyalty_year_spend_year = $3 where id = $1",
+        [customerId, spend, year ?? new Date().getFullYear()],
+      );
+    }
+
+    it("con loyalty_tiers_enabled=false (default) usa la tasa plana, sin importar el gasto acumulado", async () => {
+      const { company, admin, product } = await setupTierCompany();
+      await setLoyaltySettings(db, company.id, {
+        enabled: true,
+        pointValue: 1,
+        earnRate: 10,
+      });
+      const customer = await makeCustomer(db, company.id, "Cliente Plano");
+      await setYearSpend(customer, 10000); // ya sería Oro si los niveles estuvieran activos
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 100 }],
+          company.loc1,
+          undefined,
+          { customerId: customer },
+        ),
+      );
+
+      expect(result.points_earned).toBe(10); // 100 / 10, tasa plana normal
+    });
+
+    it("un cliente sin gasto acumulado (Bronce) gana puntos según la tasa de Bronce", async () => {
+      const { company, admin, product } = await setupTierCompany();
+      await setLoyaltyTiers(db, company.id, {
+        enabled: true,
+        tier2Min: 1500,
+        tier3Min: 5000,
+        tier1Rate: 65,
+        tier2Rate: 50,
+        tier3Rate: 33,
+      });
+      const customer = await makeCustomer(db, company.id, "Cliente Bronce");
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          // precio real del producto = 100 (unit_price del carrito se
+          // ignora server-side); qty=6.5 -> total=650.
+          [{ product_id: product, qty: 6.5, unit_price: 100 }],
+          company.loc1,
+          undefined,
+          { customerId: customer },
+        ),
+      );
+
+      expect(result.points_earned).toBe(10); // floor(650 / 65)
+    });
+
+    it("un cliente con $1,500+ acumulados este año (Plata) gana a la tasa de Plata en su siguiente compra", async () => {
+      const { company, admin, product } = await setupTierCompany();
+      await setLoyaltyTiers(db, company.id, {
+        enabled: true,
+        tier2Min: 1500,
+        tier3Min: 5000,
+        tier1Rate: 65,
+        tier2Rate: 50,
+        tier3Rate: 33,
+      });
+      const customer = await makeCustomer(db, company.id, "Cliente Plata");
+      await setYearSpend(customer, 2000);
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 5, unit_price: 100 }], // total=500
+          company.loc1,
+          undefined,
+          { customerId: customer },
+        ),
+      );
+
+      expect(result.points_earned).toBe(10); // floor(500 / 50)
+    });
+
+    it("un cliente con $5,000+ acumulados este año (Oro) gana a la tasa de Oro", async () => {
+      const { company, admin, product } = await setupTierCompany();
+      await setLoyaltyTiers(db, company.id, {
+        enabled: true,
+        tier2Min: 1500,
+        tier3Min: 5000,
+        tier1Rate: 65,
+        tier2Rate: 50,
+        tier3Rate: 33,
+      });
+      const customer = await makeCustomer(db, company.id, "Cliente Oro");
+      await setYearSpend(customer, 6000);
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 3.3, unit_price: 100 }], // total=330
+          company.loc1,
+          undefined,
+          { customerId: customer },
+        ),
+      );
+
+      expect(result.points_earned).toBe(10); // floor(330 / 33)
+    });
+
+    it("la compra que hace CRUZAR el umbral se cobra con la tasa vieja; la tasa nueva aplica hasta la siguiente venta", async () => {
+      const { company, admin, product } = await setupTierCompany();
+      await setLoyaltyTiers(db, company.id, {
+        enabled: true,
+        tier2Min: 1500,
+        tier3Min: 5000,
+        tier1Rate: 65,
+        tier2Rate: 50,
+        tier3Rate: 33,
+      });
+      const customer = await makeCustomer(db, company.id, "Cliente Cruza");
+
+      // Primera venta: arranca en $0 acumulado (Bronce), aunque esta misma
+      // compra de $2,000 ya lo dejaría por encima del umbral de Plata.
+      const sale1 = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 20, unit_price: 100 }], // total=2000
+          company.loc1,
+          undefined,
+          { customerId: customer },
+        ),
+      );
+      expect(sale1.points_earned).toBe(30); // floor(2000 / 65), tasa de Bronce
+
+      // Segunda venta: ahora sí acumulado > $1,500 -> tasa de Plata.
+      const sale2 = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 5, unit_price: 100 }], // total=500
+          company.loc1,
+          undefined,
+          { customerId: customer },
+        ),
+      );
+      expect(sale2.points_earned).toBe(10); // floor(500 / 50)
+    });
+
+    it("el acumulado del año se reinicia solo al llegar un año calendario nuevo", async () => {
+      const { company, admin, product } = await setupTierCompany();
+      await setLoyaltyTiers(db, company.id, {
+        enabled: true,
+        tier2Min: 1500,
+        tier3Min: 5000,
+        tier1Rate: 65,
+        tier2Rate: 50,
+        tier3Rate: 33,
+      });
+      const customer = await makeCustomer(db, company.id, "Cliente Año Viejo");
+      // Simula que el año pasado ya era Oro ($6,000), pero eso quedó en el
+      // año calendario anterior -- este año debe arrancar otra vez en Bronce.
+      await setYearSpend(customer, 6000, new Date().getFullYear() - 1);
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 6.5, unit_price: 100 }], // total=650
+          company.loc1,
+          undefined,
+          { customerId: customer },
+        ),
+      );
+
+      expect(result.points_earned).toBe(10); // floor(650 / 65), Bronce otra vez
+    });
+
+    it("el valor de canje (loyalty_point_value) no cambia entre niveles -- 1 punto sigue valiendo lo mismo", async () => {
+      const { company, admin, product } = await setupTierCompany();
+      await setLoyaltyTiers(db, company.id, {
+        enabled: true,
+        tier2Min: 1500,
+        tier3Min: 5000,
+        tier1Rate: 65,
+        tier2Rate: 50,
+        tier3Rate: 33,
+      });
+      const customer = await makeCustomer(
+        db,
+        company.id,
+        "Cliente Oro Canjea",
+        20,
+      );
+      await setYearSpend(customer, 6000); // Oro
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 100 }],
+          company.loc1,
+          undefined,
+          { customerId: customer, pointsRedeemed: 20 },
+        ),
+      );
+
+      expect(result.discount_total).toBe(20); // 20 puntos * $1, igual en cualquier nivel
+      expect(result.total).toBe(80);
     });
   });
 });

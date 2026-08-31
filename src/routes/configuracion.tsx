@@ -81,6 +81,24 @@ function Configuracion() {
   const [loyaltyEarnRate, setLoyaltyEarnRate] = useState(
     String(settings.loyaltyEarnRate || ""),
   );
+  const [loyaltyTiersEnabled, setLoyaltyTiersEnabled] = useState(
+    settings.loyaltyTiersEnabled,
+  );
+  const [loyaltyTier2MinSpend, setLoyaltyTier2MinSpend] = useState(
+    String(settings.loyaltyTier2MinSpend || ""),
+  );
+  const [loyaltyTier3MinSpend, setLoyaltyTier3MinSpend] = useState(
+    String(settings.loyaltyTier3MinSpend || ""),
+  );
+  const [loyaltyTier1EarnRate, setLoyaltyTier1EarnRate] = useState(
+    String(settings.loyaltyTier1EarnRate || ""),
+  );
+  const [loyaltyTier2EarnRate, setLoyaltyTier2EarnRate] = useState(
+    String(settings.loyaltyTier2EarnRate || ""),
+  );
+  const [loyaltyTier3EarnRate, setLoyaltyTier3EarnRate] = useState(
+    String(settings.loyaltyTier3EarnRate || ""),
+  );
   const [customPaymentMethod, setCustomPaymentMethod] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const selectedMarket = getMarketByCountryCode(countryCode);
@@ -137,6 +155,22 @@ function Configuracion() {
     settings.loyaltyEarnRate,
   ]);
 
+  useEffect(() => {
+    setLoyaltyTiersEnabled(settings.loyaltyTiersEnabled);
+    setLoyaltyTier2MinSpend(String(settings.loyaltyTier2MinSpend || ""));
+    setLoyaltyTier3MinSpend(String(settings.loyaltyTier3MinSpend || ""));
+    setLoyaltyTier1EarnRate(String(settings.loyaltyTier1EarnRate || ""));
+    setLoyaltyTier2EarnRate(String(settings.loyaltyTier2EarnRate || ""));
+    setLoyaltyTier3EarnRate(String(settings.loyaltyTier3EarnRate || ""));
+  }, [
+    settings.loyaltyTiersEnabled,
+    settings.loyaltyTier2MinSpend,
+    settings.loyaltyTier3MinSpend,
+    settings.loyaltyTier1EarnRate,
+    settings.loyaltyTier2EarnRate,
+    settings.loyaltyTier3EarnRate,
+  ]);
+
   const handleSave = async () => {
     if (isDemo) {
       blockDemoAction();
@@ -184,6 +218,53 @@ function Configuracion() {
       return;
     }
 
+    const loyaltyTier2MinSpendNum = loyaltyTier2MinSpend.trim()
+      ? Number(loyaltyTier2MinSpend)
+      : 0;
+    const loyaltyTier3MinSpendNum = loyaltyTier3MinSpend.trim()
+      ? Number(loyaltyTier3MinSpend)
+      : 0;
+    const loyaltyTier1EarnRateNum = loyaltyTier1EarnRate.trim()
+      ? Number(loyaltyTier1EarnRate)
+      : 0;
+    const loyaltyTier2EarnRateNum = loyaltyTier2EarnRate.trim()
+      ? Number(loyaltyTier2EarnRate)
+      : 0;
+    const loyaltyTier3EarnRateNum = loyaltyTier3EarnRate.trim()
+      ? Number(loyaltyTier3EarnRate)
+      : 0;
+    const tierNumbers = [
+      loyaltyTier2MinSpendNum,
+      loyaltyTier3MinSpendNum,
+      loyaltyTier1EarnRateNum,
+      loyaltyTier2EarnRateNum,
+      loyaltyTier3EarnRateNum,
+    ];
+    if (tierNumbers.some((n) => !Number.isFinite(n) || n < 0)) {
+      toast.error(
+        "Los valores de niveles de fidelidad deben ser números positivos.",
+      );
+      return;
+    }
+    if (loyaltyTiersEnabled) {
+      if (
+        loyaltyTier2MinSpendNum <= 0 ||
+        loyaltyTier3MinSpendNum <= 0 ||
+        loyaltyTier1EarnRateNum <= 0 ||
+        loyaltyTier2EarnRateNum <= 0 ||
+        loyaltyTier3EarnRateNum <= 0
+      ) {
+        toast.error(
+          "Para activar los niveles de fidelidad, completa los umbrales y las 3 tasas de acumulación.",
+        );
+        return;
+      }
+      if (loyaltyTier3MinSpendNum <= loyaltyTier2MinSpendNum) {
+        toast.error("El umbral de Oro debe ser mayor que el umbral de Plata.");
+        return;
+      }
+    }
+
     const lowStockThresholdDefaultNum = Number(lowStockThresholdDefault);
     if (
       !Number.isFinite(lowStockThresholdDefaultNum) ||
@@ -206,6 +287,12 @@ function Configuracion() {
         loyaltyEnabled,
         loyaltyPointValue: loyaltyPointValueNum,
         loyaltyEarnRate: loyaltyEarnRateNum,
+        loyaltyTiersEnabled,
+        loyaltyTier2MinSpend: loyaltyTier2MinSpendNum,
+        loyaltyTier3MinSpend: loyaltyTier3MinSpendNum,
+        loyaltyTier1EarnRate: loyaltyTier1EarnRateNum,
+        loyaltyTier2EarnRate: loyaltyTier2EarnRateNum,
+        loyaltyTier3EarnRate: loyaltyTier3EarnRateNum,
         lowStockThresholdDefault: lowStockThresholdDefaultNum,
       });
       saveBusinessSettings(mapCompanyToBusinessSettings(company));
@@ -426,8 +513,99 @@ function Configuracion() {
                     value={loyaltyEarnRate}
                     onChange={(event) => setLoyaltyEarnRate(event.target.value)}
                   />
+                  {loyaltyTiersEnabled && (
+                    <p className="text-xs text-muted-foreground">
+                      No se usa mientras los niveles estén activos -- cada nivel
+                      tiene su propia tasa abajo.
+                    </p>
+                  )}
                 </div>
               </div>
+            </div>
+
+            <div className="space-y-3 rounded-lg border p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">
+                    Niveles de fidelidad (Bronce/Plata/Oro)
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Entre más gaste un cliente en el año, más rápido gana
+                    puntos. El valor de canje de un punto no cambia entre
+                    niveles.
+                  </p>
+                </div>
+                <Switch
+                  checked={loyaltyTiersEnabled}
+                  onCheckedChange={setLoyaltyTiersEnabled}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <div className="space-y-1">
+                  <Label>Bronce: $ = 1 punto</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={loyaltyTier1EarnRate}
+                    onChange={(event) =>
+                      setLoyaltyTier1EarnRate(event.target.value)
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Plata desde ($ en el año)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={loyaltyTier2MinSpend}
+                    onChange={(event) =>
+                      setLoyaltyTier2MinSpend(event.target.value)
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Plata: $ = 1 punto</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={loyaltyTier2EarnRate}
+                    onChange={(event) =>
+                      setLoyaltyTier2EarnRate(event.target.value)
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Oro desde ($ en el año)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={loyaltyTier3MinSpend}
+                    onChange={(event) =>
+                      setLoyaltyTier3MinSpend(event.target.value)
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Oro: $ = 1 punto</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={loyaltyTier3EarnRate}
+                    onChange={(event) =>
+                      setLoyaltyTier3EarnRate(event.target.value)
+                    }
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                El nivel se calcula con lo que el cliente lleva gastado en el
+                año calendario en curso; se reinicia solo cada enero.
+              </p>
             </div>
             <DemoGuardedButton
               variant="brand"

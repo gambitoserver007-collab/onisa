@@ -29,6 +29,19 @@ export interface BusinessSettings {
   loyaltyPointValue: number;
   /** Cuánto gasto equivale a 1 punto ganado. */
   loyaltyEarnRate: number;
+  /** Niveles de fidelidad (Bronce/Plata/Oro) opcionales -- apagado por
+   * defecto; mientras esté apagado, loyaltyEarnRate se usa tal cual. */
+  loyaltyTiersEnabled: boolean;
+  /** Gasto acumulado en el año para pasar a Plata. */
+  loyaltyTier2MinSpend: number;
+  /** Gasto acumulado en el año para pasar a Oro. */
+  loyaltyTier3MinSpend: number;
+  /** $ gastados = 1 punto ganado en Bronce. */
+  loyaltyTier1EarnRate: number;
+  /** $ gastados = 1 punto ganado en Plata. */
+  loyaltyTier2EarnRate: number;
+  /** $ gastados = 1 punto ganado en Oro. */
+  loyaltyTier3EarnRate: number;
   /** Umbral de stock bajo por defecto (unidades) para productos sin uno propio. */
   lowStockThresholdDefault: number;
   currencyLabel: string;
@@ -65,6 +78,14 @@ export function createBusinessSettingsFromMarket(
     loyaltyEnabled: false,
     loyaltyPointValue: 0,
     loyaltyEarnRate: 0,
+    // Apagado por defecto, igual que companies.loyalty_tiers_enabled --
+    // mismos valores por defecto que las columnas correspondientes.
+    loyaltyTiersEnabled: false,
+    loyaltyTier2MinSpend: 1500,
+    loyaltyTier3MinSpend: 5000,
+    loyaltyTier1EarnRate: 65,
+    loyaltyTier2EarnRate: 50,
+    loyaltyTier3EarnRate: 33,
     // Mismo valor por defecto que companies.low_stock_threshold_default.
     lowStockThresholdDefault: 10,
     currencyLabel: getCurrencyLabel(market),
@@ -119,6 +140,35 @@ function normalizeBusinessSettings(
       Number.isFinite(settings.loyaltyEarnRate)
         ? settings.loyaltyEarnRate
         : base.loyaltyEarnRate,
+    loyaltyTiersEnabled:
+      typeof settings?.loyaltyTiersEnabled === "boolean"
+        ? settings.loyaltyTiersEnabled
+        : base.loyaltyTiersEnabled,
+    loyaltyTier2MinSpend:
+      typeof settings?.loyaltyTier2MinSpend === "number" &&
+      Number.isFinite(settings.loyaltyTier2MinSpend)
+        ? settings.loyaltyTier2MinSpend
+        : base.loyaltyTier2MinSpend,
+    loyaltyTier3MinSpend:
+      typeof settings?.loyaltyTier3MinSpend === "number" &&
+      Number.isFinite(settings.loyaltyTier3MinSpend)
+        ? settings.loyaltyTier3MinSpend
+        : base.loyaltyTier3MinSpend,
+    loyaltyTier1EarnRate:
+      typeof settings?.loyaltyTier1EarnRate === "number" &&
+      Number.isFinite(settings.loyaltyTier1EarnRate)
+        ? settings.loyaltyTier1EarnRate
+        : base.loyaltyTier1EarnRate,
+    loyaltyTier2EarnRate:
+      typeof settings?.loyaltyTier2EarnRate === "number" &&
+      Number.isFinite(settings.loyaltyTier2EarnRate)
+        ? settings.loyaltyTier2EarnRate
+        : base.loyaltyTier2EarnRate,
+    loyaltyTier3EarnRate:
+      typeof settings?.loyaltyTier3EarnRate === "number" &&
+      Number.isFinite(settings.loyaltyTier3EarnRate)
+        ? settings.loyaltyTier3EarnRate
+        : base.loyaltyTier3EarnRate,
     lowStockThresholdDefault:
       typeof settings?.lowStockThresholdDefault === "number" &&
       Number.isFinite(settings.lowStockThresholdDefault)
@@ -216,6 +266,12 @@ export function syncBusinessSettingsWithSession(session: DemoSession) {
     loyaltyEnabled: session.loyaltyEnabled,
     loyaltyPointValue: session.loyaltyPointValue,
     loyaltyEarnRate: session.loyaltyEarnRate,
+    loyaltyTiersEnabled: session.loyaltyTiersEnabled,
+    loyaltyTier2MinSpend: session.loyaltyTier2MinSpend,
+    loyaltyTier3MinSpend: session.loyaltyTier3MinSpend,
+    loyaltyTier1EarnRate: session.loyaltyTier1EarnRate,
+    loyaltyTier2EarnRate: session.loyaltyTier2EarnRate,
+    loyaltyTier3EarnRate: session.loyaltyTier3EarnRate,
     lowStockThresholdDefault: session.lowStockThresholdDefault,
     logoUrl: session.logoUrl,
     businessType: session.businessType,

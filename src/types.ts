@@ -34,6 +34,19 @@ export interface DemoSession {
   loyaltyPointValue?: number;
   /** Cuánto gasto (en la moneda de la empresa) equivale a 1 punto ganado. */
   loyaltyEarnRate?: number;
+  /** Niveles de fidelidad (Bronce/Plata/Oro) opcionales -- si está apagado,
+   * loyaltyEarnRate se usa tal cual (comportamiento de siempre). */
+  loyaltyTiersEnabled?: boolean;
+  /** Gasto acumulado en el año para pasar a Plata. */
+  loyaltyTier2MinSpend?: number;
+  /** Gasto acumulado en el año para pasar a Oro. */
+  loyaltyTier3MinSpend?: number;
+  /** $ gastados = 1 punto ganado en Bronce. */
+  loyaltyTier1EarnRate?: number;
+  /** $ gastados = 1 punto ganado en Plata. */
+  loyaltyTier2EarnRate?: number;
+  /** $ gastados = 1 punto ganado en Oro. */
+  loyaltyTier3EarnRate?: number;
   isDemo: boolean;
   demoMode?: "none" | "read_only";
   demoAccountId?: string;
@@ -114,6 +127,10 @@ export interface Customer {
   phone: string;
   /** Saldo de puntos de lealtad acumulados, canjeables como descuento en el POS. */
   loyaltyPoints?: number;
+  /** Gasto acumulado en el año calendario en curso -- define su nivel
+   * (Bronce/Plata/Oro) cuando ese programa está activo. Se reinicia solo
+   * cada enero. */
+  loyaltyYearSpend?: number;
   /** Límite de crédito asignado por el admin. 0 = sin crédito habilitado. */
   creditLimit?: number;
   /** Cuánto debe actualmente el cliente (nunca puede superar creditLimit). */

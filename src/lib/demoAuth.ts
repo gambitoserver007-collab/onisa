@@ -137,6 +137,39 @@ function createSessionFromUser(
         ?.loyalty_earn_rate === "number"
         ? (company as { loyalty_earn_rate?: number }).loyalty_earn_rate
         : 0,
+    loyaltyTiersEnabled:
+      (company as { loyalty_tiers_enabled?: boolean } | null)
+        ?.loyalty_tiers_enabled ?? false,
+    loyaltyTier2MinSpend:
+      typeof (company as { loyalty_tier2_min_spend?: number } | null)
+        ?.loyalty_tier2_min_spend === "number"
+        ? (company as { loyalty_tier2_min_spend?: number })
+            .loyalty_tier2_min_spend
+        : 1500,
+    loyaltyTier3MinSpend:
+      typeof (company as { loyalty_tier3_min_spend?: number } | null)
+        ?.loyalty_tier3_min_spend === "number"
+        ? (company as { loyalty_tier3_min_spend?: number })
+            .loyalty_tier3_min_spend
+        : 5000,
+    loyaltyTier1EarnRate:
+      typeof (company as { loyalty_tier1_earn_rate?: number } | null)
+        ?.loyalty_tier1_earn_rate === "number"
+        ? (company as { loyalty_tier1_earn_rate?: number })
+            .loyalty_tier1_earn_rate
+        : 65,
+    loyaltyTier2EarnRate:
+      typeof (company as { loyalty_tier2_earn_rate?: number } | null)
+        ?.loyalty_tier2_earn_rate === "number"
+        ? (company as { loyalty_tier2_earn_rate?: number })
+            .loyalty_tier2_earn_rate
+        : 50,
+    loyaltyTier3EarnRate:
+      typeof (company as { loyalty_tier3_earn_rate?: number } | null)
+        ?.loyalty_tier3_earn_rate === "number"
+        ? (company as { loyalty_tier3_earn_rate?: number })
+            .loyalty_tier3_earn_rate
+        : 33,
     lowStockThresholdDefault:
       typeof (company as { low_stock_threshold_default?: number } | null)
         ?.low_stock_threshold_default === "number"

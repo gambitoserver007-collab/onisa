@@ -258,6 +258,35 @@ export async function setLoyaltySettings(
   );
 }
 
+export async function setLoyaltyTiers(
+  db: PGlite,
+  companyId: string,
+  opts: {
+    enabled: boolean;
+    tier2Min: number;
+    tier3Min: number;
+    tier1Rate: number;
+    tier2Rate: number;
+    tier3Rate: number;
+  },
+): Promise<void> {
+  await db.query(
+    `update public.companies
+       set loyalty_tiers_enabled = $2, loyalty_tier2_min_spend = $3, loyalty_tier3_min_spend = $4,
+           loyalty_tier1_earn_rate = $5, loyalty_tier2_earn_rate = $6, loyalty_tier3_earn_rate = $7
+     where id = $1`,
+    [
+      companyId,
+      opts.enabled,
+      opts.tier2Min,
+      opts.tier3Min,
+      opts.tier1Rate,
+      opts.tier2Rate,
+      opts.tier3Rate,
+    ],
+  );
+}
+
 export async function getCustomerLoyaltyPoints(
   db: PGlite,
   customerId: string,
