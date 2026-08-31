@@ -151,11 +151,19 @@ function Reportes() {
   const topLoyalty = useMemo(
     () =>
       customers
-        .filter((c) => (c.loyaltyPoints ?? 0) > 0)
+        .filter(
+          (c) =>
+            (c.loyaltyPoints ?? 0) > 0 ||
+            // Con niveles activos, un cliente puede llevar gasto acumulado
+            // (y por lo tanto un nivel real) aunque su saldo de puntos esté
+            // en 0 -- por ejemplo, si ya canjeó todo. No lo escondemos solo
+            // porque no tenga puntos ahora mismo.
+            (showTiers && (c.loyaltyYearSpend ?? 0) > 0),
+        )
         .slice()
         .sort((a, b) => (b.loyaltyPoints ?? 0) - (a.loyaltyPoints ?? 0))
         .slice(0, 15),
-    [customers],
+    [customers, showTiers],
   );
   const totalLoyaltyPoints = useMemo(
     () => customers.reduce((sum, c) => sum + (c.loyaltyPoints ?? 0), 0),

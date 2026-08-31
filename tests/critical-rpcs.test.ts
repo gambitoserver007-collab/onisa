@@ -4309,6 +4309,36 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(result.points_earned).toBe(10); // floor(650 / 65)
     });
 
+    it("caso reportado por el cliente: primera compra de $1,560 sin descuentos ni canje debe ganar 24 puntos en Bronce", async () => {
+      const { company, admin, product } = await setupTierCompany();
+      await setLoyaltyTiers(db, company.id, {
+        enabled: true,
+        tier2Min: 1500,
+        tier3Min: 5000,
+        tier1Rate: 65,
+        tier2Rate: 50,
+        tier3Rate: 33,
+      });
+      const customer = await makeCustomer(db, company.id, "Cliente 1560");
+
+      const result = await asUser(db, admin, () =>
+        createSale(
+          db,
+          // precio real del producto = 100 (unit_price del carrito se
+          // ignora server-side); qty=15.6 -> total=1560, sin promoción ni
+          // canje de puntos de por medio.
+          [{ product_id: product, qty: 15.6, unit_price: 100 }],
+          company.loc1,
+          undefined,
+          { customerId: customer },
+        ),
+      );
+
+      expect(result.discount_total).toBe(0);
+      expect(result.total).toBe(1560);
+      expect(result.points_earned).toBe(24); // floor(1560 / 65)
+    });
+
     it("un cliente con $1,500+ acumulados este año (Plata) gana a la tasa de Plata en su siguiente compra", async () => {
       const { company, admin, product } = await setupTierCompany();
       await setLoyaltyTiers(db, company.id, {
