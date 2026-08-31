@@ -37,7 +37,13 @@ import { ALL_LOCATIONS } from "@/lib/currentLocation";
 import { useCurrentLocation } from "@/hooks/useCurrentLocation";
 import { useDemoSession } from "@/hooks/useDemoSession";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  getLoyaltyTier,
+  LOYALTY_TIER_BADGE_VARIANT,
+  LOYALTY_TIER_LABELS,
+} from "@/lib/loyaltyTiers";
 import {
   Table,
   TableBody,
@@ -141,6 +147,7 @@ function Reportes() {
   // Puntos de fidelidad acumulados por cliente -- saldo actual, no historial
   // (el historial de canje/ganancia vive por venta, ver ventas.$id.tsx).
   const showLoyalty = settings.loyaltyEnabled;
+  const showTiers = showLoyalty && settings.loyaltyTiersEnabled;
   const topLoyalty = useMemo(
     () =>
       customers
@@ -437,6 +444,7 @@ function Reportes() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Cliente</TableHead>
+                      {showTiers && <TableHead>Nivel</TableHead>}
                       <TableHead className="text-right">Puntos</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -444,23 +452,36 @@ function Reportes() {
                     {topLoyalty.length === 0 && (
                       <TableRow>
                         <TableCell
-                          colSpan={2}
+                          colSpan={showTiers ? 3 : 2}
                           className="py-6 text-center text-muted-foreground"
                         >
                           Ningún cliente tiene puntos acumulados todavía.
                         </TableCell>
                       </TableRow>
                     )}
-                    {topLoyalty.map((customer) => (
-                      <TableRow key={customer.id}>
-                        <TableCell className="font-medium">
-                          {customer.name}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {customer.loyaltyPoints}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {topLoyalty.map((customer) => {
+                      const tier = getLoyaltyTier(
+                        customer.loyaltyYearSpend ?? 0,
+                        settings,
+                      );
+                      return (
+                        <TableRow key={customer.id}>
+                          <TableCell className="font-medium">
+                            {customer.name}
+                          </TableCell>
+                          {showTiers && (
+                            <TableCell>
+                              <Badge variant={LOYALTY_TIER_BADGE_VARIANT[tier]}>
+                                {LOYALTY_TIER_LABELS[tier]}
+                              </Badge>
+                            </TableCell>
+                          )}
+                          <TableCell className="text-right">
+                            {customer.loyaltyPoints}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>

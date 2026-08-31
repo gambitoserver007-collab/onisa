@@ -1,6 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
-import { Pencil, Plus, Trash2, Users, Wallet } from "lucide-react";
+import {
+  Award,
+  Crown,
+  Medal,
+  Pencil,
+  Plus,
+  Trash2,
+  Users,
+  Wallet,
+} from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -40,6 +49,7 @@ import { useDemoSession } from "@/hooks/useDemoSession";
 import { blockDemoAction } from "@/lib/demoMode";
 import {
   getLoyaltyTier,
+  LOYALTY_TIER_BADGE_VARIANT,
   LOYALTY_TIER_LABELS,
   type LoyaltyTier,
 } from "@/lib/loyaltyTiers";
@@ -54,15 +64,6 @@ import {
 import type { Customer } from "@/types";
 
 export const Route = createFileRoute("/clientes")({ component: Clientes });
-
-const TIER_BADGE_VARIANT: Record<
-  LoyaltyTier,
-  "secondary" | "outline" | "warm"
-> = {
-  bronce: "secondary",
-  plata: "outline",
-  oro: "warm",
-};
 
 const clean = (value: string) => (value === "-" ? "" : value);
 
@@ -99,6 +100,21 @@ function Clientes() {
       ),
     [customers, query],
   );
+
+  // Dashboard de niveles: cuántos clientes hay en cada nivel ahora mismo --
+  // visible para cualquiera con acceso a Clientes (admin y cajero incluidos,
+  // no solo en Reportes que es admin/finanzas). Se apaga junto con el
+  // switch "Niveles de fidelidad" de Configuración -- una sola bandera, sin
+  // un interruptor aparte que se pueda desincronizar del real.
+  const tierCounts = useMemo(() => {
+    const counts: Record<LoyaltyTier, number> = { bronce: 0, plata: 0, oro: 0 };
+    if (!showTiers) return counts;
+    for (const customer of customers) {
+      const tier = getLoyaltyTier(customer.loyaltyYearSpend ?? 0, settings);
+      counts[tier] += 1;
+    }
+    return counts;
+  }, [customers, showTiers, settings]);
 
   const openCreate = () => {
     editingIdRef.current = null;
@@ -312,6 +328,48 @@ function Clientes() {
       <FallbackNotice show={!!error && source === "demo-fallback"}>
         No se pudo leer Supabase todavía. Mostrando clientes de prueba.
       </FallbackNotice>
+      {showTiers && (
+        <div className="mb-4 grid grid-cols-3 gap-3">
+          {(
+            [
+              {
+                tier: "bronce",
+                label: "Bronce",
+                icon: Medal,
+                tone: "bg-amber-700/10 text-amber-700",
+              },
+              {
+                tier: "plata",
+                label: "Plata",
+                icon: Award,
+                tone: "bg-slate-400/10 text-slate-500",
+              },
+              {
+                tier: "oro",
+                label: "Oro",
+                icon: Crown,
+                tone: "bg-yellow-500/10 text-yellow-600",
+              },
+            ] as const
+          ).map(({ tier, label, icon: Icon, tone }) => (
+            <Card key={tier} className="shadow-card">
+              <CardContent className="flex items-center gap-3 p-4">
+                <span
+                  className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${tone}`}
+                >
+                  <Icon className="h-5 w-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">{label}</p>
+                  <p className="mt-0.5 text-2xl font-black tracking-tight">
+                    {tierCounts[tier]}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
       <Card>
         <CardContent className="p-4">
           <Input
@@ -396,7 +454,7 @@ function Clientes() {
                           );
                           return (
                             <TableCell>
-                              <Badge variant={TIER_BADGE_VARIANT[tier]}>
+                              <Badge variant={LOYALTY_TIER_BADGE_VARIANT[tier]}>
                                 {LOYALTY_TIER_LABELS[tier]}
                               </Badge>
                             </TableCell>
