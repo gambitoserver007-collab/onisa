@@ -5117,7 +5117,11 @@ describe("RPCs críticas de dinero y stock", () => {
              p_amount := $2,
              p_payment_method := $3
            ) as add_apartado_payment`,
-          [params.apartadoId, params.amount, params.paymentMethod ?? "Efectivo"],
+          [
+            params.apartadoId,
+            params.amount,
+            params.paymentMethod ?? "Efectivo",
+          ],
         ),
       );
       return rows[0].add_apartado_payment;
@@ -5183,7 +5187,8 @@ describe("RPCs críticas de dinero y stock", () => {
     }
 
     it("crea un apartado: el stock se descuenta DESDE que se crea (a diferencia de una cotización)", async () => {
-      const { company, admin, product, customer } = await setupApartadoCompany();
+      const { company, admin, product, customer } =
+        await setupApartadoCompany();
 
       const apartado = await createApartado(admin, {
         customerId: customer,
@@ -5196,6 +5201,18 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(apartado.total).toBeCloseTo(300, 2);
       expect(apartado.paid_total).toBeCloseTo(100, 2);
       expect(await getProductStock(product)).toBe(7); // 10 - 3, ya reservado
+
+      // Mismo shape de columnas que usa fetchApartados/fetchApartado en el
+      // cliente -- si falta alguna, esto revienta con "column does not
+      // exist" igual que le pasó al usuario en producción.
+      const { rows } = await db.query<{
+        customer_name: string;
+        apartado_number: string;
+      }>(
+        "select id, apartado_number, created_at, customer_id, customer_name, location_id, subtotal, tax, total, paid_total, due_date, status, notes, converted_sale_id, cancel_refunded from public.apartados where id = $1",
+        [apartado.apartado_id],
+      );
+      expect(rows[0].customer_name).toBe("Cliente Apartado");
     });
 
     it("se requiere un cliente registrado -- no se puede apartar sin cliente", async () => {
@@ -5212,7 +5229,8 @@ describe("RPCs críticas de dinero y stock", () => {
     });
 
     it("el anticipo mínimo se exige según el % configurado en la empresa", async () => {
-      const { company, admin, product, customer } = await setupApartadoCompany();
+      const { company, admin, product, customer } =
+        await setupApartadoCompany();
       await setMinDeposit(company.id, 0.2); // 20%
 
       await expect(
@@ -5263,7 +5281,8 @@ describe("RPCs críticas de dinero y stock", () => {
     });
 
     it("el anticipo en efectivo entra al arqueo de quien lo cobra; en tarjeta no", async () => {
-      const { company, admin, product, customer } = await setupApartadoCompany();
+      const { company, admin, product, customer } =
+        await setupApartadoCompany();
       const sessionId = await openCashSession(admin, company.loc1);
 
       await createApartado(admin, {
@@ -5287,7 +5306,8 @@ describe("RPCs críticas de dinero y stock", () => {
     });
 
     it("un abono posterior topa al saldo pendiente y también entra al arqueo", async () => {
-      const { company, admin, product, customer } = await setupApartadoCompany();
+      const { company, admin, product, customer } =
+        await setupApartadoCompany();
       const sessionId = await openCashSession(admin, company.loc1);
 
       const apartado = await createApartado(admin, {
@@ -5308,7 +5328,8 @@ describe("RPCs críticas de dinero y stock", () => {
     });
 
     it("completar sin terminar de pagar se rechaza, indicando cuánto falta", async () => {
-      const { company, admin, product, customer } = await setupApartadoCompany();
+      const { company, admin, product, customer } =
+        await setupApartadoCompany();
 
       const apartado = await createApartado(admin, {
         customerId: customer,
@@ -5323,7 +5344,8 @@ describe("RPCs críticas de dinero y stock", () => {
     });
 
     it("completar un apartado ya pagado genera la venta SIN volver a descontar stock ni a contar el dinero en caja hoy", async () => {
-      const { company, admin, product, customer } = await setupApartadoCompany();
+      const { company, admin, product, customer } =
+        await setupApartadoCompany();
       const sessionId = await openCashSession(admin, company.loc1);
 
       const apartado = await createApartado(admin, {
@@ -5350,16 +5372,18 @@ describe("RPCs críticas de dinero y stock", () => {
         kind: string;
         method: string;
         amount: string;
-      }>("select kind, method, amount from public.sale_payments where sale_id = $1", [
-        result.sale_id,
-      ]);
+      }>(
+        "select kind, method, amount from public.sale_payments where sale_id = $1",
+        [result.sale_id],
+      );
       expect(paymentRows[0].kind).toBe("other"); // nunca 'cash', para no duplicar el arqueo
       expect(paymentRows[0].method).toBe("Apartado");
       expect(Number(paymentRows[0].amount)).toBeCloseTo(200, 2);
     });
 
     it("completar con el pago final incluido en la misma llamada cierra el apartado de una vez", async () => {
-      const { company, admin, product, customer } = await setupApartadoCompany();
+      const { company, admin, product, customer } =
+        await setupApartadoCompany();
       const sessionId = await openCashSession(admin, company.loc1);
 
       const apartado = await createApartado(admin, {
@@ -5385,7 +5409,8 @@ describe("RPCs críticas de dinero y stock", () => {
     });
 
     it("completar un apartado gana puntos de lealtad sobre el total, como cualquier compra", async () => {
-      const { company, admin, product, customer } = await setupApartadoCompany();
+      const { company, admin, product, customer } =
+        await setupApartadoCompany();
       await setLoyaltySettings(db, company.id, {
         enabled: true,
         pointValue: 1,
@@ -5406,7 +5431,8 @@ describe("RPCs críticas de dinero y stock", () => {
     });
 
     it("no se puede abonar ni completar un apartado ya cancelado o completado", async () => {
-      const { company, admin, product, customer } = await setupApartadoCompany();
+      const { company, admin, product, customer } =
+        await setupApartadoCompany();
       const apartado = await createApartado(admin, {
         customerId: customer,
         items: [{ productId: product, qty: 1 }],
@@ -5416,18 +5442,25 @@ describe("RPCs críticas de dinero y stock", () => {
       await completeApartado(admin, { apartadoId: apartado.apartado_id });
 
       await expect(
-        addApartadoPayment(admin, { apartadoId: apartado.apartado_id, amount: 10 }),
+        addApartadoPayment(admin, {
+          apartadoId: apartado.apartado_id,
+          amount: 10,
+        }),
       ).rejects.toThrow(/ya esta completado/i);
       await expect(
         completeApartado(admin, { apartadoId: apartado.apartado_id }),
       ).rejects.toThrow(/ya esta completado/i);
       await expect(
-        cancelApartado(admin, { apartadoId: apartado.apartado_id, refundDeposit: false }),
+        cancelApartado(admin, {
+          apartadoId: apartado.apartado_id,
+          refundDeposit: false,
+        }),
       ).rejects.toThrow(/no se puede cancelar/i);
     });
 
     it("cancelar repone el stock de cada producto; sin reembolso no mueve caja", async () => {
-      const { company, admin, product, customer } = await setupApartadoCompany();
+      const { company, admin, product, customer } =
+        await setupApartadoCompany();
       const sessionId = await openCashSession(admin, company.loc1);
 
       const apartado = await createApartado(admin, {
@@ -5448,7 +5481,8 @@ describe("RPCs críticas de dinero y stock", () => {
     });
 
     it("cancelar con reembolso saca el anticipo de caja como egreso", async () => {
-      const { company, admin, product, customer } = await setupApartadoCompany();
+      const { company, admin, product, customer } =
+        await setupApartadoCompany();
       const sessionId = await openCashSession(admin, company.loc1);
 
       const apartado = await createApartado(admin, {
@@ -5466,7 +5500,8 @@ describe("RPCs críticas de dinero y stock", () => {
     });
 
     it("un cajero no puede cancelar un apartado (solo admin/finanzas)", async () => {
-      const { company, cajero, product, customer } = await setupApartadoCompany();
+      const { company, cajero, product, customer } =
+        await setupApartadoCompany();
       const apartado = await createApartado(cajero, {
         customerId: customer,
         items: [{ productId: product, qty: 1 }],
@@ -5475,12 +5510,16 @@ describe("RPCs críticas de dinero y stock", () => {
       });
 
       await expect(
-        cancelApartado(cajero, { apartadoId: apartado.apartado_id, refundDeposit: false }),
+        cancelApartado(cajero, {
+          apartadoId: apartado.apartado_id,
+          refundDeposit: false,
+        }),
       ).rejects.toThrow(/Solo un administrador o finanzas/i);
     });
 
     it("todos en la empresa ven todos los apartados, no solo los que crearon", async () => {
-      const { company, cajero, product, customer } = await setupApartadoCompany();
+      const { company, cajero, product, customer } =
+        await setupApartadoCompany();
       const otroCajero = await makeUser(db, company.id, "user");
 
       await createApartado(cajero, {
@@ -5497,8 +5536,12 @@ describe("RPCs críticas de dinero y stock", () => {
     });
 
     it("una empresa no ve ni puede cancelar los apartados de otra empresa", async () => {
-      const { company: companyA, admin: adminA, product: productA, customer: customerA } =
-        await setupApartadoCompany();
+      const {
+        company: companyA,
+        admin: adminA,
+        product: productA,
+        customer: customerA,
+      } = await setupApartadoCompany();
       const companyB = await makeCompany(db, "Empresa Apartado B Test");
       const adminB = await makeUser(db, companyB.id, "admin");
 
@@ -5517,7 +5560,10 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(seenByB.rows.length).toBe(0);
 
       await expect(
-        cancelApartado(adminB, { apartadoId: apartado.apartado_id, refundDeposit: false }),
+        cancelApartado(adminB, {
+          apartadoId: apartado.apartado_id,
+          refundDeposit: false,
+        }),
       ).rejects.toThrow(/no encontrado/i);
     });
   });

@@ -9948,6 +9948,7 @@ create table if not exists public.apartados (
   location_id uuid not null references public.locations(id) on delete restrict,
   apartado_number text not null,
   customer_id uuid not null references public.customers(id) on delete restrict,
+  customer_name text not null default 'Cliente',
   subtotal numeric(12,2) not null default 0,
   tax numeric(12,2) not null default 0,
   total numeric(12,2) not null default 0,
@@ -9967,6 +9968,10 @@ create table if not exists public.apartados (
   deleted_at timestamptz,
   unique (company_id, apartado_number)
 );
+-- Para instalaciones que ya habían corrido esta tabla antes de este
+-- arreglo: create table if not exists no toca una tabla existente, así
+-- que la columna se agrega aparte si hiciera falta.
+alter table public.apartados add column if not exists customer_name text not null default 'Cliente';
 
 create table if not exists public.apartado_items (
   id uuid primary key default gen_random_uuid(),
@@ -10171,8 +10176,8 @@ begin
   v_apartado_number := 'APT-' || to_char(now(), 'YYYYMMDD') || '-' ||
                        upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 6));
 
-  insert into public.apartados (company_id, location_id, apartado_number, customer_id, due_date, notes, created_by)
-  values (v_company_id, p_location_id, v_apartado_number, p_customer_id, v_due_date,
+  insert into public.apartados (company_id, location_id, apartado_number, customer_id, customer_name, due_date, notes, created_by)
+  values (v_company_id, p_location_id, v_apartado_number, p_customer_id, v_customer_name, v_due_date,
           nullif(btrim(coalesce(p_notes, '')), ''), auth.uid())
   returning id into v_apartado_id;
 
