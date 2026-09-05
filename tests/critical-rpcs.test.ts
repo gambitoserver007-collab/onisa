@@ -4489,4 +4489,439 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(result.total).toBe(80);
     });
   });
+
+  describe("28. Cotizaciones (crear sin tocar stock, convertir con precio congelado)", () => {
+    interface QuoteResult {
+      quote_id: string;
+      quote_number: string;
+      subtotal: number;
+      tax: number;
+      total: number;
+      valid_until: string;
+    }
+    interface ConvertResult {
+      sale_id: string;
+      sale_number: string;
+      quote_id: string;
+      total: number;
+      points_earned: number;
+      points_redeemed: number;
+    }
+
+    async function createQuote(
+      userId: string,
+      params: {
+        items: { productId: string; variantId?: string; qty: number }[];
+        customerId?: string | null;
+        customerName?: string | null;
+        locationId?: string | null;
+        validUntil?: string | null;
+        notes?: string | null;
+      },
+    ): Promise<QuoteResult> {
+      const itemsJson = JSON.stringify(
+        params.items.map((i) => ({
+          product_id: i.productId,
+          variant_id: i.variantId ?? null,
+          qty: i.qty,
+        })),
+      );
+      const { rows } = await asUser(db, userId, () =>
+        db.query<{ create_quote: QuoteResult }>(
+          `select create_quote(
+             p_items := $1::jsonb,
+             p_customer_id := $2,
+             p_customer_name := $3,
+             p_location_id := $4,
+             p_valid_until := $5,
+             p_notes := $6
+           ) as create_quote`,
+          [
+            itemsJson,
+            params.customerId ?? null,
+            params.customerName ?? null,
+            params.locationId ?? null,
+            params.validUntil ?? null,
+            params.notes ?? null,
+          ],
+        ),
+      );
+      return rows[0].create_quote;
+    }
+
+    async function convertQuote(
+      userId: string,
+      params: {
+        quoteId: string;
+        locationId: string;
+        paymentMethod?: string;
+        paymentKind?: string;
+        tillId?: string | null;
+        pointsRedeemed?: number;
+      },
+    ): Promise<ConvertResult> {
+      const { rows } = await asUser(db, userId, () =>
+        db.query<{ convert_quote_to_sale: ConvertResult }>(
+          `select convert_quote_to_sale(
+             p_quote_id := $1,
+             p_location_id := $2,
+             p_payment_method := $3,
+             p_payment_kind := $4,
+             p_till_id := $5,
+             p_points_redeemed := $6
+           ) as convert_quote_to_sale`,
+          [
+            params.quoteId,
+            params.locationId,
+            params.paymentMethod ?? "Efectivo",
+            params.paymentKind ?? null,
+            params.tillId ?? null,
+            params.pointsRedeemed ?? 0,
+          ],
+        ),
+      );
+      return rows[0].convert_quote_to_sale;
+    }
+
+    async function rejectQuote(userId: string, quoteId: string) {
+      await asUser(db, userId, () =>
+        db.query("select reject_quote($1)", [quoteId]),
+      );
+    }
+
+    async function getProductStock(productId: string): Promise<number> {
+      const { rows } = await db.query<{ stock: string }>(
+        "select stock from public.products where id = $1",
+        [productId],
+      );
+      return Number(rows[0].stock);
+    }
+
+    it("crea una cotización sin validar ni tocar el stock (es una promesa de precio, no de inventario)", async () => {
+      const company = await makeCompany(db, "Empresa Cotizacion Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Cotizado",
+        50,
+        100,
+        5,
+      );
+
+      const quote = await createQuote(admin, {
+        items: [{ productId: product, qty: 20 }], // más que el stock (5) -- se permite
+      });
+
+      expect(quote.quote_number).toMatch(/^COT-\d{8}-[A-F0-9]{6}$/);
+      expect(quote.total).toBeCloseTo(2000, 2); // 100 * 20, price_includes_tax=true
+      expect(await getProductStock(product)).toBe(5); // intacto
+    });
+
+    it("un operador no puede crear cotizaciones", async () => {
+      const company = await makeCompany(db, "Empresa Cotizacion Rol Test");
+      const operador = await makeUser(db, company.id, "operador");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto",
+        5,
+        10,
+        10,
+      );
+
+      await expect(
+        createQuote(operador, { items: [{ productId: product, qty: 1 }] }),
+      ).rejects.toThrow(/No tienes permiso/i);
+    });
+
+    it("convertir respeta el precio YA CONGELADO aunque el precio del producto haya cambiado después", async () => {
+      const company = await makeCompany(db, "Empresa Cotizacion Precio Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Precio",
+        50,
+        100,
+        10,
+      );
+
+      const quote = await createQuote(admin, {
+        items: [{ productId: product, qty: 3 }],
+      });
+      expect(quote.total).toBeCloseTo(300, 2);
+
+      // El precio del producto sube DESPUÉS de cotizar.
+      await db.query("update public.products set price = 200 where id = $1", [
+        product,
+      ]);
+
+      const result = await convertQuote(admin, {
+        quoteId: quote.quote_id,
+        locationId: company.loc1,
+      });
+
+      expect(result.total).toBeCloseTo(300, 2); // NO 600 -- el precio cotizado, no el nuevo
+      expect(await getProductStock(product)).toBe(7); // 10 - 3
+
+      const { rows } = await db.query<{ unit_price: string }>(
+        "select unit_price from public.sale_items where sale_id = $1",
+        [result.sale_id],
+      );
+      expect(Number(rows[0].unit_price)).toBeCloseTo(100, 2);
+    });
+
+    it("no se puede convertir una cotización vencida", async () => {
+      const company = await makeCompany(db, "Empresa Cotizacion Vencida Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Vence",
+        5,
+        10,
+        10,
+      );
+      const quote = await createQuote(admin, {
+        items: [{ productId: product, qty: 1 }],
+      });
+
+      // Simula que pasó el tiempo: la vigencia ya quedó en el pasado.
+      await db.query(
+        "update public.quotes set valid_until = current_date - 1 where id = $1",
+        [quote.quote_id],
+      );
+
+      await expect(
+        convertQuote(admin, {
+          quoteId: quote.quote_id,
+          locationId: company.loc1,
+        }),
+      ).rejects.toThrow(/vencio/i);
+    });
+
+    it("no se puede convertir dos veces la misma cotización", async () => {
+      const company = await makeCompany(db, "Empresa Cotizacion Doble Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Doble",
+        5,
+        10,
+        10,
+      );
+      const quote = await createQuote(admin, {
+        items: [{ productId: product, qty: 1 }],
+      });
+
+      await convertQuote(admin, {
+        quoteId: quote.quote_id,
+        locationId: company.loc1,
+      });
+
+      await expect(
+        convertQuote(admin, {
+          quoteId: quote.quote_id,
+          locationId: company.loc1,
+        }),
+      ).rejects.toThrow(/ya esta convertida/i);
+    });
+
+    it("rechazar una cotización pendiente le impide convertirse después", async () => {
+      const company = await makeCompany(db, "Empresa Cotizacion Rechazo Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Rechazo",
+        5,
+        10,
+        10,
+      );
+      const quote = await createQuote(admin, {
+        items: [{ productId: product, qty: 1 }],
+      });
+
+      await rejectQuote(admin, quote.quote_id);
+
+      await expect(
+        convertQuote(admin, {
+          quoteId: quote.quote_id,
+          locationId: company.loc1,
+        }),
+      ).rejects.toThrow(/ya esta rechazada/i);
+
+      // Tampoco se puede rechazar dos veces.
+      await expect(rejectQuote(admin, quote.quote_id)).rejects.toThrow(
+        /no existe o ya no esta pendiente/i,
+      );
+    });
+
+    it("si no alcanza el stock al convertir, se rechaza todo sin descontar nada", async () => {
+      const company = await makeCompany(
+        db,
+        "Empresa Cotizacion Sin Stock Test",
+      );
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Escaso",
+        5,
+        10,
+        2,
+      );
+      const quote = await createQuote(admin, {
+        items: [{ productId: product, qty: 5 }], // se permitió al cotizar
+      });
+
+      await expect(
+        convertQuote(admin, {
+          quoteId: quote.quote_id,
+          locationId: company.loc1,
+        }),
+      ).rejects.toThrow(/Stock insuficiente/i);
+      expect(await getProductStock(product)).toBe(2); // intacto, nada se descontó
+    });
+
+    it("una cotización con un producto tipo Servicio no se puede convertir automáticamente", async () => {
+      const company = await makeCompany(db, "Empresa Cotizacion Servicio Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const { rows } = await db.query<{ id: string }>(
+        "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,$4,'und','service') returning id",
+        [company.id, "Instalación", 500, 100],
+      );
+      const service = rows[0].id;
+
+      const quote = await createQuote(admin, {
+        items: [{ productId: service, qty: 1 }],
+      });
+
+      await expect(
+        convertQuote(admin, {
+          quoteId: quote.quote_id,
+          locationId: company.loc1,
+        }),
+      ).rejects.toThrow(/manualmente/i);
+    });
+
+    it("la venta convertida gana comisión del vendedor y puntos de lealtad, con las reglas vigentes al convertir", async () => {
+      const company = await makeCompany(db, "Empresa Cotizacion Comision Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const cajero = await makeUser(db, company.id, "user");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Comision",
+        50,
+        100,
+        10,
+      );
+      const customer = await makeCustomer(db, company.id, "Cliente Cotizacion");
+      await setLoyaltySettings(db, company.id, {
+        enabled: true,
+        pointValue: 1,
+        earnRate: 10,
+      });
+      await asUser(db, admin, () =>
+        db.query("select set_employee_commission($1, $2)", [cajero, 0.1]),
+      );
+
+      const quote = await createQuote(cajero, {
+        items: [{ productId: product, qty: 2 }],
+        customerId: customer,
+      });
+      expect(quote.total).toBeCloseTo(200, 2);
+
+      const result = await convertQuote(cajero, {
+        quoteId: quote.quote_id,
+        locationId: company.loc1,
+      });
+
+      expect(result.points_earned).toBe(20); // floor(200/10)
+      expect(await getCustomerLoyaltyPoints(db, customer)).toBe(20);
+
+      const { rows } = await db.query<{
+        commission_amount: string;
+        created_by: string;
+      }>(
+        "select commission_amount, created_by from public.sales where id = $1",
+        [result.sale_id],
+      );
+      expect(Number(rows[0].commission_amount)).toBeCloseTo(20, 2); // 10% de 200
+      expect(rows[0].created_by).toBe(cajero);
+    });
+
+    it("todos en la empresa ven todas las cotizaciones, no solo las que crearon (a diferencia de Mermas)", async () => {
+      const company = await makeCompany(db, "Empresa Cotizacion RLS Test");
+      const cajeroA = await makeUser(db, company.id, "user");
+      const cajeroB = await makeUser(db, company.id, "user");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto RLS",
+        5,
+        10,
+        10,
+      );
+
+      await createQuote(cajeroA, { items: [{ productId: product, qty: 1 }] });
+
+      const seenByB = await asUser(db, cajeroB, () =>
+        db.query("select id from public.quotes"),
+      );
+      expect(seenByB.rows.length).toBe(1);
+    });
+
+    it("una empresa no ve ni puede convertir las cotizaciones de otra empresa", async () => {
+      const companyA = await makeCompany(
+        db,
+        "Empresa Cotizacion Cruzada A Test",
+      );
+      const companyB = await makeCompany(
+        db,
+        "Empresa Cotizacion Cruzada B Test",
+      );
+      const adminA = await makeUser(db, companyA.id, "admin");
+      const adminB = await makeUser(db, companyB.id, "admin");
+      const productA = await makeProduct(
+        db,
+        companyA.id,
+        companyA.loc1,
+        "Producto A",
+        5,
+        10,
+        10,
+      );
+
+      const quote = await createQuote(adminA, {
+        items: [{ productId: productA, qty: 1 }],
+      });
+
+      const seenByB = await asUser(db, adminB, () =>
+        db.query("select id from public.quotes where id = $1", [
+          quote.quote_id,
+        ]),
+      );
+      expect(seenByB.rows.length).toBe(0);
+
+      await expect(
+        convertQuote(adminB, {
+          quoteId: quote.quote_id,
+          locationId: companyB.loc1,
+        }),
+      ).rejects.toThrow(/no encontrada/i);
+    });
+  });
 });

@@ -15,6 +15,7 @@ import { Route as CajaRouteImport } from './routes/caja'
 import { Route as CategoriasRouteImport } from './routes/categorias'
 import { Route as ClientesRouteImport } from './routes/clientes'
 import { Route as ConfiguracionRouteImport } from './routes/configuracion'
+import { Route as CotizacionesRouteImport } from './routes/cotizaciones'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as DevolucionesRouteImport } from './routes/devoluciones'
 import { Route as EmpleadosRouteImport } from './routes/empleados'
@@ -45,6 +46,7 @@ import { Route as CajaReportesRouteImport } from './routes/caja_.reportes'
 import { Route as CajaRevisionRouteImport } from './routes/caja_.revision'
 import { Route as ComprasIndexRouteImport } from './routes/compras.index'
 import { Route as ComprasNuevaRouteImport } from './routes/compras.nueva'
+import { Route as CotizacionesIdRouteImport } from './routes/cotizaciones_.$id'
 import { Route as InventarioIndexRouteImport } from './routes/inventario.index'
 import { Route as InventarioKardexRouteImport } from './routes/inventario.kardex'
 import { Route as InventarioProyeccionRouteImport } from './routes/inventario.proyeccion'
@@ -82,6 +84,11 @@ const ClientesRoute = ClientesRouteImport.update({
 const ConfiguracionRoute = ConfiguracionRouteImport.update({
   id: '/configuracion',
   path: '/configuracion',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CotizacionesRoute = CotizacionesRouteImport.update({
+  id: '/cotizaciones',
+  path: '/cotizaciones',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DashboardRoute = DashboardRouteImport.update({
@@ -236,6 +243,11 @@ const ComprasNuevaRoute = ComprasNuevaRouteImport.update({
   path: '/compras/nueva',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CotizacionesIdRoute = CotizacionesIdRouteImport.update({
+  id: '/cotizaciones_/$id',
+  path: '/cotizaciones/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InventarioIndexRoute = InventarioIndexRouteImport.update({
   id: '/inventario/',
   path: '/inventario/',
@@ -285,6 +297,7 @@ export interface FileRoutesByFullPath {
   '/categorias': typeof CategoriasRoute
   '/clientes': typeof ClientesRoute
   '/configuracion': typeof ConfiguracionRoute
+  '/cotizaciones': typeof CotizacionesRoute
   '/dashboard': typeof DashboardRoute
   '/devoluciones': typeof DevolucionesRoute
   '/empleados': typeof EmpleadosRoute
@@ -313,6 +326,7 @@ export interface FileRoutesByFullPath {
   '/caja/reportes': typeof CajaReportesRoute
   '/caja/revision': typeof CajaRevisionRoute
   '/compras/nueva': typeof ComprasNuevaRoute
+  '/cotizaciones/$id': typeof CotizacionesIdRoute
   '/inventario/kardex': typeof InventarioKardexRoute
   '/inventario/proyeccion': typeof InventarioProyeccionRoute
   '/mermas/monitor': typeof MermasMonitorRoute
@@ -331,6 +345,7 @@ export interface FileRoutesByTo {
   '/categorias': typeof CategoriasRoute
   '/clientes': typeof ClientesRoute
   '/configuracion': typeof ConfiguracionRoute
+  '/cotizaciones': typeof CotizacionesRoute
   '/dashboard': typeof DashboardRoute
   '/devoluciones': typeof DevolucionesRoute
   '/empleados': typeof EmpleadosRoute
@@ -359,6 +374,7 @@ export interface FileRoutesByTo {
   '/caja/reportes': typeof CajaReportesRoute
   '/caja/revision': typeof CajaRevisionRoute
   '/compras/nueva': typeof ComprasNuevaRoute
+  '/cotizaciones/$id': typeof CotizacionesIdRoute
   '/inventario/kardex': typeof InventarioKardexRoute
   '/inventario/proyeccion': typeof InventarioProyeccionRoute
   '/mermas/monitor': typeof MermasMonitorRoute
@@ -378,6 +394,7 @@ export interface FileRoutesById {
   '/categorias': typeof CategoriasRoute
   '/clientes': typeof ClientesRoute
   '/configuracion': typeof ConfiguracionRoute
+  '/cotizaciones': typeof CotizacionesRoute
   '/dashboard': typeof DashboardRoute
   '/devoluciones': typeof DevolucionesRoute
   '/empleados': typeof EmpleadosRoute
@@ -406,6 +423,7 @@ export interface FileRoutesById {
   '/caja_/reportes': typeof CajaReportesRoute
   '/caja_/revision': typeof CajaRevisionRoute
   '/compras/nueva': typeof ComprasNuevaRoute
+  '/cotizaciones_/$id': typeof CotizacionesIdRoute
   '/inventario/kardex': typeof InventarioKardexRoute
   '/inventario/proyeccion': typeof InventarioProyeccionRoute
   '/mermas_/monitor': typeof MermasMonitorRoute
@@ -426,6 +444,7 @@ export interface FileRouteTypes {
     | '/categorias'
     | '/clientes'
     | '/configuracion'
+    | '/cotizaciones'
     | '/dashboard'
     | '/devoluciones'
     | '/empleados'
@@ -454,6 +473,7 @@ export interface FileRouteTypes {
     | '/caja/reportes'
     | '/caja/revision'
     | '/compras/nueva'
+    | '/cotizaciones/$id'
     | '/inventario/kardex'
     | '/inventario/proyeccion'
     | '/mermas/monitor'
@@ -472,6 +492,7 @@ export interface FileRouteTypes {
     | '/categorias'
     | '/clientes'
     | '/configuracion'
+    | '/cotizaciones'
     | '/dashboard'
     | '/devoluciones'
     | '/empleados'
@@ -500,6 +521,7 @@ export interface FileRouteTypes {
     | '/caja/reportes'
     | '/caja/revision'
     | '/compras/nueva'
+    | '/cotizaciones/$id'
     | '/inventario/kardex'
     | '/inventario/proyeccion'
     | '/mermas/monitor'
@@ -518,6 +540,7 @@ export interface FileRouteTypes {
     | '/categorias'
     | '/clientes'
     | '/configuracion'
+    | '/cotizaciones'
     | '/dashboard'
     | '/devoluciones'
     | '/empleados'
@@ -546,6 +569,7 @@ export interface FileRouteTypes {
     | '/caja_/reportes'
     | '/caja_/revision'
     | '/compras/nueva'
+    | '/cotizaciones_/$id'
     | '/inventario/kardex'
     | '/inventario/proyeccion'
     | '/mermas_/monitor'
@@ -565,6 +589,7 @@ export interface RootRouteChildren {
   CategoriasRoute: typeof CategoriasRoute
   ClientesRoute: typeof ClientesRoute
   ConfiguracionRoute: typeof ConfiguracionRoute
+  CotizacionesRoute: typeof CotizacionesRoute
   DashboardRoute: typeof DashboardRoute
   DevolucionesRoute: typeof DevolucionesRoute
   EmpleadosRoute: typeof EmpleadosRoute
@@ -593,6 +618,7 @@ export interface RootRouteChildren {
   CajaReportesRoute: typeof CajaReportesRoute
   CajaRevisionRoute: typeof CajaRevisionRoute
   ComprasNuevaRoute: typeof ComprasNuevaRoute
+  CotizacionesIdRoute: typeof CotizacionesIdRoute
   InventarioKardexRoute: typeof InventarioKardexRoute
   InventarioProyeccionRoute: typeof InventarioProyeccionRoute
   MermasMonitorRoute: typeof MermasMonitorRoute
@@ -647,6 +673,13 @@ declare module '@tanstack/react-router' {
       path: '/configuracion'
       fullPath: '/configuracion'
       preLoaderRoute: typeof ConfiguracionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cotizaciones': {
+      id: '/cotizaciones'
+      path: '/cotizaciones'
+      fullPath: '/cotizaciones'
+      preLoaderRoute: typeof CotizacionesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dashboard': {
@@ -859,6 +892,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ComprasNuevaRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/cotizaciones_/$id': {
+      id: '/cotizaciones_/$id'
+      path: '/cotizaciones/$id'
+      fullPath: '/cotizaciones/$id'
+      preLoaderRoute: typeof CotizacionesIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/inventario/': {
       id: '/inventario/'
       path: '/inventario'
@@ -925,6 +965,7 @@ const rootRouteChildren: RootRouteChildren = {
   CategoriasRoute: CategoriasRoute,
   ClientesRoute: ClientesRoute,
   ConfiguracionRoute: ConfiguracionRoute,
+  CotizacionesRoute: CotizacionesRoute,
   DashboardRoute: DashboardRoute,
   DevolucionesRoute: DevolucionesRoute,
   EmpleadosRoute: EmpleadosRoute,
@@ -954,6 +995,7 @@ const rootRouteChildren: RootRouteChildren = {
   CajaReportesRoute: CajaReportesRoute,
   CajaRevisionRoute: CajaRevisionRoute,
   ComprasNuevaRoute: ComprasNuevaRoute,
+  CotizacionesIdRoute: CotizacionesIdRoute,
   InventarioKardexRoute: InventarioKardexRoute,
   InventarioProyeccionRoute: InventarioProyeccionRoute,
   MermasMonitorRoute: MermasMonitorRoute,

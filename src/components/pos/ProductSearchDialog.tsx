@@ -20,6 +20,9 @@ export interface ProductSearchDialogProps {
   onOpenChange: (open: boolean) => void;
   products: Product[];
   onSelect: (product: Product) => void;
+  /** Cotizaciones sí permiten agregar productos sin stock (es una promesa
+   * de precio, no de inventario) -- el POS deja el default (false). */
+  allowOutOfStock?: boolean;
 }
 
 export function ProductSearchDialog({
@@ -27,6 +30,7 @@ export function ProductSearchDialog({
   onOpenChange,
   products,
   onSelect,
+  allowOutOfStock = false,
 }: ProductSearchDialogProps) {
   const { formatMoney } = useBusinessSettings();
   const [query, setQuery] = useState("");
@@ -76,7 +80,8 @@ export function ProductSearchDialog({
           )}
           {results.map((product) => {
             const tracksStock = product.productType === "standard";
-            const outOfStock = tracksStock && product.stock <= 0;
+            const outOfStock =
+              !allowOutOfStock && tracksStock && product.stock <= 0;
             return (
               <button
                 key={product.id}

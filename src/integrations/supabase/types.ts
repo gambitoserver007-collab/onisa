@@ -871,6 +871,185 @@ export type Database = {
           },
         ];
       };
+      quotes: {
+        Row: {
+          company_id: string;
+          converted_sale_id: string | null;
+          created_at: string;
+          created_by: string | null;
+          customer_id: string | null;
+          customer_name: string;
+          deleted_at: string | null;
+          id: string;
+          is_demo_data: boolean;
+          location_id: string | null;
+          notes: string | null;
+          quote_number: string;
+          status: string;
+          subtotal: number;
+          tax: number;
+          total: number;
+          updated_at: string;
+          valid_until: string;
+        };
+        Insert: {
+          company_id: string;
+          converted_sale_id?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+          customer_id?: string | null;
+          customer_name?: string;
+          deleted_at?: string | null;
+          id?: string;
+          is_demo_data?: boolean;
+          location_id?: string | null;
+          notes?: string | null;
+          quote_number: string;
+          status?: string;
+          subtotal?: number;
+          tax?: number;
+          total?: number;
+          updated_at?: string;
+          valid_until: string;
+        };
+        Update: {
+          company_id?: string;
+          converted_sale_id?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+          customer_id?: string | null;
+          customer_name?: string;
+          deleted_at?: string | null;
+          id?: string;
+          is_demo_data?: boolean;
+          location_id?: string | null;
+          notes?: string | null;
+          quote_number?: string;
+          status?: string;
+          subtotal?: number;
+          tax?: number;
+          total?: number;
+          updated_at?: string;
+          valid_until?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "quotes_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "quotes_location_id_fkey";
+            columns: ["location_id"];
+            isOneToOne: false;
+            referencedRelation: "locations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "quotes_customer_id_fkey";
+            columns: ["customer_id"];
+            isOneToOne: false;
+            referencedRelation: "customers";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "quotes_converted_sale_id_fkey";
+            columns: ["converted_sale_id"];
+            isOneToOne: false;
+            referencedRelation: "sales";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "quotes_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      quote_items: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          id: string;
+          is_demo_data: boolean;
+          price_includes_tax: boolean;
+          product_id: string | null;
+          product_name: string;
+          product_variant_id: string | null;
+          qty: number;
+          quote_id: string;
+          tax_amount: number;
+          total: number;
+          unit_price: number;
+          variant_label: string | null;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          id?: string;
+          is_demo_data?: boolean;
+          price_includes_tax?: boolean;
+          product_id?: string | null;
+          product_name: string;
+          product_variant_id?: string | null;
+          qty: number;
+          quote_id: string;
+          tax_amount?: number;
+          total: number;
+          unit_price: number;
+          variant_label?: string | null;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          id?: string;
+          is_demo_data?: boolean;
+          price_includes_tax?: boolean;
+          product_id?: string | null;
+          product_name?: string;
+          product_variant_id?: string | null;
+          qty?: number;
+          quote_id?: string;
+          tax_amount?: number;
+          total?: number;
+          unit_price?: number;
+          variant_label?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "quote_items_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "quote_items_quote_id_fkey";
+            columns: ["quote_id"];
+            isOneToOne: false;
+            referencedRelation: "quotes";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "quote_items_product_id_fkey";
+            columns: ["product_id"];
+            isOneToOne: false;
+            referencedRelation: "products";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "quote_items_product_variant_id_fkey";
+            columns: ["product_variant_id"];
+            isOneToOne: false;
+            referencedRelation: "product_variants";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       platform_settings: {
         Row: {
           brand_name: string;
@@ -2553,6 +2732,32 @@ export type Database = {
       delete_merma: {
         Args: { p_merma_id: string };
         Returns: undefined;
+      };
+      create_quote: {
+        Args: {
+          p_customer_id?: string;
+          p_customer_name?: string;
+          p_items: Json;
+          p_location_id?: string;
+          p_notes?: string;
+          p_valid_until?: string;
+        };
+        Returns: Json;
+      };
+      reject_quote: {
+        Args: { p_quote_id: string };
+        Returns: undefined;
+      };
+      convert_quote_to_sale: {
+        Args: {
+          p_location_id: string;
+          p_payment_kind?: string;
+          p_payment_method?: string;
+          p_points_redeemed?: number;
+          p_quote_id: string;
+          p_till_id?: string;
+        };
+        Returns: Json;
       };
       reset_company_data: {
         Args: { p_confirm_name: string };

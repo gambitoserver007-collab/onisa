@@ -9302,3 +9302,572 @@ alter table public.companies add column if not exists loyalty_tier3_earn_rate nu
 
 alter table public.customers add column if not exists loyalty_year_spend numeric(12,2) not null default 0;
 alter table public.customers add column if not exists loyalty_year_spend_year integer;
+
+-- ============================================================
+-- Cotizaciones: presupuesto no vinculante para un cliente (registrado o
+-- prospecto por nombre libre), con precios congelados y vigencia. NO toca
+-- inventario al crearse -- es solo una promesa de precio, no una promesa
+-- de stock. Al convertirla en venta real (convert_quote_to_sale) es
+-- cuando sí se valida y descuenta stock, con los precios YA congelados
+-- de la cotización (nunca se vuelve a consultar el precio del catálogo).
+-- ============================================================
+create table if not exists public.quotes (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  location_id uuid references public.locations(id) on delete set null,
+  quote_number text not null,
+  customer_id uuid references public.customers(id) on delete set null,
+  customer_name text not null default 'Cliente',
+  subtotal numeric(12,2) not null default 0,
+  tax numeric(12,2) not null default 0,
+  total numeric(12,2) not null default 0,
+  valid_until date not null,
+  status text not null default 'pendiente'
+    check (status in ('pendiente', 'convertida', 'rechazada')),
+  notes text,
+  converted_sale_id uuid references public.sales(id) on delete set null,
+  created_by uuid references public.profiles(id) on delete set null,
+  is_demo_data boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
+  unique (company_id, quote_number)
+);
+
+create table if not exists public.quote_items (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  quote_id uuid not null references public.quotes(id) on delete cascade,
+  product_id uuid references public.products(id) on delete set null,
+  product_variant_id uuid references public.product_variants(id) on delete set null,
+  variant_label text,
+  product_name text not null,
+  qty numeric(12,3) not null,
+  unit_price numeric(12,2) not null,
+  total numeric(12,2) not null,
+  tax_amount numeric(12,2) not null default 0,
+  price_includes_tax boolean not null default true,
+  is_demo_data boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists quotes_company_idx on public.quotes(company_id, created_at desc);
+create index if not exists quotes_customer_idx on public.quotes(customer_id);
+create index if not exists quote_items_quote_idx on public.quote_items(quote_id);
+
+alter table public.quotes enable row level security;
+alter table public.quote_items enable row level security;
+
+-- Visible para todos los que tengan acceso a Cotizaciones (admin, finanzas
+-- y cajero) -- a diferencia de Mermas, aquí no hay razón para ocultarle a
+-- un cajero las cotizaciones de otro; es información del negocio, no de
+-- desempeño individual. Insert/update/delete por separado (nunca "for
+-- all"): ver el comentario en la sección de Mermas sobre por qué.
+drop policy if exists "quotes select scoped" on public.quotes;
+create policy "quotes select scoped" on public.quotes for select to authenticated
+  using (public.can_select_company(company_id, is_demo_data));
+drop policy if exists "quotes insert scoped" on public.quotes;
+create policy "quotes insert scoped" on public.quotes for insert to authenticated
+  with check (public.can_write_company(company_id));
+drop policy if exists "quotes update scoped" on public.quotes;
+create policy "quotes update scoped" on public.quotes for update to authenticated
+  using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
+drop policy if exists "quotes delete scoped" on public.quotes;
+create policy "quotes delete scoped" on public.quotes for delete to authenticated
+  using (public.can_write_company(company_id));
+
+drop policy if exists "quote_items select scoped" on public.quote_items;
+create policy "quote_items select scoped" on public.quote_items for select to authenticated
+  using (public.can_select_company(company_id, is_demo_data));
+drop policy if exists "quote_items insert scoped" on public.quote_items;
+create policy "quote_items insert scoped" on public.quote_items for insert to authenticated
+  with check (public.can_write_company(company_id));
+drop policy if exists "quote_items update scoped" on public.quote_items;
+create policy "quote_items update scoped" on public.quote_items for update to authenticated
+  using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
+drop policy if exists "quote_items delete scoped" on public.quote_items;
+create policy "quote_items delete scoped" on public.quote_items for delete to authenticated
+  using (public.can_write_company(company_id));
+
+drop trigger if exists prevent_demo_quotes_write on public.quotes;
+create trigger prevent_demo_quotes_write before insert or update or delete on public.quotes
+  for each row execute function public.reject_demo_write();
+drop trigger if exists prevent_demo_quote_items_write on public.quote_items;
+create trigger prevent_demo_quote_items_write before insert or update or delete on public.quote_items
+  for each row execute function public.reject_demo_write();
+
+grant select, insert, update, delete on public.quotes to authenticated;
+grant select, insert, update, delete on public.quote_items to authenticated;
+grant all on public.quotes to service_role;
+grant all on public.quote_items to service_role;
+
+create or replace function public.create_quote(
+  p_items jsonb,
+  p_customer_id uuid default null,
+  p_customer_name text default null,
+  p_location_id uuid default null,
+  p_valid_until date default null,
+  p_notes text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_role public.app_role;
+  v_tax_rate numeric(5,4);
+  v_customer_name text;
+  v_valid_until date;
+  v_quote_id uuid;
+  v_quote_number text;
+  v_item jsonb;
+  v_product public.products%rowtype;
+  v_qty numeric(12,3);
+  v_variant_id uuid;
+  v_variant public.product_variants%rowtype;
+  v_unit_price numeric(12,2);
+  v_price_includes_tax boolean;
+  v_variant_label text;
+  v_attr_key text;
+  v_attr_val text;
+  v_label_parts text[];
+  v_line_total numeric(12,2);
+  v_line_tax numeric(12,2);
+  v_total numeric(12,2) := 0;
+  v_tax numeric(12,2) := 0;
+  v_subtotal numeric(12,2);
+  v_item_count integer := 0;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  v_role := public.current_user_role();
+  if v_role not in ('admin', 'finanzas', 'user') then
+    raise exception 'No tienes permiso para crear cotizaciones.';
+  end if;
+
+  if p_items is null or jsonb_array_length(p_items) = 0 then
+    raise exception 'Agrega al menos un producto a la cotizacion.';
+  end if;
+
+  if p_location_id is not null then
+    perform 1 from public.locations where id = p_location_id and company_id = v_company_id;
+    if not found then raise exception 'Sucursal invalida.'; end if;
+  end if;
+
+  v_valid_until := coalesce(p_valid_until, (current_date + interval '15 days')::date);
+  if v_valid_until < current_date then
+    raise exception 'La fecha de vigencia no puede ser en el pasado.';
+  end if;
+
+  if p_customer_id is not null then
+    select name into v_customer_name from public.customers
+      where id = p_customer_id and company_id = v_company_id and deleted_at is null;
+    if v_customer_name is null then raise exception 'Cliente no encontrado.'; end if;
+  else
+    v_customer_name := coalesce(nullif(btrim(coalesce(p_customer_name, '')), ''), 'Cliente');
+  end if;
+
+  select coalesce(tax_rate, 0.18) into v_tax_rate from public.companies where id = v_company_id;
+
+  v_quote_number := 'COT-' || to_char(now(), 'YYYYMMDD') || '-' ||
+                    upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 6));
+
+  insert into public.quotes (company_id, location_id, quote_number, customer_id, customer_name,
+                             valid_until, notes, created_by)
+  values (v_company_id, p_location_id, v_quote_number, p_customer_id, v_customer_name,
+          v_valid_until, nullif(btrim(coalesce(p_notes, '')), ''), auth.uid())
+  returning id into v_quote_id;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_qty := coalesce((v_item ->> 'qty')::numeric, 0);
+    if v_qty <= 0 then raise exception 'Cantidad invalida.'; end if;
+
+    select * into v_product from public.products
+      where id = (v_item ->> 'product_id')::uuid and company_id = v_company_id and deleted_at is null;
+    if not found then raise exception 'Producto no encontrado.'; end if;
+
+    v_price_includes_tax := coalesce(v_product.price_includes_tax, true);
+    v_variant_id := nullif(v_item ->> 'variant_id', '')::uuid;
+    v_variant_label := null;
+
+    if v_variant_id is not null then
+      select * into v_variant from public.product_variants
+        where id = v_variant_id and product_id = v_product.id and company_id = v_company_id
+          and is_active = true and deleted_at is null;
+      if not found then raise exception 'Variante no encontrada para el producto %.', v_product.name; end if;
+      v_unit_price := coalesce(v_variant.price_override, v_product.price);
+
+      v_label_parts := array[]::text[];
+      for v_attr_key, v_attr_val in
+        select key, value::text from jsonb_each_text(coalesce(v_variant.attributes, '{}'::jsonb))
+      loop
+        v_label_parts := v_label_parts || (v_attr_key || ' ' || v_attr_val);
+      end loop;
+      v_variant_label := array_to_string(v_label_parts, ' / ');
+    else
+      v_unit_price := v_product.price;
+    end if;
+
+    if v_price_includes_tax then
+      v_line_total := round(v_unit_price * v_qty, 2);
+      v_line_tax := round(v_line_total - v_line_total / (1 + v_tax_rate), 2);
+    else
+      v_line_total := round(v_unit_price * v_qty * (1 + v_tax_rate), 2);
+      v_line_tax := round(v_unit_price * v_qty * v_tax_rate, 2);
+    end if;
+    v_total := v_total + v_line_total;
+    v_tax := v_tax + v_line_tax;
+    v_item_count := v_item_count + 1;
+
+    insert into public.quote_items (company_id, quote_id, product_id, product_variant_id, variant_label,
+                                    product_name, qty, unit_price, total, tax_amount, price_includes_tax)
+    values (v_company_id, v_quote_id, v_product.id, v_variant_id, v_variant_label,
+            v_product.name, v_qty, v_unit_price, v_line_total, v_line_tax, v_price_includes_tax);
+  end loop;
+
+  if v_item_count = 0 then
+    raise exception 'Agrega al menos un producto a la cotizacion.';
+  end if;
+
+  v_subtotal := v_total - v_tax;
+  update public.quotes set subtotal = v_subtotal, tax = v_tax, total = v_total where id = v_quote_id;
+
+  return jsonb_build_object(
+    'quote_id', v_quote_id,
+    'quote_number', v_quote_number,
+    'subtotal', v_subtotal,
+    'tax', v_tax,
+    'total', v_total,
+    'valid_until', v_valid_until
+  );
+end;
+$$;
+
+revoke execute on function public.create_quote(jsonb, uuid, text, uuid, date, text) from public, anon;
+grant execute on function public.create_quote(jsonb, uuid, text, uuid, date, text) to authenticated;
+
+-- Rechaza una cotización pendiente (el cliente no la aceptó). No revierte
+-- nada porque crear una cotización nunca tocó stock ni dinero.
+create or replace function public.reject_quote(p_quote_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+  v_company_id := public.current_user_company_id();
+
+  update public.quotes set status = 'rechazada', updated_at = now()
+  where id = p_quote_id and company_id = v_company_id and status = 'pendiente';
+  if not found then
+    raise exception 'La cotizacion no existe o ya no esta pendiente.';
+  end if;
+end;
+$$;
+
+revoke execute on function public.reject_quote(uuid) from public, anon;
+grant execute on function public.reject_quote(uuid) to authenticated;
+
+-- Convierte una cotización pendiente y vigente en una venta real: valida y
+-- descuenta stock (algo que create_quote nunca hizo), usando los precios
+-- YA CONGELADOS en quote_items -- nunca vuelve a consultar el precio
+-- actual del producto, para respetar la promesa de precio de la
+-- cotización aunque el catálogo haya cambiado desde entonces. La venta
+-- resultante se comporta como cualquier otra: gana comisión del vendedor
+-- y puntos de lealtad (incluye canje) con las reglas vigentes HOY.
+-- Limitación de esta primera versión: solo productos tipo Estándar (sin
+-- Combo/Servicio) y un solo método de pago (sin pago dividido).
+create or replace function public.convert_quote_to_sale(
+  p_quote_id uuid,
+  p_location_id uuid,
+  p_payment_method text default 'Efectivo',
+  p_payment_kind text default null,
+  p_till_id uuid default null,
+  p_points_redeemed integer default 0
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_role public.app_role;
+  v_quote public.quotes%rowtype;
+  v_item public.quote_items%rowtype;
+  v_product public.products%rowtype;
+  v_loc_stock numeric(12,3);
+  v_sale_id uuid;
+  v_sale_number text;
+  v_open_sessions integer;
+  v_till_id uuid;
+  v_payment_method text;
+  v_payment_kind text;
+  v_credit_limit numeric(12,2);
+  v_credit_balance numeric(12,2);
+  v_credit_available numeric(12,2);
+  v_commission_rate numeric(5,4);
+  v_commission_amount numeric(12,2) := 0;
+  v_loyalty_enabled boolean;
+  v_point_value numeric(10,4);
+  v_earn_rate numeric(10,4);
+  v_tiers_enabled boolean;
+  v_tier2_min numeric(12,2);
+  v_tier3_min numeric(12,2);
+  v_tier1_rate numeric(10,4);
+  v_tier2_rate numeric(10,4);
+  v_tier3_rate numeric(10,4);
+  v_customer_balance numeric;
+  v_year_spend numeric(12,2);
+  v_year_spend_year integer;
+  v_current_year integer;
+  v_points_redeemed_actual numeric := 0;
+  v_points_earned numeric := 0;
+  v_discount numeric(12,2) := 0;
+  v_total numeric(12,2);
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  v_role := public.current_user_role();
+  if v_role not in ('admin', 'finanzas', 'user') then
+    raise exception 'No tienes permiso para convertir cotizaciones.';
+  end if;
+
+  select * into v_quote from public.quotes
+    where id = p_quote_id and company_id = v_company_id and deleted_at is null
+    for update;
+  if not found then raise exception 'Cotizacion no encontrada.'; end if;
+  if v_quote.status <> 'pendiente' then
+    raise exception 'Esta cotizacion ya esta % y no se puede convertir.', v_quote.status;
+  end if;
+  if v_quote.valid_until < current_date then
+    raise exception 'Esta cotizacion vencio el % y ya no se puede convertir.',
+      to_char(v_quote.valid_until, 'DD/MM/YYYY');
+  end if;
+
+  perform 1 from public.locations where id = p_location_id and company_id = v_company_id;
+  if not found then raise exception 'Sucursal invalida.'; end if;
+  if not public.user_can_access_location(p_location_id) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
+
+  v_till_id := p_till_id;
+  if v_till_id is null then
+    select count(*) into v_open_sessions from public.cash_sessions
+      where company_id = v_company_id and location_id = p_location_id and status = 'open';
+    if v_open_sessions = 1 then
+      select till_id into v_till_id from public.cash_sessions
+        where company_id = v_company_id and location_id = p_location_id and status = 'open';
+    end if;
+  end if;
+
+  v_sale_number := 'V-' || to_char(now(), 'YYYYMMDD') || '-' ||
+                   upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 6));
+  insert into public.sales (company_id, location_id, till_id, customer_id, sale_number, document_type,
+                            payment_method, customer_name, subtotal, tax, total, created_by)
+  values (v_company_id, p_location_id, v_till_id, v_quote.customer_id, v_sale_number, 'Ticket',
+          coalesce(p_payment_method, 'Efectivo'), v_quote.customer_name,
+          v_quote.subtotal, v_quote.tax, v_quote.total, auth.uid())
+  returning id into v_sale_id;
+
+  v_total := v_quote.total;
+
+  for v_item in select * from public.quote_items where quote_id = v_quote.id loop
+    if v_item.product_id is null then
+      raise exception 'Un producto de la cotizacion ya no existe en el catalogo.';
+    end if;
+
+    select * into v_product from public.products
+      where id = v_item.product_id and company_id = v_company_id and deleted_at is null;
+    if not found then
+      raise exception 'El producto "%" de la cotizacion ya no existe en el catalogo.', v_item.product_name;
+    end if;
+    if v_product.product_type in ('combo', 'service') then
+      raise exception 'La cotizacion incluye "%" (tipo %); conviertela creando la venta manualmente en el Punto de Venta.',
+        v_product.name, v_product.product_type;
+    end if;
+
+    if v_item.product_variant_id is not null then
+      select stock into v_loc_stock from public.product_variant_locations
+        where product_variant_id = v_item.product_variant_id and location_id = p_location_id for update;
+      if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_item.product_name; end if;
+      if v_loc_stock < v_item.qty then raise exception 'Stock insuficiente para % en este local.', v_item.product_name; end if;
+
+      update public.product_variant_locations set stock = stock - v_item.qty, updated_at = now()
+        where product_variant_id = v_item.product_variant_id and location_id = p_location_id;
+      update public.products set stock = (
+        select coalesce(sum(pvl.stock), 0) from public.product_variant_locations pvl
+        join public.product_variants pv on pv.id = pvl.product_variant_id
+        where pv.product_id = v_product.id
+      ) where id = v_product.id;
+      insert into public.stock_movements (company_id, location_id, product_id, product_variant_id,
+                                          movement_type, qty, reference_type, reference_id, notes)
+      values (v_company_id, p_location_id, v_product.id, v_item.product_variant_id, 'sale', -v_item.qty,
+              'sale', v_sale_id, 'Venta POS (desde cotización)');
+    else
+      select stock into v_loc_stock from public.product_locations
+        where product_id = v_product.id and location_id = p_location_id for update;
+      if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_item.product_name; end if;
+      if v_loc_stock < v_item.qty then raise exception 'Stock insuficiente para % en este local.', v_item.product_name; end if;
+
+      update public.product_locations set stock = stock - v_item.qty, updated_at = now()
+        where product_id = v_product.id and location_id = p_location_id;
+      update public.products set stock = (
+        select coalesce(sum(stock), 0) from public.product_locations where product_id = v_product.id
+      ) where id = v_product.id;
+      insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty,
+                                          reference_type, reference_id, notes)
+      values (v_company_id, p_location_id, v_product.id, 'sale', -v_item.qty, 'sale', v_sale_id,
+              'Venta POS (desde cotización)');
+    end if;
+
+    insert into public.sale_items (company_id, location_id, sale_id, product_id, product_variant_id,
+                                   variant_label, product_name, qty, unit_price, total, cost,
+                                   tax_amount, price_includes_tax)
+    values (v_company_id, p_location_id, v_sale_id, v_item.product_id, v_item.product_variant_id,
+            v_item.variant_label, v_item.product_name, v_item.qty, v_item.unit_price, v_item.total,
+            coalesce(v_product.cost, 0), v_item.tax_amount, v_item.price_includes_tax);
+  end loop;
+
+  -- Puntos de lealtad: mismo bloque que create_sale (redimir, ganar por
+  -- nivel, acumular gasto del año) -- una venta nacida de una cotización
+  -- se trata igual que cualquier otra para el cliente.
+  if v_quote.customer_id is not null then
+    select loyalty_enabled, loyalty_point_value, loyalty_earn_rate,
+           coalesce(loyalty_tiers_enabled, false), loyalty_tier2_min_spend, loyalty_tier3_min_spend,
+           loyalty_tier1_earn_rate, loyalty_tier2_earn_rate, loyalty_tier3_earn_rate
+      into v_loyalty_enabled, v_point_value, v_earn_rate,
+           v_tiers_enabled, v_tier2_min, v_tier3_min, v_tier1_rate, v_tier2_rate, v_tier3_rate
+      from public.companies where id = v_company_id;
+
+    if coalesce(v_loyalty_enabled, false) then
+      v_current_year := extract(year from now())::int;
+      select loyalty_points, coalesce(loyalty_year_spend, 0), loyalty_year_spend_year
+        into v_customer_balance, v_year_spend, v_year_spend_year
+        from public.customers where id = v_quote.customer_id and company_id = v_company_id
+        for update;
+      if v_year_spend_year is distinct from v_current_year then
+        v_year_spend := 0;
+      end if;
+
+      if coalesce(p_points_redeemed, 0) > 0 and coalesce(v_point_value, 0) > 0 then
+        v_points_redeemed_actual := least(
+          p_points_redeemed::numeric,
+          coalesce(v_customer_balance, 0),
+          floor(v_total / v_point_value)
+        );
+        if v_points_redeemed_actual > 0 then
+          v_discount := round(v_points_redeemed_actual * v_point_value, 2);
+          insert into public.loyalty_ledger (company_id, customer_id, sale_id, points, type, created_by)
+          values (v_company_id, v_quote.customer_id, v_sale_id, -v_points_redeemed_actual, 'redeemed', auth.uid());
+        end if;
+      end if;
+
+      v_total := v_total - v_discount;
+
+      if v_tiers_enabled then
+        if coalesce(v_tier3_min, 0) > 0 and v_year_spend >= v_tier3_min then
+          v_earn_rate := v_tier3_rate;
+        elsif coalesce(v_tier2_min, 0) > 0 and v_year_spend >= v_tier2_min then
+          v_earn_rate := v_tier2_rate;
+        else
+          v_earn_rate := v_tier1_rate;
+        end if;
+      end if;
+
+      if coalesce(v_earn_rate, 0) > 0 then
+        v_points_earned := floor(v_total / v_earn_rate);
+        if v_points_earned > 0 then
+          insert into public.loyalty_ledger (company_id, customer_id, sale_id, points, type, created_by)
+          values (v_company_id, v_quote.customer_id, v_sale_id, v_points_earned, 'earned', auth.uid());
+        end if;
+      end if;
+
+      v_year_spend := v_year_spend + greatest(v_total, 0);
+
+      update public.customers
+        set loyalty_points = coalesce(loyalty_points, 0) + v_points_earned - v_points_redeemed_actual,
+            loyalty_year_spend = v_year_spend,
+            loyalty_year_spend_year = v_current_year,
+            updated_at = now()
+        where id = v_quote.customer_id;
+
+      update public.sales set total = v_total, discount_total = v_discount where id = v_sale_id;
+    end if;
+  end if;
+
+  -- Pago: una sola forma de pago (sin desglose) -- igual que el "else" de
+  -- create_sale cuando el cajero no manda pago dividido.
+  if v_total > 0 then
+    v_payment_method := coalesce(p_payment_method, 'Efectivo');
+    v_payment_kind := nullif(btrim(coalesce(p_payment_kind, '')), '');
+    if v_payment_kind is null then
+      v_payment_kind := case when lower(v_payment_method) = 'efectivo' then 'cash' else 'other' end;
+    end if;
+
+    if v_payment_kind = 'credit' then
+      if v_quote.customer_id is null then
+        raise exception 'Esta cotizacion no tiene cliente asignado; no se puede vender a credito.';
+      end if;
+      select credit_limit, credit_balance into v_credit_limit, v_credit_balance
+        from public.customers where id = v_quote.customer_id and company_id = v_company_id
+        for update;
+      if v_credit_limit is null or v_credit_limit <= 0 then
+        raise exception 'Este cliente no tiene credito habilitado.';
+      end if;
+      v_credit_available := v_credit_limit - coalesce(v_credit_balance, 0);
+      if v_total > v_credit_available then
+        raise exception 'El credito disponible del cliente (%) es menor al total de la venta (%).',
+          round(v_credit_available, 2), round(v_total, 2);
+      end if;
+      update public.customers set credit_balance = coalesce(credit_balance, 0) + v_total, updated_at = now()
+        where id = v_quote.customer_id;
+    end if;
+
+    insert into public.sale_payments (company_id, sale_id, method, amount, kind)
+    values (v_company_id, v_sale_id, v_payment_method, v_total, v_payment_kind);
+  end if;
+
+  -- Comisión del vendedor: sobre el total ya final, con SU propio %
+  -- vigente en este momento (igual que en create_sale).
+  select commission_rate into v_commission_rate from public.profiles where id = auth.uid();
+  if v_commission_rate is not null and v_commission_rate > 0 then
+    v_commission_amount := round(v_total * v_commission_rate, 2);
+  end if;
+  update public.sales set commission_rate = v_commission_rate, commission_amount = v_commission_amount
+    where id = v_sale_id;
+
+  update public.quotes set status = 'convertida', converted_sale_id = v_sale_id, updated_at = now()
+    where id = p_quote_id;
+
+  return jsonb_build_object(
+    'sale_id', v_sale_id,
+    'sale_number', v_sale_number,
+    'quote_id', p_quote_id,
+    'total', v_total,
+    'points_earned', v_points_earned,
+    'points_redeemed', v_points_redeemed_actual
+  );
+end;
+$$;
+
+revoke execute on function public.convert_quote_to_sale(uuid, uuid, text, text, uuid, integer) from public, anon;
+grant execute on function public.convert_quote_to_sale(uuid, uuid, text, text, uuid, integer) to authenticated;

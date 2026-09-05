@@ -396,11 +396,14 @@
   #receipt-print,
   #receipt-print *,
   #ganancias-print,
-  #ganancias-print * {
+  #ganancias-print *,
+  #cotizacion-print,
+  #cotizacion-print * {
     visibility: visible !important;
   }
   #receipt-print,
-  #ganancias-print {
+  #ganancias-print,
+  #cotizacion-print {
     position: absolute;
     left: 0;
     top: 0;

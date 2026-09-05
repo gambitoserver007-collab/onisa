@@ -3584,6 +3584,251 @@ export async function createReturn(
   return data as string;
 }
 
+// ---- Cotizaciones (presupuesto no vinculante, precios congelados) ----
+
+export type QuoteStatus = "pendiente" | "convertida" | "rechazada";
+
+export interface Quote {
+  id: string;
+  number: string;
+  date: string;
+  customerId: string | null;
+  customerName: string;
+  locationId: string | null;
+  subtotal: number;
+  tax: number;
+  total: number;
+  validUntil: string;
+  status: QuoteStatus;
+  notes: string | null;
+  convertedSaleId: string | null;
+  itemsLabel: string;
+}
+
+export interface QuoteItem {
+  id: string;
+  productId: string | null;
+  productName: string;
+  variantLabel: string | null;
+  qty: number;
+  unitPrice: number;
+  total: number;
+  taxAmount: number;
+}
+
+export interface CreateQuoteItemInput {
+  productId: string;
+  variantId?: string | null;
+  qty: number;
+}
+
+export interface CreateQuoteInput {
+  items: CreateQuoteItemInput[];
+  customerId?: string | null;
+  customerName?: string | null;
+  locationId?: string | null;
+  /** yyyy-mm-dd; si se omite, la RPC usa hoy + 15 días. */
+  validUntil?: string | null;
+  notes?: string | null;
+}
+
+function toQuoteStatus(value: string): QuoteStatus {
+  return value === "convertida" || value === "rechazada" ? value : "pendiente";
+}
+
+/** Crea una cotización -- NO valida ni descuenta stock (es una promesa de
+ * precio, no de inventario); eso se valida hasta convertQuoteToSale. */
+export async function createQuote(
+  input: CreateQuoteInput,
+): Promise<{ quoteId: string; quoteNumber: string; total: number }> {
+  if (!input.items || input.items.length === 0) {
+    throw new Error("Agrega al menos un producto a la cotización.");
+  }
+  const { data, error } = await supabase.rpc("create_quote", {
+    p_items: input.items.map((item) => ({
+      product_id: item.productId,
+      variant_id: item.variantId ?? null,
+      qty: item.qty,
+    })) as unknown as Json,
+    p_customer_id: input.customerId ?? undefined,
+    p_customer_name: input.customerName ?? undefined,
+    p_location_id: input.locationId ?? undefined,
+    p_valid_until: input.validUntil ?? undefined,
+    p_notes: input.notes ?? undefined,
+  });
+  if (error) throw error;
+  const result = data as {
+    quote_id: string;
+    quote_number: string;
+    total: number;
+  };
+  return {
+    quoteId: result.quote_id,
+    quoteNumber: result.quote_number,
+    total: toNumber(result.total),
+  };
+}
+
+export async function fetchQuotes(
+  companyId?: string,
+  opts: { from?: string; to?: string; status?: QuoteStatus } = {},
+): Promise<Quote[]> {
+  let q = supabase
+    .from("quotes")
+    .select(
+      "id, quote_number, created_at, customer_id, customer_name, location_id, subtotal, tax, total, valid_until, status, notes, converted_sale_id",
+    )
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+  if (companyId) q = q.eq("company_id", companyId);
+  if (opts.status) q = q.eq("status", opts.status);
+  if (opts.from) q = q.gte("created_at", `${opts.from}T00:00:00`);
+  if (opts.to) {
+    const toExclusive = new Date(
+      new Date(`${opts.to}T00:00:00`).getTime() + 24 * 60 * 60 * 1000,
+    ).toISOString();
+    q = q.lt("created_at", toExclusive);
+  }
+  const { data, error } = await q;
+  if (error) throw error;
+  const rows = data ?? [];
+
+  const quoteIds = rows.map((row) => row.id);
+  const itemsByQuote = new Map<string, string[]>();
+  if (quoteIds.length) {
+    const { data: qitems } = await supabase
+      .from("quote_items")
+      .select("quote_id, product_name, qty")
+      .in("quote_id", quoteIds);
+    (qitems ?? []).forEach((it) => {
+      const list = itemsByQuote.get(it.quote_id) ?? [];
+      list.push(`${toNumber(it.qty)} × ${it.product_name}`);
+      itemsByQuote.set(it.quote_id, list);
+    });
+  }
+
+  return rows.map((row) => ({
+    id: row.id,
+    number: row.quote_number,
+    date: normalizeDate(row.created_at),
+    customerId: row.customer_id ?? null,
+    customerName: row.customer_name,
+    locationId: row.location_id ?? null,
+    subtotal: toNumber(row.subtotal),
+    tax: toNumber(row.tax),
+    total: toNumber(row.total),
+    validUntil: row.valid_until,
+    status: toQuoteStatus(row.status),
+    notes: row.notes ?? null,
+    convertedSaleId: row.converted_sale_id ?? null,
+    itemsLabel: (itemsByQuote.get(row.id) ?? []).join(", "),
+  }));
+}
+
+export async function fetchQuote(
+  quoteId: string,
+): Promise<{ quote: Quote; items: QuoteItem[] } | null> {
+  const { data: row, error } = await supabase
+    .from("quotes")
+    .select(
+      "id, quote_number, created_at, customer_id, customer_name, location_id, subtotal, tax, total, valid_until, status, notes, converted_sale_id",
+    )
+    .eq("id", quoteId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) throw error;
+  if (!row) return null;
+
+  const { data: itemRows, error: itemsError } = await supabase
+    .from("quote_items")
+    .select(
+      "id, product_id, product_name, variant_label, qty, unit_price, total, tax_amount",
+    )
+    .eq("quote_id", quoteId);
+  if (itemsError) throw itemsError;
+
+  const items: QuoteItem[] = (itemRows ?? []).map((it) => ({
+    id: it.id,
+    productId: it.product_id ?? null,
+    productName: it.product_name,
+    variantLabel: it.variant_label ?? null,
+    qty: toNumber(it.qty),
+    unitPrice: toNumber(it.unit_price),
+    total: toNumber(it.total),
+    taxAmount: toNumber(it.tax_amount),
+  }));
+
+  return {
+    quote: {
+      id: row.id,
+      number: row.quote_number,
+      date: normalizeDate(row.created_at),
+      customerId: row.customer_id ?? null,
+      customerName: row.customer_name,
+      locationId: row.location_id ?? null,
+      subtotal: toNumber(row.subtotal),
+      tax: toNumber(row.tax),
+      total: toNumber(row.total),
+      validUntil: row.valid_until,
+      status: toQuoteStatus(row.status),
+      notes: row.notes ?? null,
+      convertedSaleId: row.converted_sale_id ?? null,
+      itemsLabel: items.map((it) => `${it.qty} × ${it.productName}`).join(", "),
+    },
+    items,
+  };
+}
+
+/** Marca una cotización pendiente como rechazada -- no revierte nada porque
+ * crear una cotización nunca tocó stock ni dinero. */
+export async function rejectQuote(quoteId: string): Promise<void> {
+  const { error } = await supabase.rpc("reject_quote", { p_quote_id: quoteId });
+  if (error) throw error;
+}
+
+/** Convierte una cotización pendiente y vigente en una venta real: valida y
+ * descuenta stock (create_quote nunca lo hizo) usando los precios YA
+ * CONGELADOS en quote_items -- nunca vuelve a consultar el precio actual
+ * del producto. Solo productos tipo Estándar y un solo método de pago. */
+export async function convertQuoteToSale(input: {
+  quoteId: string;
+  locationId: string;
+  paymentMethod?: string;
+  paymentKind?: string;
+  tillId?: string | null;
+  pointsRedeemed?: number;
+}): Promise<{
+  saleId: string;
+  saleNumber: string;
+  total: number;
+  pointsEarned: number;
+  pointsRedeemed: number;
+}> {
+  const { data, error } = await supabase.rpc("convert_quote_to_sale", {
+    p_quote_id: input.quoteId,
+    p_location_id: input.locationId,
+    p_payment_method: input.paymentMethod ?? "Efectivo",
+    p_payment_kind: input.paymentKind ?? undefined,
+    p_till_id: input.tillId ?? undefined,
+    p_points_redeemed: input.pointsRedeemed ?? 0,
+  });
+  if (error) throw error;
+  const result = data as {
+    sale_id: string;
+    sale_number: string;
+    total: number;
+    points_earned: number;
+    points_redeemed: number;
+  };
+  return {
+    saleId: result.sale_id,
+    saleNumber: result.sale_number,
+    total: toNumber(result.total),
+    pointsEarned: toNumber(result.points_earned),
+    pointsRedeemed: toNumber(result.points_redeemed),
+  };
+}
+
 // ---- Suscripción (uso real del plan) ----
 
 export interface PlanUsage {
