@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApartadosRouteImport } from './routes/apartados'
 import { Route as BackupRouteImport } from './routes/backup'
 import { Route as CajaRouteImport } from './routes/caja'
 import { Route as CategoriasRouteImport } from './routes/categorias'
@@ -42,6 +43,7 @@ import { Route as AdminMetodosPagoRouteImport } from './routes/admin.metodos-pag
 import { Route as AdminPaisesRouteImport } from './routes/admin.paises'
 import { Route as AdminPerfilRouteImport } from './routes/admin.perfil'
 import { Route as AdminPlanesRouteImport } from './routes/admin.planes'
+import { Route as ApartadosIdRouteImport } from './routes/apartados_.$id'
 import { Route as CajaReportesRouteImport } from './routes/caja_.reportes'
 import { Route as CajaRevisionRouteImport } from './routes/caja_.revision'
 import { Route as ComprasIndexRouteImport } from './routes/compras.index'
@@ -59,6 +61,11 @@ import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApartadosRoute = ApartadosRouteImport.update({
+  id: '/apartados',
+  path: '/apartados',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BackupRoute = BackupRouteImport.update({
@@ -223,6 +230,11 @@ const AdminPlanesRoute = AdminPlanesRouteImport.update({
   path: '/admin/planes',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApartadosIdRoute = ApartadosIdRouteImport.update({
+  id: '/apartados_/$id',
+  path: '/apartados/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CajaReportesRoute = CajaReportesRouteImport.update({
   id: '/caja_/reportes',
   path: '/caja/reportes',
@@ -292,6 +304,7 @@ const Char91DotmcpChar93InvokeToolToolRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/apartados': typeof ApartadosRoute
   '/backup': typeof BackupRoute
   '/caja': typeof CajaRoute
   '/categorias': typeof CategoriasRoute
@@ -323,6 +336,7 @@ export interface FileRoutesByFullPath {
   '/admin/paises': typeof AdminPaisesRoute
   '/admin/perfil': typeof AdminPerfilRoute
   '/admin/planes': typeof AdminPlanesRoute
+  '/apartados/$id': typeof ApartadosIdRoute
   '/caja/reportes': typeof CajaReportesRoute
   '/caja/revision': typeof CajaRevisionRoute
   '/compras/nueva': typeof ComprasNuevaRoute
@@ -340,6 +354,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/apartados': typeof ApartadosRoute
   '/backup': typeof BackupRoute
   '/caja': typeof CajaRoute
   '/categorias': typeof CategoriasRoute
@@ -371,6 +386,7 @@ export interface FileRoutesByTo {
   '/admin/paises': typeof AdminPaisesRoute
   '/admin/perfil': typeof AdminPerfilRoute
   '/admin/planes': typeof AdminPlanesRoute
+  '/apartados/$id': typeof ApartadosIdRoute
   '/caja/reportes': typeof CajaReportesRoute
   '/caja/revision': typeof CajaRevisionRoute
   '/compras/nueva': typeof ComprasNuevaRoute
@@ -389,6 +405,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/apartados': typeof ApartadosRoute
   '/backup': typeof BackupRoute
   '/caja': typeof CajaRoute
   '/categorias': typeof CategoriasRoute
@@ -420,6 +437,7 @@ export interface FileRoutesById {
   '/admin/paises': typeof AdminPaisesRoute
   '/admin/perfil': typeof AdminPerfilRoute
   '/admin/planes': typeof AdminPlanesRoute
+  '/apartados_/$id': typeof ApartadosIdRoute
   '/caja_/reportes': typeof CajaReportesRoute
   '/caja_/revision': typeof CajaRevisionRoute
   '/compras/nueva': typeof ComprasNuevaRoute
@@ -439,6 +457,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/apartados'
     | '/backup'
     | '/caja'
     | '/categorias'
@@ -470,6 +489,7 @@ export interface FileRouteTypes {
     | '/admin/paises'
     | '/admin/perfil'
     | '/admin/planes'
+    | '/apartados/$id'
     | '/caja/reportes'
     | '/caja/revision'
     | '/compras/nueva'
@@ -487,6 +507,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/apartados'
     | '/backup'
     | '/caja'
     | '/categorias'
@@ -518,6 +539,7 @@ export interface FileRouteTypes {
     | '/admin/paises'
     | '/admin/perfil'
     | '/admin/planes'
+    | '/apartados/$id'
     | '/caja/reportes'
     | '/caja/revision'
     | '/compras/nueva'
@@ -535,6 +557,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/apartados'
     | '/backup'
     | '/caja'
     | '/categorias'
@@ -566,6 +589,7 @@ export interface FileRouteTypes {
     | '/admin/paises'
     | '/admin/perfil'
     | '/admin/planes'
+    | '/apartados_/$id'
     | '/caja_/reportes'
     | '/caja_/revision'
     | '/compras/nueva'
@@ -584,6 +608,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApartadosRoute: typeof ApartadosRoute
   BackupRoute: typeof BackupRoute
   CajaRoute: typeof CajaRoute
   CategoriasRoute: typeof CategoriasRoute
@@ -615,6 +640,7 @@ export interface RootRouteChildren {
   AdminPaisesRoute: typeof AdminPaisesRoute
   AdminPerfilRoute: typeof AdminPerfilRoute
   AdminPlanesRoute: typeof AdminPlanesRoute
+  ApartadosIdRoute: typeof ApartadosIdRoute
   CajaReportesRoute: typeof CajaReportesRoute
   CajaRevisionRoute: typeof CajaRevisionRoute
   ComprasNuevaRoute: typeof ComprasNuevaRoute
@@ -638,6 +664,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/apartados': {
+      id: '/apartados'
+      path: '/apartados'
+      fullPath: '/apartados'
+      preLoaderRoute: typeof ApartadosRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/backup': {
@@ -864,6 +897,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminPlanesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/apartados_/$id': {
+      id: '/apartados_/$id'
+      path: '/apartados/$id'
+      fullPath: '/apartados/$id'
+      preLoaderRoute: typeof ApartadosIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/caja_/reportes': {
       id: '/caja_/reportes'
       path: '/caja/reportes'
@@ -960,6 +1000,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApartadosRoute: ApartadosRoute,
   BackupRoute: BackupRoute,
   CajaRoute: CajaRoute,
   CategoriasRoute: CategoriasRoute,
@@ -992,6 +1033,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminPaisesRoute: AdminPaisesRoute,
   AdminPerfilRoute: AdminPerfilRoute,
   AdminPlanesRoute: AdminPlanesRoute,
+  ApartadosIdRoute: ApartadosIdRoute,
   CajaReportesRoute: CajaReportesRoute,
   CajaRevisionRoute: CajaRevisionRoute,
   ComprasNuevaRoute: ComprasNuevaRoute,

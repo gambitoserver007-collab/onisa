@@ -9922,3 +9922,668 @@ $$;
 
 revoke execute on function public.convert_quote_to_sale(uuid, uuid, text, text, uuid, integer) from public, anon;
 grant execute on function public.convert_quote_to_sale(uuid, uuid, text, text, uuid, integer) to authenticated;
+
+-- ============================================================
+-- Apartados: el cliente reserva mercancía y la paga en abonos; a
+-- diferencia de Cotizaciones, el stock SÍ se descuenta desde que se crea
+-- (nadie más se lo puede llevar mientras se está pagando). Solo productos
+-- tipo Estándar (sin variantes, combos ni servicios) en esta primera
+-- versión -- un combo/servicio no tiene sentido "apartarlo" de la misma
+-- forma (el servicio no tiene stock; el combo agrega la complejidad de
+-- reponer cada pieza si se cancela, para una fase futura).
+--
+-- El dinero de cada abono se refleja en el arqueo de caja EN EL MOMENTO
+-- que se cobra (como ya hace collect_customer_credit con el crédito de
+-- clientes) insertando en cash_movements -- así nunca importa cuántos
+-- días o turnos pasen entre abonos y la entrega final. Cuando se completa
+-- el apartado y se genera la venta real, esa venta se registra con
+-- kind='other' (no 'cash') precisamente para que compute_cash_session_expected
+-- NO vuelva a contar ese dinero, que ya se contó abono por abono.
+-- ============================================================
+alter table public.companies add column if not exists apartado_min_deposit_pct numeric(5,4) not null default 0.2;
+
+create table if not exists public.apartados (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  location_id uuid not null references public.locations(id) on delete restrict,
+  apartado_number text not null,
+  customer_id uuid not null references public.customers(id) on delete restrict,
+  subtotal numeric(12,2) not null default 0,
+  tax numeric(12,2) not null default 0,
+  total numeric(12,2) not null default 0,
+  paid_total numeric(12,2) not null default 0,
+  due_date date not null,
+  status text not null default 'activo'
+    check (status in ('activo', 'completado', 'cancelado')),
+  notes text,
+  converted_sale_id uuid references public.sales(id) on delete set null,
+  -- null hasta que se cancela; true = se reembolsó el anticipo, false = se
+  -- quedó como penalización. El admin/finanzas decide caso por caso.
+  cancel_refunded boolean,
+  created_by uuid references public.profiles(id) on delete set null,
+  is_demo_data boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
+  unique (company_id, apartado_number)
+);
+
+create table if not exists public.apartado_items (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  apartado_id uuid not null references public.apartados(id) on delete cascade,
+  -- A diferencia de quote_items, aquí SÍ hay stock real comprometido --
+  -- "restrict" para que nunca se pueda borrar un producto que está
+  -- activamente apartado por debajo de los pies del apartado.
+  product_id uuid not null references public.products(id) on delete restrict,
+  product_name text not null,
+  qty numeric(12,3) not null,
+  unit_price numeric(12,2) not null,
+  total numeric(12,2) not null,
+  tax_amount numeric(12,2) not null default 0,
+  price_includes_tax boolean not null default true,
+  is_demo_data boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.apartado_payments (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  apartado_id uuid not null references public.apartados(id) on delete cascade,
+  amount numeric(12,2) not null,
+  method text not null default 'Efectivo',
+  kind text not null default 'cash',
+  notes text,
+  created_by uuid references public.profiles(id) on delete set null,
+  is_demo_data boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists apartados_company_idx on public.apartados(company_id, created_at desc);
+create index if not exists apartados_customer_idx on public.apartados(customer_id);
+create index if not exists apartado_items_apartado_idx on public.apartado_items(apartado_id);
+create index if not exists apartado_payments_apartado_idx on public.apartado_payments(apartado_id);
+
+alter table public.apartados enable row level security;
+alter table public.apartado_items enable row level security;
+alter table public.apartado_payments enable row level security;
+
+-- Mismo criterio que Cotizaciones: visible para todos los que tengan
+-- acceso a la sección (admin, finanzas, cajero) -- no hay razón para
+-- ocultarle a un cajero los apartados de otro. Insert/update/delete por
+-- separado (nunca "for all" -- ver el comentario de Mermas).
+drop policy if exists "apartados select scoped" on public.apartados;
+create policy "apartados select scoped" on public.apartados for select to authenticated
+  using (public.can_select_company(company_id, is_demo_data));
+drop policy if exists "apartados insert scoped" on public.apartados;
+create policy "apartados insert scoped" on public.apartados for insert to authenticated
+  with check (public.can_write_company(company_id));
+drop policy if exists "apartados update scoped" on public.apartados;
+create policy "apartados update scoped" on public.apartados for update to authenticated
+  using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
+drop policy if exists "apartados delete scoped" on public.apartados;
+create policy "apartados delete scoped" on public.apartados for delete to authenticated
+  using (public.can_write_company(company_id));
+
+drop policy if exists "apartado_items select scoped" on public.apartado_items;
+create policy "apartado_items select scoped" on public.apartado_items for select to authenticated
+  using (public.can_select_company(company_id, is_demo_data));
+drop policy if exists "apartado_items insert scoped" on public.apartado_items;
+create policy "apartado_items insert scoped" on public.apartado_items for insert to authenticated
+  with check (public.can_write_company(company_id));
+drop policy if exists "apartado_items update scoped" on public.apartado_items;
+create policy "apartado_items update scoped" on public.apartado_items for update to authenticated
+  using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
+drop policy if exists "apartado_items delete scoped" on public.apartado_items;
+create policy "apartado_items delete scoped" on public.apartado_items for delete to authenticated
+  using (public.can_write_company(company_id));
+
+drop policy if exists "apartado_payments select scoped" on public.apartado_payments;
+create policy "apartado_payments select scoped" on public.apartado_payments for select to authenticated
+  using (public.can_select_company(company_id, is_demo_data));
+drop policy if exists "apartado_payments insert scoped" on public.apartado_payments;
+create policy "apartado_payments insert scoped" on public.apartado_payments for insert to authenticated
+  with check (public.can_write_company(company_id));
+drop policy if exists "apartado_payments update scoped" on public.apartado_payments;
+create policy "apartado_payments update scoped" on public.apartado_payments for update to authenticated
+  using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
+drop policy if exists "apartado_payments delete scoped" on public.apartado_payments;
+create policy "apartado_payments delete scoped" on public.apartado_payments for delete to authenticated
+  using (public.can_write_company(company_id));
+
+drop trigger if exists prevent_demo_apartados_write on public.apartados;
+create trigger prevent_demo_apartados_write before insert or update or delete on public.apartados
+  for each row execute function public.reject_demo_write();
+drop trigger if exists prevent_demo_apartado_items_write on public.apartado_items;
+create trigger prevent_demo_apartado_items_write before insert or update or delete on public.apartado_items
+  for each row execute function public.reject_demo_write();
+drop trigger if exists prevent_demo_apartado_payments_write on public.apartado_payments;
+create trigger prevent_demo_apartado_payments_write before insert or update or delete on public.apartado_payments
+  for each row execute function public.reject_demo_write();
+
+grant select, insert, update, delete on public.apartados to authenticated;
+grant select, insert, update, delete on public.apartado_items to authenticated;
+grant select, insert, update, delete on public.apartado_payments to authenticated;
+grant all on public.apartados to service_role;
+grant all on public.apartado_items to service_role;
+grant all on public.apartado_payments to service_role;
+
+-- Inserta el abono en cash_movements de la sesión de caja ABIERTA del
+-- usuario que llama, si aplica -- exactamente el mismo criterio que
+-- collect_customer_credit. auth.uid() ya viene validado por el llamador;
+-- esta función es de uso interno (no se expone a authenticated).
+create or replace function public.apartado_register_cash_movement(
+  p_company_id uuid,
+  p_amount numeric,
+  p_concept text
+)
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  insert into public.cash_movements (company_id, cash_session_id, movement_type, concept, amount, location_id)
+  select p_company_id, cs.id, 'ingreso', p_concept, p_amount, cs.location_id
+  from public.cash_sessions cs
+  where cs.company_id = p_company_id and cs.status = 'open' and cs.opened_by = auth.uid()
+  order by cs.opened_at desc
+  limit 1;
+end;
+$$;
+
+revoke execute on function public.apartado_register_cash_movement(uuid, numeric, text) from public, anon, authenticated;
+grant execute on function public.apartado_register_cash_movement(uuid, numeric, text) to service_role;
+
+create or replace function public.create_apartado(
+  p_customer_id uuid,
+  p_items jsonb,
+  p_location_id uuid,
+  p_deposit_amount numeric,
+  p_due_date date default null,
+  p_payment_method text default 'Efectivo',
+  p_notes text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_role public.app_role;
+  v_tax_rate numeric(5,4);
+  v_min_pct numeric(5,4);
+  v_min_required numeric(12,2);
+  v_customer_name text;
+  v_due_date date;
+  v_apartado_id uuid;
+  v_apartado_number text;
+  v_item jsonb;
+  v_product public.products%rowtype;
+  v_qty numeric(12,3);
+  v_unit_price numeric(12,2);
+  v_price_includes_tax boolean;
+  v_line_total numeric(12,2);
+  v_line_tax numeric(12,2);
+  v_total numeric(12,2) := 0;
+  v_tax numeric(12,2) := 0;
+  v_subtotal numeric(12,2);
+  v_item_count integer := 0;
+  v_loc_stock numeric(12,3);
+  v_payment_kind text;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  v_role := public.current_user_role();
+  if v_role not in ('admin', 'finanzas', 'user') then
+    raise exception 'No tienes permiso para crear apartados.';
+  end if;
+
+  if p_items is null or jsonb_array_length(p_items) = 0 then
+    raise exception 'Agrega al menos un producto al apartado.';
+  end if;
+
+  select name into v_customer_name from public.customers
+    where id = p_customer_id and company_id = v_company_id and deleted_at is null;
+  if v_customer_name is null then raise exception 'Elige un cliente para el apartado.'; end if;
+
+  perform 1 from public.locations where id = p_location_id and company_id = v_company_id;
+  if not found then raise exception 'Sucursal invalida.'; end if;
+  if not public.user_can_access_location(p_location_id) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
+
+  v_due_date := coalesce(p_due_date, (current_date + interval '30 days')::date);
+  if v_due_date < current_date then
+    raise exception 'La fecha limite no puede ser en el pasado.';
+  end if;
+
+  select coalesce(tax_rate, 0.18), coalesce(apartado_min_deposit_pct, 0)
+    into v_tax_rate, v_min_pct
+    from public.companies where id = v_company_id;
+
+  v_apartado_number := 'APT-' || to_char(now(), 'YYYYMMDD') || '-' ||
+                       upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 6));
+
+  insert into public.apartados (company_id, location_id, apartado_number, customer_id, due_date, notes, created_by)
+  values (v_company_id, p_location_id, v_apartado_number, p_customer_id, v_due_date,
+          nullif(btrim(coalesce(p_notes, '')), ''), auth.uid())
+  returning id into v_apartado_id;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_qty := coalesce((v_item ->> 'qty')::numeric, 0);
+    if v_qty <= 0 then raise exception 'Cantidad invalida.'; end if;
+
+    select * into v_product from public.products
+      where id = (v_item ->> 'product_id')::uuid and company_id = v_company_id and deleted_at is null;
+    if not found then raise exception 'Producto no encontrado.'; end if;
+    if v_product.has_variants then
+      raise exception 'El producto "%" tiene variantes; los apartados por ahora solo admiten productos sin variantes.', v_product.name;
+    end if;
+    if v_product.product_type <> 'standard' then
+      raise exception 'El producto "%" es tipo %; por ahora solo se pueden apartar productos estándar.', v_product.name, v_product.product_type;
+    end if;
+
+    v_price_includes_tax := coalesce(v_product.price_includes_tax, true);
+    v_unit_price := v_product.price;
+
+    if v_price_includes_tax then
+      v_line_total := round(v_unit_price * v_qty, 2);
+      v_line_tax := round(v_line_total - v_line_total / (1 + v_tax_rate), 2);
+    else
+      v_line_total := round(v_unit_price * v_qty * (1 + v_tax_rate), 2);
+      v_line_tax := round(v_unit_price * v_qty * v_tax_rate, 2);
+    end if;
+    v_total := v_total + v_line_total;
+    v_tax := v_tax + v_line_tax;
+    v_item_count := v_item_count + 1;
+
+    -- El stock se descuenta YA -- es lo que hace que un apartado apartado
+    -- de verdad: nadie más se lo puede llevar mientras se paga.
+    select stock into v_loc_stock from public.product_locations
+      where product_id = v_product.id and location_id = p_location_id for update;
+    if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_product.name; end if;
+    if v_loc_stock < v_qty then raise exception 'Stock insuficiente para % en este local.', v_product.name; end if;
+
+    update public.product_locations set stock = stock - v_qty, updated_at = now()
+      where product_id = v_product.id and location_id = p_location_id;
+    update public.products set stock = (
+      select coalesce(sum(stock), 0) from public.product_locations where product_id = v_product.id
+    ) where id = v_product.id;
+    insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty,
+                                        reference_type, reference_id, notes)
+    values (v_company_id, p_location_id, v_product.id, 'apartado', -v_qty, 'apartado', v_apartado_id,
+            'Apartado ' || v_apartado_number);
+
+    insert into public.apartado_items (company_id, apartado_id, product_id, product_name, qty,
+                                       unit_price, total, tax_amount, price_includes_tax)
+    values (v_company_id, v_apartado_id, v_product.id, v_product.name, v_qty,
+            v_unit_price, v_line_total, v_line_tax, v_price_includes_tax);
+  end loop;
+
+  if v_item_count = 0 then
+    raise exception 'Agrega al menos un producto al apartado.';
+  end if;
+
+  v_subtotal := v_total - v_tax;
+  v_min_required := round(v_total * v_min_pct, 2);
+  if coalesce(p_deposit_amount, 0) < v_min_required then
+    raise exception 'El anticipo minimo para este apartado es %.', v_min_required;
+  end if;
+  if p_deposit_amount > v_total then
+    raise exception 'El anticipo no puede ser mayor al total del apartado.';
+  end if;
+
+  update public.apartados set subtotal = v_subtotal, tax = v_tax, total = v_total,
+    paid_total = p_deposit_amount where id = v_apartado_id;
+
+  if p_deposit_amount > 0 then
+    v_payment_kind := case when lower(coalesce(p_payment_method, 'Efectivo')) = 'efectivo' then 'cash' else 'other' end;
+    insert into public.apartado_payments (company_id, apartado_id, amount, method, kind, created_by)
+    values (v_company_id, v_apartado_id, p_deposit_amount, coalesce(p_payment_method, 'Efectivo'), v_payment_kind, auth.uid());
+    if v_payment_kind = 'cash' then
+      perform public.apartado_register_cash_movement(v_company_id, p_deposit_amount, 'Anticipo apartado ' || v_apartado_number);
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'apartado_id', v_apartado_id,
+    'apartado_number', v_apartado_number,
+    'subtotal', v_subtotal,
+    'tax', v_tax,
+    'total', v_total,
+    'paid_total', p_deposit_amount,
+    'due_date', v_due_date
+  );
+end;
+$$;
+
+revoke execute on function public.create_apartado(uuid, jsonb, uuid, numeric, date, text, text) from public, anon;
+grant execute on function public.create_apartado(uuid, jsonb, uuid, numeric, date, text, text) to authenticated;
+
+-- Registra un abono adicional sobre un apartado activo. Igual que
+-- collect_customer_credit: el monto se topa al saldo pendiente (nunca
+-- rechaza por "pagaste de más"), y si es en efectivo entra al arqueo de
+-- la sesión de caja abierta del que cobra.
+create or replace function public.add_apartado_payment(
+  p_apartado_id uuid,
+  p_amount numeric,
+  p_payment_method text default 'Efectivo',
+  p_notes text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_role public.app_role;
+  v_apartado public.apartados%rowtype;
+  v_remaining numeric(12,2);
+  v_apply numeric(12,2);
+  v_payment_kind text;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+
+  v_company_id := public.current_user_company_id();
+  v_role := public.current_user_role();
+  if v_role not in ('admin', 'finanzas', 'user') then
+    raise exception 'No tienes permiso para registrar abonos.';
+  end if;
+
+  select * into v_apartado from public.apartados
+    where id = p_apartado_id and company_id = v_company_id and deleted_at is null
+    for update;
+  if not found then raise exception 'Apartado no encontrado.'; end if;
+  if v_apartado.status <> 'activo' then
+    raise exception 'Este apartado ya esta % y no admite mas abonos.', v_apartado.status;
+  end if;
+
+  v_remaining := v_apartado.total - v_apartado.paid_total;
+  if v_remaining <= 0 then raise exception 'Este apartado ya esta pagado por completo.'; end if;
+  v_apply := least(coalesce(p_amount, 0), v_remaining);
+  if v_apply <= 0 then raise exception 'Ingresa un monto valido.'; end if;
+
+  update public.apartados set paid_total = paid_total + v_apply, updated_at = now()
+    where id = p_apartado_id;
+
+  v_payment_kind := case when lower(coalesce(p_payment_method, 'Efectivo')) = 'efectivo' then 'cash' else 'other' end;
+  insert into public.apartado_payments (company_id, apartado_id, amount, method, kind, notes, created_by)
+  values (v_company_id, p_apartado_id, v_apply, coalesce(p_payment_method, 'Efectivo'), v_payment_kind,
+          nullif(btrim(coalesce(p_notes, '')), ''), auth.uid());
+  if v_payment_kind = 'cash' then
+    perform public.apartado_register_cash_movement(v_company_id, v_apply, 'Abono apartado ' || v_apartado.apartado_number);
+  end if;
+
+  return jsonb_build_object(
+    'apartado_id', p_apartado_id,
+    'applied', v_apply,
+    'paid_total', v_apartado.paid_total + v_apply,
+    'remaining', v_remaining - v_apply
+  );
+end;
+$$;
+
+revoke execute on function public.add_apartado_payment(uuid, numeric, text, text) from public, anon;
+grant execute on function public.add_apartado_payment(uuid, numeric, text, text) to authenticated;
+
+-- Completa un apartado ya pagado por completo (o le aplica el pago final
+-- que falta en la misma llamada) y genera la venta real -- el stock NO se
+-- vuelve a descontar (ya se descontó al crear el apartado). La venta se
+-- registra con kind='other' (no 'cash') para que el dinero de los abonos,
+-- que ya se contó abono por abono en su momento, nunca se cuente dos
+-- veces en el arqueo de caja de hoy.
+create or replace function public.complete_apartado(
+  p_apartado_id uuid,
+  p_final_payment_amount numeric default 0,
+  p_payment_method text default 'Efectivo'
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_role public.app_role;
+  v_apartado public.apartados%rowtype;
+  v_item public.apartado_items%rowtype;
+  v_remaining numeric(12,2);
+  v_apply numeric(12,2);
+  v_payment_kind text;
+  v_sale_id uuid;
+  v_sale_number text;
+  v_commission_rate numeric(5,4);
+  v_commission_amount numeric(12,2) := 0;
+  v_loyalty_enabled boolean;
+  v_earn_rate numeric(10,4);
+  v_tiers_enabled boolean;
+  v_tier2_min numeric(12,2);
+  v_tier3_min numeric(12,2);
+  v_tier1_rate numeric(10,4);
+  v_tier2_rate numeric(10,4);
+  v_tier3_rate numeric(10,4);
+  v_year_spend numeric(12,2);
+  v_year_spend_year integer;
+  v_current_year integer;
+  v_points_earned numeric := 0;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+
+  v_company_id := public.current_user_company_id();
+  v_role := public.current_user_role();
+  if v_role not in ('admin', 'finanzas', 'user') then
+    raise exception 'No tienes permiso para completar apartados.';
+  end if;
+
+  select * into v_apartado from public.apartados
+    where id = p_apartado_id and company_id = v_company_id and deleted_at is null
+    for update;
+  if not found then raise exception 'Apartado no encontrado.'; end if;
+  if v_apartado.status <> 'activo' then
+    raise exception 'Este apartado ya esta %.', v_apartado.status;
+  end if;
+
+  if coalesce(p_final_payment_amount, 0) > 0 then
+    v_remaining := v_apartado.total - v_apartado.paid_total;
+    if v_remaining > 0 then
+      v_apply := least(p_final_payment_amount, v_remaining);
+      update public.apartados set paid_total = paid_total + v_apply, updated_at = now()
+        where id = p_apartado_id;
+      v_apartado.paid_total := v_apartado.paid_total + v_apply;
+
+      v_payment_kind := case when lower(coalesce(p_payment_method, 'Efectivo')) = 'efectivo' then 'cash' else 'other' end;
+      insert into public.apartado_payments (company_id, apartado_id, amount, method, kind, created_by)
+      values (v_company_id, p_apartado_id, v_apply, coalesce(p_payment_method, 'Efectivo'), v_payment_kind, auth.uid());
+      if v_payment_kind = 'cash' then
+        perform public.apartado_register_cash_movement(v_company_id, v_apply, 'Abono final apartado ' || v_apartado.apartado_number);
+      end if;
+    end if;
+  end if;
+
+  if v_apartado.paid_total < v_apartado.total then
+    raise exception 'Aun falta un saldo de % para completar este apartado.', round(v_apartado.total - v_apartado.paid_total, 2);
+  end if;
+
+  v_sale_number := 'V-' || to_char(now(), 'YYYYMMDD') || '-' ||
+                   upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 6));
+  insert into public.sales (company_id, location_id, customer_id, sale_number, document_type,
+                            payment_method, customer_name, subtotal, tax, total, created_by)
+  select v_company_id, v_apartado.location_id, v_apartado.customer_id, v_sale_number, 'Ticket',
+         'Apartado', c.name, v_apartado.subtotal, v_apartado.tax, v_apartado.total, auth.uid()
+  from public.customers c where c.id = v_apartado.customer_id
+  returning id into v_sale_id;
+
+  for v_item in select * from public.apartado_items where apartado_id = v_apartado.id loop
+    insert into public.sale_items (company_id, location_id, sale_id, product_id, product_name, qty,
+                                   unit_price, total, cost, tax_amount, price_includes_tax)
+    select v_company_id, v_apartado.location_id, v_sale_id, v_item.product_id, v_item.product_name, v_item.qty,
+           v_item.unit_price, v_item.total, coalesce(p.cost, 0), v_item.tax_amount, v_item.price_includes_tax
+    from public.products p where p.id = v_item.product_id;
+  end loop;
+
+  -- kind='other' a propósito: ese dinero ya se contó abono por abono
+  -- cuando de verdad entró a caja, no hoy.
+  insert into public.sale_payments (company_id, sale_id, method, amount, kind)
+  values (v_company_id, v_sale_id, 'Apartado', v_apartado.total, 'other');
+
+  select commission_rate into v_commission_rate from public.profiles where id = auth.uid();
+  if v_commission_rate is not null and v_commission_rate > 0 then
+    v_commission_amount := round(v_apartado.total * v_commission_rate, 2);
+  end if;
+  update public.sales set commission_rate = v_commission_rate, commission_amount = v_commission_amount
+    where id = v_sale_id;
+
+  -- Puntos de lealtad: solo se GANAN sobre el total (como cualquier
+  -- compra) -- el canje no aplica aquí porque el precio del apartado ya
+  -- quedó fijo desde que se creó y se fue pagando en abonos.
+  select loyalty_enabled, loyalty_earn_rate, coalesce(loyalty_tiers_enabled, false),
+         loyalty_tier2_min_spend, loyalty_tier3_min_spend,
+         loyalty_tier1_earn_rate, loyalty_tier2_earn_rate, loyalty_tier3_earn_rate
+    into v_loyalty_enabled, v_earn_rate, v_tiers_enabled,
+         v_tier2_min, v_tier3_min, v_tier1_rate, v_tier2_rate, v_tier3_rate
+    from public.companies where id = v_company_id;
+
+  if coalesce(v_loyalty_enabled, false) then
+    v_current_year := extract(year from now())::int;
+    select coalesce(loyalty_year_spend, 0), loyalty_year_spend_year
+      into v_year_spend, v_year_spend_year
+      from public.customers where id = v_apartado.customer_id and company_id = v_company_id
+      for update;
+    if v_year_spend_year is distinct from v_current_year then
+      v_year_spend := 0;
+    end if;
+
+    if v_tiers_enabled then
+      if coalesce(v_tier3_min, 0) > 0 and v_year_spend >= v_tier3_min then
+        v_earn_rate := v_tier3_rate;
+      elsif coalesce(v_tier2_min, 0) > 0 and v_year_spend >= v_tier2_min then
+        v_earn_rate := v_tier2_rate;
+      else
+        v_earn_rate := v_tier1_rate;
+      end if;
+    end if;
+
+    if coalesce(v_earn_rate, 0) > 0 then
+      v_points_earned := floor(v_apartado.total / v_earn_rate);
+      if v_points_earned > 0 then
+        insert into public.loyalty_ledger (company_id, customer_id, sale_id, points, type, created_by)
+        values (v_company_id, v_apartado.customer_id, v_sale_id, v_points_earned, 'earned', auth.uid());
+      end if;
+    end if;
+
+    v_year_spend := v_year_spend + v_apartado.total;
+
+    update public.customers
+      set loyalty_points = coalesce(loyalty_points, 0) + v_points_earned,
+          loyalty_year_spend = v_year_spend,
+          loyalty_year_spend_year = v_current_year,
+          updated_at = now()
+      where id = v_apartado.customer_id;
+  end if;
+
+  update public.apartados set status = 'completado', converted_sale_id = v_sale_id, updated_at = now()
+    where id = p_apartado_id;
+
+  return jsonb_build_object(
+    'sale_id', v_sale_id,
+    'sale_number', v_sale_number,
+    'apartado_id', p_apartado_id,
+    'total', v_apartado.total,
+    'points_earned', v_points_earned
+  );
+end;
+$$;
+
+revoke execute on function public.complete_apartado(uuid, numeric, text) from public, anon;
+grant execute on function public.complete_apartado(uuid, numeric, text) to authenticated;
+
+-- Cancela un apartado activo y repone el stock de cada producto (upsert
+-- por si la fila de product_locations ya no existía -- mismo patrón que
+-- create_return). Solo admin/finanzas: es una decisión de negocio con
+-- consecuencias de dinero (si se reembolsa o no el anticipo), no algo que
+-- un cajero decida solo. Si se reembolsa, sale de caja como egreso --
+-- independientemente de cómo se hayan cobrado los abonos originalmente,
+-- se asume que el reembolso se entrega en efectivo.
+create or replace function public.cancel_apartado(
+  p_apartado_id uuid,
+  p_refund_deposit boolean
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_role public.app_role;
+  v_apartado public.apartados%rowtype;
+  v_item public.apartado_items%rowtype;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+
+  v_company_id := public.current_user_company_id();
+  v_role := public.current_user_role();
+  if v_role not in ('admin', 'finanzas') then
+    raise exception 'Solo un administrador o finanzas puede cancelar un apartado.';
+  end if;
+
+  select * into v_apartado from public.apartados
+    where id = p_apartado_id and company_id = v_company_id and deleted_at is null
+    for update;
+  if not found then raise exception 'Apartado no encontrado.'; end if;
+  if v_apartado.status <> 'activo' then
+    raise exception 'Este apartado ya esta % y no se puede cancelar.', v_apartado.status;
+  end if;
+
+  for v_item in select * from public.apartado_items where apartado_id = v_apartado.id loop
+    insert into public.product_locations (company_id, product_id, location_id, stock, is_active)
+    values (v_company_id, v_item.product_id, v_apartado.location_id, v_item.qty, true)
+    on conflict (product_id, location_id)
+      do update set stock = public.product_locations.stock + excluded.stock,
+                    is_active = true,
+                    updated_at = now();
+    update public.products set stock = (
+      select coalesce(sum(stock), 0) from public.product_locations where product_id = v_item.product_id
+    ) where id = v_item.product_id;
+    insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty,
+                                        reference_type, reference_id, notes)
+    values (v_company_id, v_apartado.location_id, v_item.product_id, 'apartado_cancelado', v_item.qty,
+            'apartado', v_apartado.id, 'Apartado ' || v_apartado.apartado_number || ' cancelado -- se repone el stock');
+  end loop;
+
+  if p_refund_deposit and v_apartado.paid_total > 0 then
+    perform public.apartado_register_cash_movement(
+      v_company_id, -v_apartado.paid_total, 'Reembolso apartado cancelado ' || v_apartado.apartado_number
+    );
+  end if;
+
+  update public.apartados set status = 'cancelado', cancel_refunded = p_refund_deposit, updated_at = now()
+    where id = p_apartado_id;
+
+  return jsonb_build_object(
+    'apartado_id', p_apartado_id,
+    'refunded', p_refund_deposit,
+    'refunded_amount', case when p_refund_deposit then v_apartado.paid_total else 0 end
+  );
+end;
+$$;
+
+revoke execute on function public.cancel_apartado(uuid, boolean) from public, anon;
+grant execute on function public.cancel_apartado(uuid, boolean) to authenticated;

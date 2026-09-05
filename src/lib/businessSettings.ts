@@ -42,6 +42,8 @@ export interface BusinessSettings {
   loyaltyTier2EarnRate: number;
   /** $ gastados = 1 punto ganado en Oro. */
   loyaltyTier3EarnRate: number;
+  /** % mínimo de anticipo exigido para crear un apartado (fracción, ej. 0.2 = 20%). */
+  apartadoMinDepositPct: number;
   /** Umbral de stock bajo por defecto (unidades) para productos sin uno propio. */
   lowStockThresholdDefault: number;
   currencyLabel: string;
@@ -86,6 +88,8 @@ export function createBusinessSettingsFromMarket(
     loyaltyTier1EarnRate: 65,
     loyaltyTier2EarnRate: 50,
     loyaltyTier3EarnRate: 33,
+    // Mismo valor por defecto que companies.apartado_min_deposit_pct.
+    apartadoMinDepositPct: 0.2,
     // Mismo valor por defecto que companies.low_stock_threshold_default.
     lowStockThresholdDefault: 10,
     currencyLabel: getCurrencyLabel(market),
@@ -169,6 +173,11 @@ function normalizeBusinessSettings(
       Number.isFinite(settings.loyaltyTier3EarnRate)
         ? settings.loyaltyTier3EarnRate
         : base.loyaltyTier3EarnRate,
+    apartadoMinDepositPct:
+      typeof settings?.apartadoMinDepositPct === "number" &&
+      Number.isFinite(settings.apartadoMinDepositPct)
+        ? settings.apartadoMinDepositPct
+        : base.apartadoMinDepositPct,
     lowStockThresholdDefault:
       typeof settings?.lowStockThresholdDefault === "number" &&
       Number.isFinite(settings.lowStockThresholdDefault)
@@ -272,6 +281,7 @@ export function syncBusinessSettingsWithSession(session: DemoSession) {
     loyaltyTier1EarnRate: session.loyaltyTier1EarnRate,
     loyaltyTier2EarnRate: session.loyaltyTier2EarnRate,
     loyaltyTier3EarnRate: session.loyaltyTier3EarnRate,
+    apartadoMinDepositPct: session.apartadoMinDepositPct,
     lowStockThresholdDefault: session.lowStockThresholdDefault,
     logoUrl: session.logoUrl,
     businessType: session.businessType,

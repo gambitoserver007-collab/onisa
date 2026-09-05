@@ -150,6 +150,8 @@ export interface UpdateCompanySettingsInput {
   loyaltyTier2EarnRate?: number;
   /** $ gastados = 1 punto ganado en Oro. */
   loyaltyTier3EarnRate?: number;
+  /** % mínimo de anticipo exigido para crear un apartado (fracción, ej. 0.2 = 20%). */
+  apartadoMinDepositPct?: number;
   /** Umbral de stock bajo por defecto (unidades) para productos sin uno propio. */
   lowStockThresholdDefault?: number;
 }
@@ -2487,6 +2489,8 @@ export async function updateCompanySettings(
     updates.loyalty_tier2_earn_rate = input.loyaltyTier2EarnRate;
   if (input.loyaltyTier3EarnRate !== undefined)
     updates.loyalty_tier3_earn_rate = input.loyaltyTier3EarnRate;
+  if (input.apartadoMinDepositPct !== undefined)
+    updates.apartado_min_deposit_pct = input.apartadoMinDepositPct;
   if (input.lowStockThresholdDefault !== undefined)
     updates.low_stock_threshold_default = input.lowStockThresholdDefault;
   const { data, error } = await supabase
@@ -2644,6 +2648,10 @@ export function mapCompanyToBusinessSettings(
     loyaltyTier3EarnRate: toNumber(
       (row as { loyalty_tier3_earn_rate?: number }).loyalty_tier3_earn_rate,
       33,
+    ),
+    apartadoMinDepositPct: toNumber(
+      (row as { apartado_min_deposit_pct?: number }).apartado_min_deposit_pct,
+      0.2,
     ),
     logoUrl: (row as { logo_url?: string | null }).logo_url ?? undefined,
     businessType:
@@ -3827,6 +3835,321 @@ export async function convertQuoteToSale(input: {
     total: toNumber(result.total),
     pointsEarned: toNumber(result.points_earned),
     pointsRedeemed: toNumber(result.points_redeemed),
+  };
+}
+
+// ---- Apartados (stock reservado desde que se crea; se paga en abonos) ----
+
+export type ApartadoStatus = "activo" | "completado" | "cancelado";
+
+export interface Apartado {
+  id: string;
+  number: string;
+  date: string;
+  customerId: string;
+  customerName: string;
+  locationId: string;
+  subtotal: number;
+  tax: number;
+  total: number;
+  paidTotal: number;
+  dueDate: string;
+  status: ApartadoStatus;
+  notes: string | null;
+  convertedSaleId: string | null;
+  cancelRefunded: boolean | null;
+  itemsLabel: string;
+}
+
+export interface ApartadoItem {
+  id: string;
+  productId: string | null;
+  productName: string;
+  qty: number;
+  unitPrice: number;
+  total: number;
+  taxAmount: number;
+}
+
+export interface ApartadoPayment {
+  id: string;
+  amount: number;
+  method: string;
+  kind: string;
+  notes: string | null;
+  createdAt: string;
+  createdBy: string | null;
+}
+
+export interface CreateApartadoItemInput {
+  productId: string;
+  qty: number;
+}
+
+export interface CreateApartadoInput {
+  customerId: string;
+  items: CreateApartadoItemInput[];
+  locationId: string;
+  depositAmount: number;
+  /** yyyy-mm-dd; si se omite, la RPC usa hoy + 30 días. */
+  dueDate?: string | null;
+  paymentMethod?: string;
+  notes?: string | null;
+}
+
+function toApartadoStatus(value: string): ApartadoStatus {
+  return value === "completado" || value === "cancelado" ? value : "activo";
+}
+
+/** Crea un apartado -- a diferencia de una cotización, SÍ valida y
+ * descuenta el stock desde que se crea (es lo que hace que quede
+ * "apartado": nadie más se lo puede llevar mientras se paga). Solo
+ * productos tipo Estándar sin variantes en esta primera versión. */
+export async function createApartado(input: CreateApartadoInput): Promise<{
+  apartadoId: string;
+  apartadoNumber: string;
+  total: number;
+  paidTotal: number;
+  dueDate: string;
+}> {
+  if (!input.items || input.items.length === 0) {
+    throw new Error("Agrega al menos un producto al apartado.");
+  }
+  const { data, error } = await supabase.rpc("create_apartado", {
+    p_customer_id: input.customerId,
+    p_items: input.items.map((item) => ({
+      product_id: item.productId,
+      qty: item.qty,
+    })) as unknown as Json,
+    p_location_id: input.locationId,
+    p_deposit_amount: input.depositAmount,
+    p_due_date: input.dueDate ?? undefined,
+    p_payment_method: input.paymentMethod ?? undefined,
+    p_notes: input.notes ?? undefined,
+  });
+  if (error) throw error;
+  const result = data as {
+    apartado_id: string;
+    apartado_number: string;
+    total: number;
+    paid_total: number;
+    due_date: string;
+  };
+  return {
+    apartadoId: result.apartado_id,
+    apartadoNumber: result.apartado_number,
+    total: toNumber(result.total),
+    paidTotal: toNumber(result.paid_total),
+    dueDate: result.due_date,
+  };
+}
+
+export async function fetchApartados(
+  companyId?: string,
+  opts: { status?: ApartadoStatus } = {},
+): Promise<Apartado[]> {
+  let q = supabase
+    .from("apartados")
+    .select(
+      "id, apartado_number, created_at, customer_id, customer_name, location_id, subtotal, tax, total, paid_total, due_date, status, notes, converted_sale_id, cancel_refunded",
+    )
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+  if (companyId) q = q.eq("company_id", companyId);
+  if (opts.status) q = q.eq("status", opts.status);
+  const { data, error } = await q;
+  if (error) throw error;
+  const rows = data ?? [];
+
+  const apartadoIds = rows.map((row) => row.id);
+  const itemsByApartado = new Map<string, string[]>();
+  if (apartadoIds.length) {
+    const { data: aItems } = await supabase
+      .from("apartado_items")
+      .select("apartado_id, product_name, qty")
+      .in("apartado_id", apartadoIds);
+    (aItems ?? []).forEach((it) => {
+      const list = itemsByApartado.get(it.apartado_id) ?? [];
+      list.push(`${toNumber(it.qty)} × ${it.product_name}`);
+      itemsByApartado.set(it.apartado_id, list);
+    });
+  }
+
+  return rows.map((row) => ({
+    id: row.id,
+    number: row.apartado_number,
+    date: normalizeDate(row.created_at),
+    customerId: row.customer_id,
+    customerName: row.customer_name,
+    locationId: row.location_id,
+    subtotal: toNumber(row.subtotal),
+    tax: toNumber(row.tax),
+    total: toNumber(row.total),
+    paidTotal: toNumber(row.paid_total),
+    dueDate: row.due_date,
+    status: toApartadoStatus(row.status),
+    notes: row.notes ?? null,
+    convertedSaleId: row.converted_sale_id ?? null,
+    cancelRefunded: row.cancel_refunded ?? null,
+    itemsLabel: (itemsByApartado.get(row.id) ?? []).join(", "),
+  }));
+}
+
+export async function fetchApartado(apartadoId: string): Promise<{
+  apartado: Apartado;
+  items: ApartadoItem[];
+  payments: ApartadoPayment[];
+} | null> {
+  const { data: row, error } = await supabase
+    .from("apartados")
+    .select(
+      "id, apartado_number, created_at, customer_id, customer_name, location_id, subtotal, tax, total, paid_total, due_date, status, notes, converted_sale_id, cancel_refunded",
+    )
+    .eq("id", apartadoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) throw error;
+  if (!row) return null;
+
+  const [
+    { data: itemRows, error: itemsError },
+    { data: paymentRows, error: paymentsError },
+  ] = await Promise.all([
+    supabase
+      .from("apartado_items")
+      .select(
+        "id, product_id, product_name, qty, unit_price, total, tax_amount",
+      )
+      .eq("apartado_id", apartadoId),
+    supabase
+      .from("apartado_payments")
+      .select("id, amount, method, kind, notes, created_at, created_by")
+      .eq("apartado_id", apartadoId)
+      .order("created_at", { ascending: true }),
+  ]);
+  if (itemsError) throw itemsError;
+  if (paymentsError) throw paymentsError;
+
+  const items: ApartadoItem[] = (itemRows ?? []).map((it) => ({
+    id: it.id,
+    productId: it.product_id ?? null,
+    productName: it.product_name,
+    qty: toNumber(it.qty),
+    unitPrice: toNumber(it.unit_price),
+    total: toNumber(it.total),
+    taxAmount: toNumber(it.tax_amount),
+  }));
+  const payments: ApartadoPayment[] = (paymentRows ?? []).map((p) => ({
+    id: p.id,
+    amount: toNumber(p.amount),
+    method: p.method,
+    kind: p.kind,
+    notes: p.notes ?? null,
+    createdAt: p.created_at,
+    createdBy: p.created_by ?? null,
+  }));
+
+  return {
+    apartado: {
+      id: row.id,
+      number: row.apartado_number,
+      date: normalizeDate(row.created_at),
+      customerId: row.customer_id,
+      customerName: row.customer_name,
+      locationId: row.location_id,
+      subtotal: toNumber(row.subtotal),
+      tax: toNumber(row.tax),
+      total: toNumber(row.total),
+      paidTotal: toNumber(row.paid_total),
+      dueDate: row.due_date,
+      status: toApartadoStatus(row.status),
+      notes: row.notes ?? null,
+      convertedSaleId: row.converted_sale_id ?? null,
+      cancelRefunded: row.cancel_refunded ?? null,
+      itemsLabel: items.map((it) => `${it.qty} × ${it.productName}`).join(", "),
+    },
+    items,
+    payments,
+  };
+}
+
+/** Registra un abono sobre un apartado activo -- el monto se topa al
+ * saldo pendiente (nunca rechaza por "pagaste de más"). Si es en
+ * efectivo, entra al arqueo de la sesión de caja abierta de quien cobra. */
+export async function addApartadoPayment(input: {
+  apartadoId: string;
+  amount: number;
+  paymentMethod?: string;
+  notes?: string | null;
+}): Promise<{ applied: number; paidTotal: number; remaining: number }> {
+  const { data, error } = await supabase.rpc("add_apartado_payment", {
+    p_apartado_id: input.apartadoId,
+    p_amount: input.amount,
+    p_payment_method: input.paymentMethod ?? undefined,
+    p_notes: input.notes ?? undefined,
+  });
+  if (error) throw error;
+  const result = data as {
+    applied: number;
+    paid_total: number;
+    remaining: number;
+  };
+  return {
+    applied: toNumber(result.applied),
+    paidTotal: toNumber(result.paid_total),
+    remaining: toNumber(result.remaining),
+  };
+}
+
+/** Completa un apartado ya pagado por completo (o le aplica el pago final
+ * que falta, en la misma llamada) y genera la venta real -- el stock NO
+ * se vuelve a descontar (ya se descontó al crear el apartado). */
+export async function completeApartado(input: {
+  apartadoId: string;
+  finalPaymentAmount?: number;
+  paymentMethod?: string;
+}): Promise<{
+  saleId: string;
+  saleNumber: string;
+  total: number;
+  pointsEarned: number;
+}> {
+  const { data, error } = await supabase.rpc("complete_apartado", {
+    p_apartado_id: input.apartadoId,
+    p_final_payment_amount: input.finalPaymentAmount ?? undefined,
+    p_payment_method: input.paymentMethod ?? undefined,
+  });
+  if (error) throw error;
+  const result = data as {
+    sale_id: string;
+    sale_number: string;
+    total: number;
+    points_earned: number;
+  };
+  return {
+    saleId: result.sale_id,
+    saleNumber: result.sale_number,
+    total: toNumber(result.total),
+    pointsEarned: toNumber(result.points_earned),
+  };
+}
+
+/** Cancela un apartado activo y repone el stock de cada producto. Solo
+ * admin/finanzas -- si se reembolsa el anticipo, sale de caja como
+ * egreso. */
+export async function cancelApartado(input: {
+  apartadoId: string;
+  refundDeposit: boolean;
+}): Promise<{ refunded: boolean; refundedAmount: number }> {
+  const { data, error } = await supabase.rpc("cancel_apartado", {
+    p_apartado_id: input.apartadoId,
+    p_refund_deposit: input.refundDeposit,
+  });
+  if (error) throw error;
+  const result = data as { refunded: boolean; refunded_amount: number };
+  return {
+    refunded: result.refunded,
+    refundedAmount: toNumber(result.refunded_amount),
   };
 }
 

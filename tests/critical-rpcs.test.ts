@@ -5002,4 +5002,523 @@ describe("RPCs críticas de dinero y stock", () => {
       ).rejects.toThrow(/no encontrada/i);
     });
   });
+
+  describe("29. Apartados (stock reservado desde que se crea, abonos, completar/cancelar)", () => {
+    interface ApartadoResult {
+      apartado_id: string;
+      apartado_number: string;
+      subtotal: number;
+      tax: number;
+      total: number;
+      paid_total: number;
+      due_date: string;
+    }
+    interface PaymentResult {
+      apartado_id: string;
+      applied: number;
+      paid_total: number;
+      remaining: number;
+    }
+    interface CompleteResult {
+      sale_id: string;
+      sale_number: string;
+      apartado_id: string;
+      total: number;
+      points_earned: number;
+    }
+    interface CancelResult {
+      apartado_id: string;
+      refunded: boolean;
+      refunded_amount: number;
+    }
+
+    async function openCashSession(
+      userId: string,
+      locationId: string,
+      openingAmount = 100,
+    ): Promise<string> {
+      const { rows } = await asUser(db, userId, () =>
+        db.query<{ open_cash_session: string }>(
+          "select open_cash_session($1, $2) as open_cash_session",
+          [openingAmount, locationId],
+        ),
+      );
+      return rows[0].open_cash_session;
+    }
+
+    async function getCashMovementsSum(sessionId: string): Promise<number> {
+      const { rows } = await db.query<{ total: string | null }>(
+        "select coalesce(sum(amount), 0) as total from public.cash_movements where cash_session_id = $1",
+        [sessionId],
+      );
+      return Number(rows[0].total ?? 0);
+    }
+
+    async function getProductStock(productId: string): Promise<number> {
+      const { rows } = await db.query<{ stock: string }>(
+        "select stock from public.products where id = $1",
+        [productId],
+      );
+      return Number(rows[0].stock);
+    }
+
+    async function setMinDeposit(companyId: string, pct: number) {
+      await db.query(
+        "update public.companies set apartado_min_deposit_pct = $2 where id = $1",
+        [companyId, pct],
+      );
+    }
+
+    async function createApartado(
+      userId: string,
+      params: {
+        customerId: string | null;
+        items: { productId: string; qty: number }[];
+        locationId: string;
+        depositAmount: number;
+        dueDate?: string | null;
+        paymentMethod?: string;
+      },
+    ): Promise<ApartadoResult> {
+      const itemsJson = JSON.stringify(
+        params.items.map((i) => ({ product_id: i.productId, qty: i.qty })),
+      );
+      const { rows } = await asUser(db, userId, () =>
+        db.query<{ create_apartado: ApartadoResult }>(
+          `select create_apartado(
+             p_customer_id := $1,
+             p_items := $2::jsonb,
+             p_location_id := $3,
+             p_deposit_amount := $4,
+             p_due_date := $5,
+             p_payment_method := $6
+           ) as create_apartado`,
+          [
+            params.customerId,
+            itemsJson,
+            params.locationId,
+            params.depositAmount,
+            params.dueDate ?? null,
+            params.paymentMethod ?? "Efectivo",
+          ],
+        ),
+      );
+      return rows[0].create_apartado;
+    }
+
+    async function addApartadoPayment(
+      userId: string,
+      params: { apartadoId: string; amount: number; paymentMethod?: string },
+    ): Promise<PaymentResult> {
+      const { rows } = await asUser(db, userId, () =>
+        db.query<{ add_apartado_payment: PaymentResult }>(
+          `select add_apartado_payment(
+             p_apartado_id := $1,
+             p_amount := $2,
+             p_payment_method := $3
+           ) as add_apartado_payment`,
+          [params.apartadoId, params.amount, params.paymentMethod ?? "Efectivo"],
+        ),
+      );
+      return rows[0].add_apartado_payment;
+    }
+
+    async function completeApartado(
+      userId: string,
+      params: {
+        apartadoId: string;
+        finalPaymentAmount?: number;
+        paymentMethod?: string;
+      },
+    ): Promise<CompleteResult> {
+      const { rows } = await asUser(db, userId, () =>
+        db.query<{ complete_apartado: CompleteResult }>(
+          `select complete_apartado(
+             p_apartado_id := $1,
+             p_final_payment_amount := $2,
+             p_payment_method := $3
+           ) as complete_apartado`,
+          [
+            params.apartadoId,
+            params.finalPaymentAmount ?? 0,
+            params.paymentMethod ?? "Efectivo",
+          ],
+        ),
+      );
+      return rows[0].complete_apartado;
+    }
+
+    async function cancelApartado(
+      userId: string,
+      params: { apartadoId: string; refundDeposit: boolean },
+    ): Promise<CancelResult> {
+      const { rows } = await asUser(db, userId, () =>
+        db.query<{ cancel_apartado: CancelResult }>(
+          `select cancel_apartado(
+             p_apartado_id := $1,
+             p_refund_deposit := $2
+           ) as cancel_apartado`,
+          [params.apartadoId, params.refundDeposit],
+        ),
+      );
+      return rows[0].cancel_apartado;
+    }
+
+    async function setupApartadoCompany() {
+      const company = await makeCompany(db, "Empresa Apartado Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const cajero = await makeUser(db, company.id, "user");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Apartado",
+        50,
+        100,
+        10,
+      );
+      const customer = await makeCustomer(db, company.id, "Cliente Apartado");
+      await setMinDeposit(company.id, 0); // sin mínimo, salvo que la prueba lo cambie
+      return { company, admin, cajero, product, customer };
+    }
+
+    it("crea un apartado: el stock se descuenta DESDE que se crea (a diferencia de una cotización)", async () => {
+      const { company, admin, product, customer } = await setupApartadoCompany();
+
+      const apartado = await createApartado(admin, {
+        customerId: customer,
+        items: [{ productId: product, qty: 3 }],
+        locationId: company.loc1,
+        depositAmount: 100,
+      });
+
+      expect(apartado.apartado_number).toMatch(/^APT-\d{8}-[A-F0-9]{6}$/);
+      expect(apartado.total).toBeCloseTo(300, 2);
+      expect(apartado.paid_total).toBeCloseTo(100, 2);
+      expect(await getProductStock(product)).toBe(7); // 10 - 3, ya reservado
+    });
+
+    it("se requiere un cliente registrado -- no se puede apartar sin cliente", async () => {
+      const { admin, product, company } = await setupApartadoCompany();
+
+      await expect(
+        createApartado(admin, {
+          customerId: null,
+          items: [{ productId: product, qty: 1 }],
+          locationId: company.loc1,
+          depositAmount: 0,
+        }),
+      ).rejects.toThrow(/elige un cliente/i);
+    });
+
+    it("el anticipo mínimo se exige según el % configurado en la empresa", async () => {
+      const { company, admin, product, customer } = await setupApartadoCompany();
+      await setMinDeposit(company.id, 0.2); // 20%
+
+      await expect(
+        createApartado(admin, {
+          customerId: customer,
+          items: [{ productId: product, qty: 2 }], // total = 200, mínimo = 40
+          locationId: company.loc1,
+          depositAmount: 30,
+        }),
+      ).rejects.toThrow(/anticipo minimo/i);
+
+      const apartado = await createApartado(admin, {
+        customerId: customer,
+        items: [{ productId: product, qty: 2 }],
+        locationId: company.loc1,
+        depositAmount: 40,
+      });
+      expect(apartado.paid_total).toBeCloseTo(40, 2);
+    });
+
+    it("no se pueden apartar productos con variantes, combo o servicio (v1)", async () => {
+      const { company, admin, customer } = await setupApartadoCompany();
+      const { rows: comboRows } = await db.query<{ id: string }>(
+        "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,0,'und','combo') returning id",
+        [company.id, "Combo", 50],
+      );
+      await expect(
+        createApartado(admin, {
+          customerId: customer,
+          items: [{ productId: comboRows[0].id, qty: 1 }],
+          locationId: company.loc1,
+          depositAmount: 0,
+        }),
+      ).rejects.toThrow(/por ahora solo se pueden apartar productos estándar/i);
+
+      const { rows: serviceRows } = await db.query<{ id: string }>(
+        "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,$4,'und','service') returning id",
+        [company.id, "Instalación", 500, 100],
+      );
+      await expect(
+        createApartado(admin, {
+          customerId: customer,
+          items: [{ productId: serviceRows[0].id, qty: 1 }],
+          locationId: company.loc1,
+          depositAmount: 0,
+        }),
+      ).rejects.toThrow(/por ahora solo se pueden apartar productos estándar/i);
+    });
+
+    it("el anticipo en efectivo entra al arqueo de quien lo cobra; en tarjeta no", async () => {
+      const { company, admin, product, customer } = await setupApartadoCompany();
+      const sessionId = await openCashSession(admin, company.loc1);
+
+      await createApartado(admin, {
+        customerId: customer,
+        items: [{ productId: product, qty: 1 }],
+        locationId: company.loc1,
+        depositAmount: 40,
+        paymentMethod: "Efectivo",
+      });
+      expect(await getCashMovementsSum(sessionId)).toBeCloseTo(40, 2);
+
+      await createApartado(admin, {
+        customerId: customer,
+        items: [{ productId: product, qty: 1 }],
+        locationId: company.loc1,
+        depositAmount: 40,
+        paymentMethod: "Tarjeta",
+      });
+      // Sigue igual -- el anticipo con tarjeta no mueve el efectivo del cajón.
+      expect(await getCashMovementsSum(sessionId)).toBeCloseTo(40, 2);
+    });
+
+    it("un abono posterior topa al saldo pendiente y también entra al arqueo", async () => {
+      const { company, admin, product, customer } = await setupApartadoCompany();
+      const sessionId = await openCashSession(admin, company.loc1);
+
+      const apartado = await createApartado(admin, {
+        customerId: customer,
+        items: [{ productId: product, qty: 2 }], // total = 200
+        locationId: company.loc1,
+        depositAmount: 50,
+      });
+
+      // Intenta abonar de más -- se topa a lo que realmente falta (150).
+      const payment = await addApartadoPayment(admin, {
+        apartadoId: apartado.apartado_id,
+        amount: 500,
+      });
+      expect(payment.applied).toBeCloseTo(150, 2);
+      expect(payment.remaining).toBeCloseTo(0, 2);
+      expect(await getCashMovementsSum(sessionId)).toBeCloseTo(200, 2); // 50 + 150
+    });
+
+    it("completar sin terminar de pagar se rechaza, indicando cuánto falta", async () => {
+      const { company, admin, product, customer } = await setupApartadoCompany();
+
+      const apartado = await createApartado(admin, {
+        customerId: customer,
+        items: [{ productId: product, qty: 2 }], // total = 200
+        locationId: company.loc1,
+        depositAmount: 50,
+      });
+
+      await expect(
+        completeApartado(admin, { apartadoId: apartado.apartado_id }),
+      ).rejects.toThrow(/aun falta un saldo de 150/i);
+    });
+
+    it("completar un apartado ya pagado genera la venta SIN volver a descontar stock ni a contar el dinero en caja hoy", async () => {
+      const { company, admin, product, customer } = await setupApartadoCompany();
+      const sessionId = await openCashSession(admin, company.loc1);
+
+      const apartado = await createApartado(admin, {
+        customerId: customer,
+        items: [{ productId: product, qty: 2 }], // total = 200
+        locationId: company.loc1,
+        depositAmount: 200, // pagado de una vez
+      });
+      expect(await getProductStock(product)).toBe(8); // 10 - 2, ya se había reservado
+      const cashAfterDeposit = await getCashMovementsSum(sessionId);
+      expect(cashAfterDeposit).toBeCloseTo(200, 2);
+
+      const result = await completeApartado(admin, {
+        apartadoId: apartado.apartado_id,
+      });
+      expect(result.total).toBeCloseTo(200, 2);
+      // El stock NO vuelve a moverse -- ya se descontó al crear el apartado.
+      expect(await getProductStock(product)).toBe(8);
+      // El arqueo de HOY no cambia -- esos $200 ya se contaron cuando se
+      // cobró el anticipo, no ahora al completar.
+      expect(await getCashMovementsSum(sessionId)).toBeCloseTo(200, 2);
+
+      const { rows: paymentRows } = await db.query<{
+        kind: string;
+        method: string;
+        amount: string;
+      }>("select kind, method, amount from public.sale_payments where sale_id = $1", [
+        result.sale_id,
+      ]);
+      expect(paymentRows[0].kind).toBe("other"); // nunca 'cash', para no duplicar el arqueo
+      expect(paymentRows[0].method).toBe("Apartado");
+      expect(Number(paymentRows[0].amount)).toBeCloseTo(200, 2);
+    });
+
+    it("completar con el pago final incluido en la misma llamada cierra el apartado de una vez", async () => {
+      const { company, admin, product, customer } = await setupApartadoCompany();
+      const sessionId = await openCashSession(admin, company.loc1);
+
+      const apartado = await createApartado(admin, {
+        customerId: customer,
+        items: [{ productId: product, qty: 1 }], // total = 100
+        locationId: company.loc1,
+        depositAmount: 30,
+      });
+
+      const result = await completeApartado(admin, {
+        apartadoId: apartado.apartado_id,
+        finalPaymentAmount: 70,
+      });
+      expect(result.total).toBeCloseTo(100, 2);
+      expect(await getCashMovementsSum(sessionId)).toBeCloseTo(100, 2); // 30 + 70, ambos abonos reales
+
+      const { rows } = await db.query<{ status: string; paid_total: string }>(
+        "select status, paid_total from public.apartados where id = $1",
+        [apartado.apartado_id],
+      );
+      expect(rows[0].status).toBe("completado");
+      expect(Number(rows[0].paid_total)).toBeCloseTo(100, 2);
+    });
+
+    it("completar un apartado gana puntos de lealtad sobre el total, como cualquier compra", async () => {
+      const { company, admin, product, customer } = await setupApartadoCompany();
+      await setLoyaltySettings(db, company.id, {
+        enabled: true,
+        pointValue: 1,
+        earnRate: 10,
+      });
+
+      const apartado = await createApartado(admin, {
+        customerId: customer,
+        items: [{ productId: product, qty: 2 }], // total = 200
+        locationId: company.loc1,
+        depositAmount: 200,
+      });
+      const result = await completeApartado(admin, {
+        apartadoId: apartado.apartado_id,
+      });
+      expect(result.points_earned).toBe(20); // floor(200/10)
+      expect(await getCustomerLoyaltyPoints(db, customer)).toBe(20);
+    });
+
+    it("no se puede abonar ni completar un apartado ya cancelado o completado", async () => {
+      const { company, admin, product, customer } = await setupApartadoCompany();
+      const apartado = await createApartado(admin, {
+        customerId: customer,
+        items: [{ productId: product, qty: 1 }],
+        locationId: company.loc1,
+        depositAmount: 100,
+      });
+      await completeApartado(admin, { apartadoId: apartado.apartado_id });
+
+      await expect(
+        addApartadoPayment(admin, { apartadoId: apartado.apartado_id, amount: 10 }),
+      ).rejects.toThrow(/ya esta completado/i);
+      await expect(
+        completeApartado(admin, { apartadoId: apartado.apartado_id }),
+      ).rejects.toThrow(/ya esta completado/i);
+      await expect(
+        cancelApartado(admin, { apartadoId: apartado.apartado_id, refundDeposit: false }),
+      ).rejects.toThrow(/no se puede cancelar/i);
+    });
+
+    it("cancelar repone el stock de cada producto; sin reembolso no mueve caja", async () => {
+      const { company, admin, product, customer } = await setupApartadoCompany();
+      const sessionId = await openCashSession(admin, company.loc1);
+
+      const apartado = await createApartado(admin, {
+        customerId: customer,
+        items: [{ productId: product, qty: 3 }],
+        locationId: company.loc1,
+        depositAmount: 100,
+      });
+      expect(await getProductStock(product)).toBe(7);
+
+      const result = await cancelApartado(admin, {
+        apartadoId: apartado.apartado_id,
+        refundDeposit: false,
+      });
+      expect(result.refunded).toBe(false);
+      expect(await getProductStock(product)).toBe(10); // repuesto por completo
+      expect(await getCashMovementsSum(sessionId)).toBeCloseTo(100, 2); // solo el anticipo, sin egreso
+    });
+
+    it("cancelar con reembolso saca el anticipo de caja como egreso", async () => {
+      const { company, admin, product, customer } = await setupApartadoCompany();
+      const sessionId = await openCashSession(admin, company.loc1);
+
+      const apartado = await createApartado(admin, {
+        customerId: customer,
+        items: [{ productId: product, qty: 2 }],
+        locationId: company.loc1,
+        depositAmount: 80,
+      });
+
+      await cancelApartado(admin, {
+        apartadoId: apartado.apartado_id,
+        refundDeposit: true,
+      });
+      expect(await getCashMovementsSum(sessionId)).toBeCloseTo(0, 2); // 80 ingreso - 80 egreso
+    });
+
+    it("un cajero no puede cancelar un apartado (solo admin/finanzas)", async () => {
+      const { company, cajero, product, customer } = await setupApartadoCompany();
+      const apartado = await createApartado(cajero, {
+        customerId: customer,
+        items: [{ productId: product, qty: 1 }],
+        locationId: company.loc1,
+        depositAmount: 0,
+      });
+
+      await expect(
+        cancelApartado(cajero, { apartadoId: apartado.apartado_id, refundDeposit: false }),
+      ).rejects.toThrow(/Solo un administrador o finanzas/i);
+    });
+
+    it("todos en la empresa ven todos los apartados, no solo los que crearon", async () => {
+      const { company, cajero, product, customer } = await setupApartadoCompany();
+      const otroCajero = await makeUser(db, company.id, "user");
+
+      await createApartado(cajero, {
+        customerId: customer,
+        items: [{ productId: product, qty: 1 }],
+        locationId: company.loc1,
+        depositAmount: 0,
+      });
+
+      const seenByOther = await asUser(db, otroCajero, () =>
+        db.query("select id from public.apartados"),
+      );
+      expect(seenByOther.rows.length).toBe(1);
+    });
+
+    it("una empresa no ve ni puede cancelar los apartados de otra empresa", async () => {
+      const { company: companyA, admin: adminA, product: productA, customer: customerA } =
+        await setupApartadoCompany();
+      const companyB = await makeCompany(db, "Empresa Apartado B Test");
+      const adminB = await makeUser(db, companyB.id, "admin");
+
+      const apartado = await createApartado(adminA, {
+        customerId: customerA,
+        items: [{ productId: productA, qty: 1 }],
+        locationId: companyA.loc1,
+        depositAmount: 0,
+      });
+
+      const seenByB = await asUser(db, adminB, () =>
+        db.query("select id from public.apartados where id = $1", [
+          apartado.apartado_id,
+        ]),
+      );
+      expect(seenByB.rows.length).toBe(0);
+
+      await expect(
+        cancelApartado(adminB, { apartadoId: apartado.apartado_id, refundDeposit: false }),
+      ).rejects.toThrow(/no encontrado/i);
+    });
+  });
 });

@@ -47,6 +47,8 @@ export interface DemoSession {
   loyaltyTier2EarnRate?: number;
   /** $ gastados = 1 punto ganado en Oro. */
   loyaltyTier3EarnRate?: number;
+  /** % mínimo de anticipo exigido para crear un apartado (fracción, ej. 0.2 = 20%). */
+  apartadoMinDepositPct?: number;
   isDemo: boolean;
   demoMode?: "none" | "read_only";
   demoAccountId?: string;

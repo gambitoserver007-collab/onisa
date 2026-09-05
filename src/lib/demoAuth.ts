@@ -170,6 +170,12 @@ function createSessionFromUser(
         ? (company as { loyalty_tier3_earn_rate?: number })
             .loyalty_tier3_earn_rate
         : 33,
+    apartadoMinDepositPct:
+      typeof (company as { apartado_min_deposit_pct?: number } | null)
+        ?.apartado_min_deposit_pct === "number"
+        ? (company as { apartado_min_deposit_pct?: number })
+            .apartado_min_deposit_pct
+        : 0.2,
     lowStockThresholdDefault:
       typeof (company as { low_stock_threshold_default?: number } | null)
         ?.low_stock_threshold_default === "number"

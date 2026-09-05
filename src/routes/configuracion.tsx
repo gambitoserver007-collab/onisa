@@ -99,6 +99,11 @@ function Configuracion() {
   const [loyaltyTier3EarnRate, setLoyaltyTier3EarnRate] = useState(
     String(settings.loyaltyTier3EarnRate || ""),
   );
+  // Se guarda como fracción (0.2) pero se captura/muestra como porcentaje
+  // (20), igual que cardCommissionPct.
+  const [apartadoMinDepositPct, setApartadoMinDepositPct] = useState(
+    String(Math.round(settings.apartadoMinDepositPct * 10000) / 100),
+  );
   const [customPaymentMethod, setCustomPaymentMethod] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const selectedMarket = getMarketByCountryCode(countryCode);
@@ -170,6 +175,12 @@ function Configuracion() {
     settings.loyaltyTier2EarnRate,
     settings.loyaltyTier3EarnRate,
   ]);
+
+  useEffect(() => {
+    setApartadoMinDepositPct(
+      String(Math.round(settings.apartadoMinDepositPct * 10000) / 100),
+    );
+  }, [settings.apartadoMinDepositPct]);
 
   const handleSave = async () => {
     if (isDemo) {
@@ -265,6 +276,18 @@ function Configuracion() {
       }
     }
 
+    const apartadoMinDepositPctNum = Number(apartadoMinDepositPct) / 100;
+    if (
+      !Number.isFinite(apartadoMinDepositPctNum) ||
+      apartadoMinDepositPctNum < 0 ||
+      apartadoMinDepositPctNum > 1
+    ) {
+      toast.error(
+        "El anticipo mínimo de apartados debe ser un porcentaje entre 0 y 100.",
+      );
+      return;
+    }
+
     const lowStockThresholdDefaultNum = Number(lowStockThresholdDefault);
     if (
       !Number.isFinite(lowStockThresholdDefaultNum) ||
@@ -293,6 +316,7 @@ function Configuracion() {
         loyaltyTier1EarnRate: loyaltyTier1EarnRateNum,
         loyaltyTier2EarnRate: loyaltyTier2EarnRateNum,
         loyaltyTier3EarnRate: loyaltyTier3EarnRateNum,
+        apartadoMinDepositPct: apartadoMinDepositPctNum,
         lowStockThresholdDefault: lowStockThresholdDefaultNum,
       });
       saveBusinessSettings(mapCompanyToBusinessSettings(company));
@@ -606,6 +630,28 @@ function Configuracion() {
                 El nivel se calcula con lo que el cliente lleva gastado en el
                 año calendario en curso; se reinicia solo cada enero.
               </p>
+            </div>
+
+            <div className="space-y-3 rounded-lg border p-3">
+              <div>
+                <p className="text-sm font-medium">Apartados</p>
+                <p className="text-xs text-muted-foreground">
+                  Anticipo mínimo exigido para poder crear un apartado.
+                </p>
+              </div>
+              <div className="space-y-1">
+                <Label>Anticipo mínimo (%)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={apartadoMinDepositPct}
+                  onChange={(event) =>
+                    setApartadoMinDepositPct(event.target.value)
+                  }
+                />
+              </div>
             </div>
             <DemoGuardedButton
               variant="brand"

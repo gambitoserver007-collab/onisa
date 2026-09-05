@@ -288,6 +288,7 @@ export type Database = {
       companies: {
         Row: {
           address: string | null;
+          apartado_min_deposit_pct: number;
           business_type: string;
           card_commission_rate: number;
           contact_email: string | null;
@@ -323,6 +324,7 @@ export type Database = {
         };
         Insert: {
           address?: string | null;
+          apartado_min_deposit_pct?: number;
           business_type?: string;
           card_commission_rate?: number;
           contact_email?: string | null;
@@ -358,6 +360,7 @@ export type Database = {
         };
         Update: {
           address?: string | null;
+          apartado_min_deposit_pct?: number;
           business_type?: string;
           card_commission_rate?: number;
           contact_email?: string | null;
@@ -1046,6 +1049,232 @@ export type Database = {
             columns: ["product_variant_id"];
             isOneToOne: false;
             referencedRelation: "product_variants";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      apartados: {
+        Row: {
+          cancel_refunded: boolean | null;
+          company_id: string;
+          converted_sale_id: string | null;
+          created_at: string;
+          created_by: string | null;
+          customer_id: string;
+          customer_name: string;
+          deleted_at: string | null;
+          due_date: string;
+          id: string;
+          is_demo_data: boolean;
+          location_id: string;
+          notes: string | null;
+          apartado_number: string;
+          paid_total: number;
+          status: string;
+          subtotal: number;
+          tax: number;
+          total: number;
+          updated_at: string;
+        };
+        Insert: {
+          cancel_refunded?: boolean | null;
+          company_id: string;
+          converted_sale_id?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+          customer_id: string;
+          customer_name?: string;
+          deleted_at?: string | null;
+          due_date: string;
+          id?: string;
+          is_demo_data?: boolean;
+          location_id: string;
+          notes?: string | null;
+          apartado_number: string;
+          paid_total?: number;
+          status?: string;
+          subtotal?: number;
+          tax?: number;
+          total?: number;
+          updated_at?: string;
+        };
+        Update: {
+          cancel_refunded?: boolean | null;
+          company_id?: string;
+          converted_sale_id?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+          customer_id?: string;
+          customer_name?: string;
+          deleted_at?: string | null;
+          due_date?: string;
+          id?: string;
+          is_demo_data?: boolean;
+          location_id?: string;
+          notes?: string | null;
+          apartado_number?: string;
+          paid_total?: number;
+          status?: string;
+          subtotal?: number;
+          tax?: number;
+          total?: number;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "apartados_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "apartados_location_id_fkey";
+            columns: ["location_id"];
+            isOneToOne: false;
+            referencedRelation: "locations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "apartados_customer_id_fkey";
+            columns: ["customer_id"];
+            isOneToOne: false;
+            referencedRelation: "customers";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "apartados_converted_sale_id_fkey";
+            columns: ["converted_sale_id"];
+            isOneToOne: false;
+            referencedRelation: "sales";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "apartados_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      apartado_items: {
+        Row: {
+          apartado_id: string;
+          company_id: string;
+          created_at: string;
+          id: string;
+          is_demo_data: boolean;
+          price_includes_tax: boolean;
+          product_id: string;
+          product_name: string;
+          qty: number;
+          tax_amount: number;
+          total: number;
+          unit_price: number;
+        };
+        Insert: {
+          apartado_id: string;
+          company_id: string;
+          created_at?: string;
+          id?: string;
+          is_demo_data?: boolean;
+          price_includes_tax?: boolean;
+          product_id: string;
+          product_name: string;
+          qty: number;
+          tax_amount?: number;
+          total: number;
+          unit_price: number;
+        };
+        Update: {
+          apartado_id?: string;
+          company_id?: string;
+          created_at?: string;
+          id?: string;
+          is_demo_data?: boolean;
+          price_includes_tax?: boolean;
+          product_id?: string;
+          product_name?: string;
+          qty?: number;
+          tax_amount?: number;
+          total?: number;
+          unit_price?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "apartado_items_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "apartado_items_apartado_id_fkey";
+            columns: ["apartado_id"];
+            isOneToOne: false;
+            referencedRelation: "apartados";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "apartado_items_product_id_fkey";
+            columns: ["product_id"];
+            isOneToOne: false;
+            referencedRelation: "products";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      apartado_payments: {
+        Row: {
+          amount: number;
+          apartado_id: string;
+          company_id: string;
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          is_demo_data: boolean;
+          kind: string;
+          method: string;
+          notes: string | null;
+        };
+        Insert: {
+          amount: number;
+          apartado_id: string;
+          company_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          is_demo_data?: boolean;
+          kind?: string;
+          method?: string;
+          notes?: string | null;
+        };
+        Update: {
+          amount?: number;
+          apartado_id?: string;
+          company_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          is_demo_data?: boolean;
+          kind?: string;
+          method?: string;
+          notes?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "apartado_payments_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "apartado_payments_apartado_id_fkey";
+            columns: ["apartado_id"];
+            isOneToOne: false;
+            referencedRelation: "apartados";
             referencedColumns: ["id"];
           },
         ];
@@ -2757,6 +2986,39 @@ export type Database = {
           p_quote_id: string;
           p_till_id?: string;
         };
+        Returns: Json;
+      };
+      create_apartado: {
+        Args: {
+          p_customer_id: string;
+          p_deposit_amount: number;
+          p_due_date?: string;
+          p_items: Json;
+          p_location_id: string;
+          p_notes?: string;
+          p_payment_method?: string;
+        };
+        Returns: Json;
+      };
+      add_apartado_payment: {
+        Args: {
+          p_amount: number;
+          p_apartado_id: string;
+          p_notes?: string;
+          p_payment_method?: string;
+        };
+        Returns: Json;
+      };
+      complete_apartado: {
+        Args: {
+          p_apartado_id: string;
+          p_final_payment_amount?: number;
+          p_payment_method?: string;
+        };
+        Returns: Json;
+      };
+      cancel_apartado: {
+        Args: { p_apartado_id: string; p_refund_deposit: boolean };
         Returns: Json;
       };
       reset_company_data: {
