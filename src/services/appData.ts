@@ -3789,7 +3789,8 @@ export async function rejectQuote(quoteId: string): Promise<void> {
 /** Convierte una cotización pendiente y vigente en una venta real: valida y
  * descuenta stock (create_quote nunca lo hizo) usando los precios YA
  * CONGELADOS en quote_items -- nunca vuelve a consultar el precio actual
- * del producto. Solo productos tipo Estándar y un solo método de pago. */
+ * del producto. Soporta Estándar, Combo y Servicio; un solo método de
+ * pago (sin desglose). */
 export async function convertQuoteToSale(input: {
   quoteId: string;
   locationId: string;

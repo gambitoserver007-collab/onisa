@@ -336,8 +336,8 @@ function CotizacionDetail() {
                         <span className="font-semibold text-foreground">
                           {formatMoney(quote.total)}
                         </span>
-                        . Solo productos estándar; si incluye combos o
-                        servicios, créala manualmente en el Punto de Venta.
+                        . Se pagará en una sola forma de pago (sin dividir el
+                        pago entre varios métodos).
                       </p>
                       {hasMultiple && (
                         <div className="space-y-1">

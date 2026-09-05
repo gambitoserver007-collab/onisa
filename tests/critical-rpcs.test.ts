@@ -4793,7 +4793,7 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(await getProductStock(product)).toBe(2); // intacto, nada se descontó
     });
 
-    it("una cotización con un producto tipo Servicio no se puede convertir automáticamente", async () => {
+    it("una cotización con un producto tipo Servicio se convierte sin tocar stock", async () => {
       const company = await makeCompany(db, "Empresa Cotizacion Servicio Test");
       const admin = await makeUser(db, company.id, "admin");
       const { rows } = await db.query<{ id: string }>(
@@ -4806,12 +4806,90 @@ describe("RPCs críticas de dinero y stock", () => {
         items: [{ productId: service, qty: 1 }],
       });
 
+      const result = await convertQuote(admin, {
+        quoteId: quote.quote_id,
+        locationId: company.loc1,
+      });
+      expect(result.total).toBeCloseTo(500, 2);
+
+      const { rows: itemRows } = await db.query<{ cost: string }>(
+        "select cost from public.sale_items where sale_id = $1",
+        [result.sale_id],
+      );
+      expect(Number(itemRows[0].cost)).toBeCloseTo(100, 2);
+    });
+
+    it("una cotización con un Combo descuenta cada pieza y recalcula el costo en vivo al convertir", async () => {
+      const company = await makeCompany(db, "Empresa Cotizacion Combo Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const boligrafo = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Bolígrafo negro",
+        2,
+        5,
+        100,
+      );
+      const { rows } = await db.query<{ id: string }>(
+        "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,0,'und','combo') returning id",
+        [company.id, "Caja de 12", 50],
+      );
+      const combo = rows[0].id;
+      await db.query(
+        "insert into public.product_combo_items (company_id, combo_product_id, component_product_id, qty) values ($1,$2,$3,$4)",
+        [company.id, combo, boligrafo, 12],
+      );
+
+      const quote = await createQuote(admin, {
+        items: [{ productId: combo, qty: 2 }], // 2 cajas -> 24 bolígrafos
+      });
+      expect(quote.total).toBeCloseTo(100, 2); // 2 * 50
+
+      // El costo del bolígrafo sube DESPUÉS de cotizar -- el costo del
+      // combo se recalcula en vivo con el costo actual, igual que
+      // create_sale (nunca se congela el costo, solo el precio de venta).
+      await db.query("update public.products set cost = 3 where id = $1", [
+        boligrafo,
+      ]);
+
+      const result = await convertQuote(admin, {
+        quoteId: quote.quote_id,
+        locationId: company.loc1,
+      });
+      expect(result.total).toBeCloseTo(100, 2);
+      expect(await getProductStock(boligrafo)).toBe(76); // 100 - 24
+
+      const { rows: itemRows } = await db.query<{ cost: string }>(
+        "select cost from public.sale_items where sale_id = $1",
+        [result.sale_id],
+      );
+      // costo de 1 caja = 12 * 3 (costo actual del bolígrafo) = 36
+      expect(Number(itemRows[0].cost)).toBeCloseTo(36, 2);
+    });
+
+    it("un combo sin piezas configuradas no se puede convertir", async () => {
+      const company = await makeCompany(
+        db,
+        "Empresa Cotizacion Combo Vacio Test",
+      );
+      const admin = await makeUser(db, company.id, "admin");
+      const { rows } = await db.query<{ id: string }>(
+        "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,0,'und','combo') returning id",
+        [company.id, "Combo Vacío", 50],
+      );
+      const combo = rows[0].id;
+
+      const quote = await createQuote(admin, {
+        items: [{ productId: combo, qty: 1 }],
+      });
+
       await expect(
         convertQuote(admin, {
           quoteId: quote.quote_id,
           locationId: company.loc1,
         }),
-      ).rejects.toThrow(/manualmente/i);
+      ).rejects.toThrow(/no tiene piezas configuradas/i);
     });
 
     it("la venta convertida gana comisión del vendedor y puntos de lealtad, con las reglas vigentes al convertir", async () => {

@@ -9588,8 +9588,12 @@ grant execute on function public.reject_quote(uuid) to authenticated;
 -- cotización aunque el catálogo haya cambiado desde entonces. La venta
 -- resultante se comporta como cualquier otra: gana comisión del vendedor
 -- y puntos de lealtad (incluye canje) con las reglas vigentes HOY.
--- Limitación de esta primera versión: solo productos tipo Estándar (sin
--- Combo/Servicio) y un solo método de pago (sin pago dividido).
+-- Soporta los 3 tipos de producto (Estándar, Combo y Servicio) -- un combo
+-- descuenta el stock de cada pieza que lo compone (nunca tiene fila propia
+-- en product_locations) y recalcula su costo en vivo sumando el costo
+-- actual de cada pieza, igual que create_sale; un servicio no toca stock.
+-- Limitación de esta primera versión: un solo método de pago (sin pago
+-- dividido).
 create or replace function public.convert_quote_to_sale(
   p_quote_id uuid,
   p_location_id uuid,
@@ -9610,6 +9614,13 @@ declare
   v_item public.quote_items%rowtype;
   v_product public.products%rowtype;
   v_loc_stock numeric(12,3);
+  -- Combos: piezas que lo componen y cuánto se necesita de cada una
+  -- (mismo patrón que create_sale).
+  v_combo_item record;
+  v_combo_needed numeric(12,3);
+  v_combo_component_count integer;
+  v_combo_unit_cost numeric(12,2);
+  v_item_cost numeric(12,2);
   v_sale_id uuid;
   v_sale_number text;
   v_open_sessions integer;
@@ -9700,12 +9711,9 @@ begin
     if not found then
       raise exception 'El producto "%" de la cotizacion ya no existe en el catalogo.', v_item.product_name;
     end if;
-    if v_product.product_type in ('combo', 'service') then
-      raise exception 'La cotizacion incluye "%" (tipo %); conviertela creando la venta manualmente en el Punto de Venta.',
-        v_product.name, v_product.product_type;
-    end if;
-
     if v_item.product_variant_id is not null then
+      -- Variante: solo aplica a productos estándar (un combo/servicio
+      -- cotizado nunca lleva variant_id).
       select stock into v_loc_stock from public.product_variant_locations
         where product_variant_id = v_item.product_variant_id and location_id = p_location_id for update;
       if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_item.product_name; end if;
@@ -9722,6 +9730,48 @@ begin
                                           movement_type, qty, reference_type, reference_id, notes)
       values (v_company_id, p_location_id, v_product.id, v_item.product_variant_id, 'sale', -v_item.qty,
               'sale', v_sale_id, 'Venta POS (desde cotización)');
+      v_item_cost := coalesce(v_product.cost, 0);
+    elsif v_product.product_type = 'combo' then
+      -- El combo en sí nunca tiene fila propia en product_locations -- se
+      -- valida y descuenta el stock de CADA pieza, según cuánto necesita
+      -- una unidad del combo por la cantidad cotizada. El costo también
+      -- se recalcula en vivo sumando el costo actual de cada pieza (igual
+      -- que create_sale -- nunca se confía en un products.cost guardado
+      -- para el combo).
+      v_combo_unit_cost := 0;
+      v_combo_component_count := 0;
+      for v_combo_item in
+        select ci.component_product_id, ci.qty as component_qty, p3.name as component_name, p3.cost as component_cost
+        from public.product_combo_items ci
+        join public.products p3 on p3.id = ci.component_product_id
+        where ci.combo_product_id = v_product.id and ci.company_id = v_company_id
+      loop
+        v_combo_component_count := v_combo_component_count + 1;
+        v_combo_needed := v_combo_item.component_qty * v_item.qty;
+        v_combo_unit_cost := v_combo_unit_cost + (v_combo_item.component_cost * v_combo_item.component_qty);
+
+        select stock into v_loc_stock from public.product_locations
+          where product_id = v_combo_item.component_product_id and location_id = p_location_id for update;
+        if not found then raise exception 'La pieza % del combo % no esta asignada a este punto de venta.', v_combo_item.component_name, v_product.name; end if;
+        if v_loc_stock < v_combo_needed then raise exception 'Stock insuficiente de % para armar % unidad(es) de %.', v_combo_item.component_name, v_item.qty, v_product.name; end if;
+
+        update public.product_locations set stock = stock - v_combo_needed, updated_at = now()
+          where product_id = v_combo_item.component_product_id and location_id = p_location_id;
+        update public.products set stock = (
+          select coalesce(sum(stock), 0) from public.product_locations where product_id = v_combo_item.component_product_id
+        ) where id = v_combo_item.component_product_id;
+        insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty,
+                                            reference_type, reference_id, notes)
+        values (v_company_id, p_location_id, v_combo_item.component_product_id, 'sale', -v_combo_needed, 'sale', v_sale_id,
+                'Venta POS (desde cotización, pieza del combo: ' || v_product.name || ')');
+      end loop;
+      if v_combo_component_count = 0 then
+        raise exception 'El combo % no tiene piezas configuradas.', v_product.name;
+      end if;
+      v_item_cost := v_combo_unit_cost;
+    elsif v_product.product_type = 'service' then
+      -- Sin control de inventario: no se valida ni descuenta stock.
+      v_item_cost := coalesce(v_product.cost, 0);
     else
       select stock into v_loc_stock from public.product_locations
         where product_id = v_product.id and location_id = p_location_id for update;
@@ -9737,6 +9787,7 @@ begin
                                           reference_type, reference_id, notes)
       values (v_company_id, p_location_id, v_product.id, 'sale', -v_item.qty, 'sale', v_sale_id,
               'Venta POS (desde cotización)');
+      v_item_cost := coalesce(v_product.cost, 0);
     end if;
 
     insert into public.sale_items (company_id, location_id, sale_id, product_id, product_variant_id,
@@ -9744,7 +9795,7 @@ begin
                                    tax_amount, price_includes_tax)
     values (v_company_id, p_location_id, v_sale_id, v_item.product_id, v_item.product_variant_id,
             v_item.variant_label, v_item.product_name, v_item.qty, v_item.unit_price, v_item.total,
-            coalesce(v_product.cost, 0), v_item.tax_amount, v_item.price_includes_tax);
+            v_item_cost, v_item.tax_amount, v_item.price_includes_tax);
   end loop;
 
   -- Puntos de lealtad: mismo bloque que create_sale (redimir, ganar por
