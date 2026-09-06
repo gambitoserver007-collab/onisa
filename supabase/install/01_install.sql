@@ -8137,6 +8137,11 @@ grant execute on function public.low_stock_summary(uuid, integer) to authenticat
 -- los próximos p_coverage_days. Company-wide (no por sucursal): igual que
 -- el resto de "compras", la decisión de reabastecer se toma a nivel
 -- negocio, no por local -- para eso ya existe transferir stock.
+--
+-- Incluye supplier_id/supplier_name y cost (costo actual del producto)
+-- para "Resurtido": el frontend agrupa las sugerencias por proveedor y
+-- arma una orden de compra en un clic, prellenada con estos datos --
+-- nunca se auto-registra sola, siempre se revisa antes de confirmar.
 -- ============================================================
 create or replace function public.purchase_projection(
   p_days_window integer default 30,
@@ -8170,12 +8175,13 @@ as $$
   ),
   calc as (
     select
-      p.id, p.name, p.unit, p.stock,
+      p.id, p.name, p.unit, p.stock, p.cost, p.supplier_id, sup.name as supplier_name,
       greatest(coalesce(sold.qty_sold, 0) - coalesce(returned.qty_returned, 0), 0)
         / nullif(p_days_window, 0)::numeric as velocity
     from public.products p
     left join sold on sold.product_id = p.id
     left join returned on returned.product_id = p.id
+    left join public.suppliers sup on sup.id = p.supplier_id
     where p.company_id = public.current_user_company_id()
       and p.deleted_at is null
       and p.active = true
@@ -8190,6 +8196,9 @@ as $$
         'name', name,
         'unit', unit,
         'stock', stock,
+        'cost', cost,
+        'supplierId', supplier_id,
+        'supplierName', supplier_name,
         'velocity', round(velocity, 3),
         'daysOfCoverage', round(stock / velocity, 1),
         'suggestedQty', greatest(ceil(velocity * p_coverage_days - stock), 0)

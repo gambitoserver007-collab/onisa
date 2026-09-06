@@ -1,12 +1,13 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
-import { TrendingUp } from "lucide-react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ShoppingBasket, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -23,11 +24,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useDemoSession } from "@/hooks/useDemoSession";
 import {
   fetchPurchaseProjection,
   getErrorMessage,
+  PURCHASE_PREFILL_STORAGE_KEY,
   type PurchaseProjectionItem,
+  type PurchasePrefillPayload,
 } from "@/services/appData";
 
 export const Route = createFileRoute("/inventario/proyeccion")({
@@ -53,7 +57,17 @@ function urgencyVariant(days: number): "destructive" | "warm" | "success" {
   return "success";
 }
 
+interface SupplierGroup {
+  supplierId: string | null;
+  supplierName: string;
+  items: PurchaseProjectionItem[];
+}
+
+const NO_SUPPLIER_KEY = "__none__";
+
 function Proyeccion() {
+  const navigate = useNavigate();
+  const { formatMoney } = useBusinessSettings();
   const { session, isReady } = useDemoSession();
   const [windowDays, setWindowDays] = useState("30");
   const [coverageDays, setCoverageDays] = useState("30");
@@ -81,6 +95,49 @@ function Proyeccion() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // Resurtido: solo lo que de verdad conviene comprar (suggestedQty > 0),
+  // agrupado por proveedor -- un solo clic arma la orden de compra
+  // completa para ese proveedor, prellenada para revisar antes de
+  // confirmar (nunca se registra sola).
+  const supplierGroups = useMemo<SupplierGroup[]>(() => {
+    const map = new Map<string, SupplierGroup>();
+    for (const item of items) {
+      if (item.suggestedQty <= 0) continue;
+      const key = item.supplierId ?? NO_SUPPLIER_KEY;
+      let group = map.get(key);
+      if (!group) {
+        group = {
+          supplierId: item.supplierId,
+          supplierName: item.supplierName ?? "Sin proveedor asignado",
+          items: [],
+        };
+        map.set(key, group);
+      }
+      group.items.push(item);
+    }
+    // Sin proveedor al final -- no se puede generar una orden para ese grupo.
+    return Array.from(map.values()).sort((a, b) =>
+      a.supplierId === null ? 1 : b.supplierId === null ? -1 : 0,
+    );
+  }, [items]);
+
+  const generateOrder = (group: SupplierGroup) => {
+    if (!group.supplierId) return;
+    const payload: PurchasePrefillPayload = {
+      supplierId: group.supplierId,
+      items: group.items.map((item) => ({
+        productId: item.id,
+        qty: item.suggestedQty,
+        cost: item.cost,
+      })),
+    };
+    sessionStorage.setItem(
+      PURCHASE_PREFILL_STORAGE_KEY,
+      JSON.stringify(payload),
+    );
+    navigate({ to: "/compras/nueva" });
+  };
 
   return (
     <AppShell>
@@ -190,6 +247,76 @@ function Proyeccion() {
           </div>
         </CardContent>
       </Card>
+
+      {!isLoading && supplierGroups.length > 0 && (
+        <div className="mt-4 space-y-3">
+          <h2 className="text-sm font-bold text-muted-foreground">
+            Resurtido por proveedor
+          </h2>
+          {supplierGroups.map((group) => {
+            const groupTotal = group.items.reduce(
+              (sum, item) => sum + item.suggestedQty * item.cost,
+              0,
+            );
+            return (
+              <Card key={group.supplierId ?? NO_SUPPLIER_KEY}>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <ShoppingBasket className="h-4 w-4 text-muted-foreground" />
+                    {group.supplierName}
+                    <Badge variant="secondary">{group.items.length}</Badge>
+                  </CardTitle>
+                  {group.supplierId ? (
+                    <Button size="sm" onClick={() => generateOrder(group)}>
+                      Generar orden de compra
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      Asígnales un proveedor en Productos para poder generar su
+                      orden
+                    </span>
+                  )}
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Producto</TableHead>
+                          <TableHead className="text-right">Comprar</TableHead>
+                          <TableHead className="text-right">Costo</TableHead>
+                          <TableHead className="text-right">Subtotal</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {group.items.map((item) => (
+                          <TableRow key={item.id}>
+                            <TableCell className="font-medium">
+                              {item.name}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {item.suggestedQty} {item.unit}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums text-muted-foreground">
+                              {formatMoney(item.cost)}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {formatMoney(item.suggestedQty * item.cost)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <p className="mt-2 text-right text-xs text-muted-foreground">
+                    Total estimado: {formatMoney(groupTotal)}
+                  </p>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </AppShell>
   );
 }

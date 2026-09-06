@@ -563,12 +563,30 @@ export interface PurchaseProjectionItem {
   name: string;
   unit: string;
   stock: number;
+  /** Costo actual del producto -- para prellenar el costo unitario al generar una orden de compra desde Resurtido. */
+  cost: number;
+  /** Proveedor asignado al producto (null si no tiene uno). */
+  supplierId: string | null;
+  supplierName: string | null;
   /** Unidades vendidas por día (ventas netas de devoluciones) en la ventana consultada. */
   velocity: number;
   /** Días que dura el stock actual al ritmo de venta actual. */
   daysOfCoverage: number;
   /** Unidades sugeridas a comprar para cubrir coverageDays al ritmo actual. */
   suggestedQty: number;
+}
+
+/** Llave de sessionStorage para pasar una sugerencia de Resurtido (Proyección
+ * de compra) a Nueva Compra ya prellenada. Se consume una sola vez -- Nueva
+ * Compra la borra apenas la lee, así que un refresh normal del formulario no
+ * la vuelve a aplicar. No hay precedente de pasar datos estructurados entre
+ * rutas en este código (solo flags simples vía `search`), así que se usa
+ * sessionStorage por ser lo más simple y confiable para un array de líneas. */
+export const PURCHASE_PREFILL_STORAGE_KEY = "ventapro:purchase-prefill";
+
+export interface PurchasePrefillPayload {
+  supplierId: string;
+  items: { productId: string; qty: number; cost: number }[];
 }
 
 export interface PurchaseProjection {
@@ -602,6 +620,9 @@ export async function fetchPurchaseProjection(
       name: string;
       unit: string;
       stock: number;
+      cost?: number;
+      supplierId?: string | null;
+      supplierName?: string | null;
       velocity: number;
       daysOfCoverage: number;
       suggestedQty: number;
@@ -615,6 +636,9 @@ export async function fetchPurchaseProjection(
       name: item.name,
       unit: item.unit,
       stock: toNumber(item.stock),
+      cost: toNumber(item.cost),
+      supplierId: item.supplierId ?? null,
+      supplierName: item.supplierName ?? null,
       velocity: toNumber(item.velocity),
       daysOfCoverage: toNumber(item.daysOfCoverage),
       suggestedQty: toNumber(item.suggestedQty),

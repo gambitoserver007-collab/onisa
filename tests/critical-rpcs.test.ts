@@ -3361,6 +3361,76 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(ids[0]).toBe(urgente);
       expect(ids[1]).toBe(medio);
     });
+
+    it("incluye el costo actual y el proveedor asignado -- null si el producto no tiene proveedor (para agrupar por proveedor en Resurtido)", async () => {
+      const company = await makeCompany(db, "Empresa Resurtido Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const customer = await makeCustomer(db, company.id, "Cliente Resurtido");
+      const { rows: supplierRows } = await db.query<{ id: string }>(
+        "insert into public.suppliers (company_id, name) values ($1, $2) returning id",
+        [company.id, "Proveedor Resurtido"],
+      );
+      const supplierId = supplierRows[0].id;
+
+      const conProveedor = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Con Proveedor",
+        7,
+        10,
+        1000,
+      );
+      await db.query(
+        "update public.products set supplier_id = $2 where id = $1",
+        [conProveedor, supplierId],
+      );
+      const sinProveedor = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Sin Proveedor",
+        3,
+        10,
+        1000,
+      );
+
+      await asUser(db, admin, async () => {
+        for (const productId of [conProveedor, sinProveedor]) {
+          await createSale(
+            db,
+            [{ product_id: productId, qty: 30, unit_price: 10 }],
+            company.loc1,
+            undefined,
+            { customerId: customer },
+          );
+        }
+      });
+
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{
+          purchase_projection: {
+            items: {
+              id: string;
+              cost: number;
+              supplierId: string | null;
+              supplierName: string | null;
+            }[];
+          };
+        }>("select purchase_projection(30, 30) as purchase_projection"),
+      );
+      const items = rows[0].purchase_projection.items;
+      const withSupplier = items.find((i) => i.id === conProveedor);
+      const withoutSupplier = items.find((i) => i.id === sinProveedor);
+
+      expect(Number(withSupplier!.cost)).toBeCloseTo(7, 2);
+      expect(withSupplier!.supplierId).toBe(supplierId);
+      expect(withSupplier!.supplierName).toBe("Proveedor Resurtido");
+
+      expect(Number(withoutSupplier!.cost)).toBeCloseTo(3, 2);
+      expect(withoutSupplier!.supplierId).toBeNull();
+      expect(withoutSupplier!.supplierName).toBeNull();
+    });
   });
 
   describe("23. Tipos de producto: Combo y Servicio", () => {

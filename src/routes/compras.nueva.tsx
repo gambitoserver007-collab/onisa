@@ -34,6 +34,8 @@ import {
   createPurchase,
   fetchProductVariants,
   getErrorMessage,
+  PURCHASE_PREFILL_STORAGE_KEY,
+  type PurchasePrefillPayload,
 } from "@/services/appData";
 import type { ProductVariant } from "@/types";
 
@@ -66,9 +68,38 @@ function NuevaCompra() {
   >({});
   const selectedSupplier = suppliers.find((s) => s.id === supplierId) ?? null;
 
-  // Seed a first line once the catalog is available.
+  // Seed a first line once the catalog is available -- salvo que venga una
+  // sugerencia de Resurtido (Proyección de compra) esperando en
+  // sessionStorage, en cuyo caso se usa esa en vez del renglón por defecto.
+  // Se consume una sola vez (se borra apenas se lee).
   useEffect(() => {
-    if (!isLoading && products.length && rows.length === 0) {
+    if (isLoading || rows.length > 0) return;
+    const raw = sessionStorage.getItem(PURCHASE_PREFILL_STORAGE_KEY);
+    if (raw) {
+      sessionStorage.removeItem(PURCHASE_PREFILL_STORAGE_KEY);
+      try {
+        const payload = JSON.parse(raw) as PurchasePrefillPayload;
+        if (payload.items?.length) {
+          setSupplierId(payload.supplierId || NO_SUPPLIER);
+          setRows(
+            payload.items.map((item) => ({
+              productId: item.productId,
+              variantId: null,
+              qty: item.qty,
+              cost: item.cost,
+            })),
+          );
+          toast.success(
+            "Compra prellenada desde Resurtido. Revisa las cantidades antes de guardar.",
+          );
+          return;
+        }
+      } catch {
+        // Prefill corrupto o de otra versión -- se ignora y sigue con el
+        // renglón por defecto de abajo.
+      }
+    }
+    if (products.length) {
       setRows([
         {
           productId: products[0].id,
