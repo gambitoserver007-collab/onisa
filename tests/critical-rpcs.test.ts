@@ -5251,33 +5251,20 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(apartado.paid_total).toBeCloseTo(40, 2);
     });
 
-    it("no se pueden apartar productos con variantes, combo o servicio (v1)", async () => {
+    it("no se pueden apartar productos con variantes (v1)", async () => {
       const { company, admin, customer } = await setupApartadoCompany();
-      const { rows: comboRows } = await db.query<{ id: string }>(
-        "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,0,'und','combo') returning id",
-        [company.id, "Combo", 50],
+      const { rows: variantRows } = await db.query<{ id: string }>(
+        "insert into public.products (company_id, name, price, cost, unit, has_variants) values ($1,$2,$3,0,'und',true) returning id",
+        [company.id, "Playera", 200],
       );
       await expect(
         createApartado(admin, {
           customerId: customer,
-          items: [{ productId: comboRows[0].id, qty: 1 }],
+          items: [{ productId: variantRows[0].id, qty: 1 }],
           locationId: company.loc1,
           depositAmount: 0,
         }),
-      ).rejects.toThrow(/por ahora solo se pueden apartar productos estándar/i);
-
-      const { rows: serviceRows } = await db.query<{ id: string }>(
-        "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,$4,'und','service') returning id",
-        [company.id, "Instalación", 500, 100],
-      );
-      await expect(
-        createApartado(admin, {
-          customerId: customer,
-          items: [{ productId: serviceRows[0].id, qty: 1 }],
-          locationId: company.loc1,
-          depositAmount: 0,
-        }),
-      ).rejects.toThrow(/por ahora solo se pueden apartar productos estándar/i);
+      ).rejects.toThrow(/tiene variantes/i);
     });
 
     it("el anticipo en efectivo entra al arqueo de quien lo cobra; en tarjeta no", async () => {
@@ -5565,6 +5552,131 @@ describe("RPCs críticas de dinero y stock", () => {
           refundDeposit: false,
         }),
       ).rejects.toThrow(/no encontrado/i);
+    });
+
+    it("un combo en un apartado descuenta el stock de cada pieza (no del combo) y congela el costo", async () => {
+      const { company, admin, customer } = await setupApartadoCompany();
+      const boligrafo = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Bolígrafo negro (apartado)",
+        2,
+        5,
+        100,
+      );
+      const { rows } = await db.query<{ id: string }>(
+        "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,0,'und','combo') returning id",
+        [company.id, "Caja de 12 (apartado)", 50],
+      );
+      const combo = rows[0].id;
+      await db.query(
+        "insert into public.product_combo_items (company_id, combo_product_id, component_product_id, qty) values ($1,$2,$3,$4)",
+        [company.id, combo, boligrafo, 12],
+      );
+
+      const apartado = await createApartado(admin, {
+        customerId: customer,
+        items: [{ productId: combo, qty: 2 }], // 2 cajas -> 24 bolígrafos
+        locationId: company.loc1,
+        depositAmount: 0,
+      });
+      expect(apartado.total).toBeCloseTo(100, 2); // 2 * 50
+      expect(await getProductStock(boligrafo)).toBe(76); // 100 - 24
+      expect(await getProductStock(combo)).toBe(0); // el combo nunca tiene stock propio
+
+      // El costo sube DESPUÉS de apartar -- igual que una cotización, el
+      // costo del combo se congela en apartado_items al crear, así que
+      // complete_apartado no debe recalcularlo con el costo nuevo.
+      await db.query("update public.products set cost = 3 where id = $1", [
+        boligrafo,
+      ]);
+
+      const result = await completeApartado(admin, {
+        apartadoId: apartado.apartado_id,
+        finalPaymentAmount: apartado.total,
+      });
+
+      const { rows: itemRows } = await db.query<{ cost: string }>(
+        "select cost from public.sale_items where sale_id = $1",
+        [result.sale_id],
+      );
+      // costo POR UNIDAD de combo, congelado = 12 * 2 (costo ORIGINAL del
+      // bolígrafo) = 24 -- igual que sale_items.cost, no se multiplica por
+      // la cantidad de combos apartados.
+      expect(Number(itemRows[0].cost)).toBeCloseTo(24, 2);
+    });
+
+    it("un combo sin piezas configuradas no se puede apartar", async () => {
+      const { company, admin, customer } = await setupApartadoCompany();
+      const { rows } = await db.query<{ id: string }>(
+        "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,0,'und','combo') returning id",
+        [company.id, "Combo Vacío (apartado)", 50],
+      );
+      const combo = rows[0].id;
+
+      await expect(
+        createApartado(admin, {
+          customerId: customer,
+          items: [{ productId: combo, qty: 1 }],
+          locationId: company.loc1,
+          depositAmount: 0,
+        }),
+      ).rejects.toThrow(/no tiene piezas configuradas/i);
+    });
+
+    it("cancelar un apartado con un combo repone el stock de cada pieza", async () => {
+      const { company, admin, customer } = await setupApartadoCompany();
+      const boligrafo = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Bolígrafo negro (cancelar combo)",
+        2,
+        5,
+        100,
+      );
+      const { rows } = await db.query<{ id: string }>(
+        "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,0,'und','combo') returning id",
+        [company.id, "Caja de 12 (cancelar)", 50],
+      );
+      const combo = rows[0].id;
+      await db.query(
+        "insert into public.product_combo_items (company_id, combo_product_id, component_product_id, qty) values ($1,$2,$3,$4)",
+        [company.id, combo, boligrafo, 12],
+      );
+
+      const apartado = await createApartado(admin, {
+        customerId: customer,
+        items: [{ productId: combo, qty: 2 }],
+        locationId: company.loc1,
+        depositAmount: 0,
+      });
+      expect(await getProductStock(boligrafo)).toBe(76);
+
+      await cancelApartado(admin, {
+        apartadoId: apartado.apartado_id,
+        refundDeposit: false,
+      });
+      expect(await getProductStock(boligrafo)).toBe(100); // repuesto por completo
+    });
+
+    it("un servicio no se puede apartar (sin stock que reservar)", async () => {
+      const { company, admin, customer } = await setupApartadoCompany();
+      const { rows } = await db.query<{ id: string }>(
+        "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,$4,'und','service') returning id",
+        [company.id, "Instalación (apartado)", 500, 100],
+      );
+      const service = rows[0].id;
+
+      await expect(
+        createApartado(admin, {
+          customerId: customer,
+          items: [{ productId: service, qty: 1 }],
+          locationId: company.loc1,
+          depositAmount: 0,
+        }),
+      ).rejects.toThrow(/es un servicio/i);
     });
   });
 });

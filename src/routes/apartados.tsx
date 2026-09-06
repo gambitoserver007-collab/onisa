@@ -155,10 +155,14 @@ function ApartadosPage() {
   const selectedCustomer = customers.find((c) => c.id === customerId) ?? null;
 
   const addToCart = (product: Product) => {
-    if (product.productType !== "standard" || product.hasVariants) {
+    if (product.hasVariants) {
       toast.error(
-        "Por ahora solo se pueden apartar productos estándar sin variantes.",
+        "Por ahora los apartados no admiten productos con variantes.",
       );
+      return;
+    }
+    if (product.productType === "service") {
+      toast.error("Por ahora los servicios no se pueden apartar.");
       return;
     }
     setCart((prev) => {

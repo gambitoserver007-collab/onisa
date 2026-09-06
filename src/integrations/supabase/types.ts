@@ -1162,6 +1162,7 @@ export type Database = {
         Row: {
           apartado_id: string;
           company_id: string;
+          cost: number;
           created_at: string;
           id: string;
           is_demo_data: boolean;
@@ -1176,6 +1177,7 @@ export type Database = {
         Insert: {
           apartado_id: string;
           company_id: string;
+          cost?: number;
           created_at?: string;
           id?: string;
           is_demo_data?: boolean;
@@ -1190,6 +1192,7 @@ export type Database = {
         Update: {
           apartado_id?: string;
           company_id?: string;
+          cost?: number;
           created_at?: string;
           id?: string;
           is_demo_data?: boolean;

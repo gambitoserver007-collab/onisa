@@ -9985,11 +9985,28 @@ create table if not exists public.apartado_items (
   qty numeric(12,3) not null,
   unit_price numeric(12,2) not null,
   total numeric(12,2) not null,
+  -- Costo congelado al crear el apartado (relevante sobre todo para
+  -- combos: se recalcula sumando el costo actual de cada pieza, igual
+  -- que create_sale, y se congela aquí para que complete_apartado nunca
+  -- tenga que volver a mirar product_combo_items, que puede cambiar
+  -- mientras el apartado sigue activo).
+  cost numeric(12,2) not null default 0,
   tax_amount numeric(12,2) not null default 0,
   price_includes_tax boolean not null default true,
   is_demo_data boolean not null default false,
   created_at timestamptz not null default now()
 );
+-- Para instalaciones que ya habían corrido esta tabla antes de este
+-- arreglo. Se aprovecha para hacer un backfill de mejor esfuerzo del
+-- costo en los apartados que siguen activos (los ya completados no lo
+-- necesitan: su venta ya quedó registrada con el costo vigente en su
+-- momento) -- antes de este cambio, un apartado solo podía tener
+-- productos estándar, así que el costo del producto siempre aplica.
+alter table public.apartado_items add column if not exists cost numeric(12,2) not null default 0;
+update public.apartado_items ai
+  set cost = coalesce(p.cost, 0)
+  from public.products p, public.apartados a
+  where ai.cost = 0 and ai.product_id = p.id and ai.apartado_id = a.id and a.status = 'activo';
 
 create table if not exists public.apartado_payments (
   id uuid primary key default gen_random_uuid(),
@@ -10137,6 +10154,12 @@ declare
   v_item_count integer := 0;
   v_loc_stock numeric(12,3);
   v_payment_kind text;
+  -- Combos: piezas que lo componen y cuánto se necesita de cada una
+  -- (mismo patrón que create_sale/convert_quote_to_sale).
+  v_combo_item record;
+  v_combo_needed numeric(12,3);
+  v_combo_component_count integer;
+  v_item_cost numeric(12,2);
 begin
   if auth.uid() is null then raise exception 'No autenticado.'; end if;
   if public.current_user_is_demo() then
@@ -10191,8 +10214,8 @@ begin
     if v_product.has_variants then
       raise exception 'El producto "%" tiene variantes; los apartados por ahora solo admiten productos sin variantes.', v_product.name;
     end if;
-    if v_product.product_type <> 'standard' then
-      raise exception 'El producto "%" es tipo %; por ahora solo se pueden apartar productos estándar.', v_product.name, v_product.product_type;
+    if v_product.product_type = 'service' then
+      raise exception 'El producto "%" es un servicio; por ahora los apartados solo admiten productos estándar y combos.', v_product.name;
     end if;
 
     v_price_includes_tax := coalesce(v_product.price_includes_tax, true);
@@ -10211,25 +10234,61 @@ begin
 
     -- El stock se descuenta YA -- es lo que hace que un apartado apartado
     -- de verdad: nadie más se lo puede llevar mientras se paga.
-    select stock into v_loc_stock from public.product_locations
-      where product_id = v_product.id and location_id = p_location_id for update;
-    if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_product.name; end if;
-    if v_loc_stock < v_qty then raise exception 'Stock insuficiente para % en este local.', v_product.name; end if;
+    if v_product.product_type = 'combo' then
+      -- El combo en sí nunca tiene fila propia en product_locations -- se
+      -- valida y descuenta el stock de CADA pieza, igual que create_sale.
+      v_item_cost := 0;
+      v_combo_component_count := 0;
+      for v_combo_item in
+        select ci.component_product_id, ci.qty as component_qty, p3.name as component_name, p3.cost as component_cost
+        from public.product_combo_items ci
+        join public.products p3 on p3.id = ci.component_product_id
+        where ci.combo_product_id = v_product.id and ci.company_id = v_company_id
+      loop
+        v_combo_component_count := v_combo_component_count + 1;
+        v_combo_needed := v_combo_item.component_qty * v_qty;
+        v_item_cost := v_item_cost + (v_combo_item.component_cost * v_combo_item.component_qty);
 
-    update public.product_locations set stock = stock - v_qty, updated_at = now()
-      where product_id = v_product.id and location_id = p_location_id;
-    update public.products set stock = (
-      select coalesce(sum(stock), 0) from public.product_locations where product_id = v_product.id
-    ) where id = v_product.id;
-    insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty,
-                                        reference_type, reference_id, notes)
-    values (v_company_id, p_location_id, v_product.id, 'apartado', -v_qty, 'apartado', v_apartado_id,
-            'Apartado ' || v_apartado_number);
+        select stock into v_loc_stock from public.product_locations
+          where product_id = v_combo_item.component_product_id and location_id = p_location_id for update;
+        if not found then raise exception 'La pieza % del combo % no esta asignada a este punto de venta.', v_combo_item.component_name, v_product.name; end if;
+        if v_loc_stock < v_combo_needed then raise exception 'Stock insuficiente de % para armar % unidad(es) de %.', v_combo_item.component_name, v_qty, v_product.name; end if;
+
+        update public.product_locations set stock = stock - v_combo_needed, updated_at = now()
+          where product_id = v_combo_item.component_product_id and location_id = p_location_id;
+        update public.products set stock = (
+          select coalesce(sum(stock), 0) from public.product_locations where product_id = v_combo_item.component_product_id
+        ) where id = v_combo_item.component_product_id;
+        insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty,
+                                            reference_type, reference_id, notes)
+        values (v_company_id, p_location_id, v_combo_item.component_product_id, 'apartado', -v_combo_needed,
+                'apartado', v_apartado_id, 'Apartado ' || v_apartado_number || ' (pieza del combo: ' || v_product.name || ')');
+      end loop;
+      if v_combo_component_count = 0 then
+        raise exception 'El combo % no tiene piezas configuradas.', v_product.name;
+      end if;
+    else
+      v_item_cost := coalesce(v_product.cost, 0);
+      select stock into v_loc_stock from public.product_locations
+        where product_id = v_product.id and location_id = p_location_id for update;
+      if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_product.name; end if;
+      if v_loc_stock < v_qty then raise exception 'Stock insuficiente para % en este local.', v_product.name; end if;
+
+      update public.product_locations set stock = stock - v_qty, updated_at = now()
+        where product_id = v_product.id and location_id = p_location_id;
+      update public.products set stock = (
+        select coalesce(sum(stock), 0) from public.product_locations where product_id = v_product.id
+      ) where id = v_product.id;
+      insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty,
+                                          reference_type, reference_id, notes)
+      values (v_company_id, p_location_id, v_product.id, 'apartado', -v_qty, 'apartado', v_apartado_id,
+              'Apartado ' || v_apartado_number);
+    end if;
 
     insert into public.apartado_items (company_id, apartado_id, product_id, product_name, qty,
-                                       unit_price, total, tax_amount, price_includes_tax)
+                                       unit_price, total, cost, tax_amount, price_includes_tax)
     values (v_company_id, v_apartado_id, v_product.id, v_product.name, v_qty,
-            v_unit_price, v_line_total, v_line_tax, v_price_includes_tax);
+            v_unit_price, v_line_total, v_item_cost, v_line_tax, v_price_includes_tax);
   end loop;
 
   if v_item_count = 0 then
@@ -10433,11 +10492,13 @@ begin
   returning id into v_sale_id;
 
   for v_item in select * from public.apartado_items where apartado_id = v_apartado.id loop
+    -- El costo se usa tal cual quedó congelado al crear el apartado (ver
+    -- comentario en apartado_items.cost) -- para un combo, sus piezas
+    -- pudieron cambiar desde entonces, así que jamás se recalcula aquí.
     insert into public.sale_items (company_id, location_id, sale_id, product_id, product_name, qty,
                                    unit_price, total, cost, tax_amount, price_includes_tax)
-    select v_company_id, v_apartado.location_id, v_sale_id, v_item.product_id, v_item.product_name, v_item.qty,
-           v_item.unit_price, v_item.total, coalesce(p.cost, 0), v_item.tax_amount, v_item.price_includes_tax
-    from public.products p where p.id = v_item.product_id;
+    values (v_company_id, v_apartado.location_id, v_sale_id, v_item.product_id, v_item.product_name, v_item.qty,
+            v_item.unit_price, v_item.total, v_item.cost, v_item.tax_amount, v_item.price_includes_tax);
   end loop;
 
   -- kind='other' a propósito: ese dinero ya se contó abono por abono
@@ -10536,7 +10597,7 @@ declare
   v_company_id uuid;
   v_role public.app_role;
   v_apartado public.apartados%rowtype;
-  v_item public.apartado_items%rowtype;
+  v_movement record;
 begin
   if auth.uid() is null then raise exception 'No autenticado.'; end if;
   if public.current_user_is_demo() then
@@ -10557,19 +10618,28 @@ begin
     raise exception 'Este apartado ya esta % y no se puede cancelar.', v_apartado.status;
   end if;
 
-  for v_item in select * from public.apartado_items where apartado_id = v_apartado.id loop
+  -- Se repone leyendo los stock_movements reales del apartado (no
+  -- apartado_items) porque para un combo lo que de verdad se descontó fue
+  -- el stock de CADA PIEZA -- el combo en sí nunca tiene fila propia en
+  -- product_locations. Estos movimientos son exactamente el desglose,
+  -- pieza por pieza, de lo que hay que devolver.
+  for v_movement in
+    select product_id, -qty as qty_to_restore from public.stock_movements
+    where company_id = v_company_id and reference_type = 'apartado' and reference_id = v_apartado.id
+      and movement_type = 'apartado'
+  loop
     insert into public.product_locations (company_id, product_id, location_id, stock, is_active)
-    values (v_company_id, v_item.product_id, v_apartado.location_id, v_item.qty, true)
+    values (v_company_id, v_movement.product_id, v_apartado.location_id, v_movement.qty_to_restore, true)
     on conflict (product_id, location_id)
       do update set stock = public.product_locations.stock + excluded.stock,
                     is_active = true,
                     updated_at = now();
     update public.products set stock = (
-      select coalesce(sum(stock), 0) from public.product_locations where product_id = v_item.product_id
-    ) where id = v_item.product_id;
+      select coalesce(sum(stock), 0) from public.product_locations where product_id = v_movement.product_id
+    ) where id = v_movement.product_id;
     insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty,
                                         reference_type, reference_id, notes)
-    values (v_company_id, v_apartado.location_id, v_item.product_id, 'apartado_cancelado', v_item.qty,
+    values (v_company_id, v_apartado.location_id, v_movement.product_id, 'apartado_cancelado', v_movement.qty_to_restore,
             'apartado', v_apartado.id, 'Apartado ' || v_apartado.apartado_number || ' cancelado -- se repone el stock');
   end loop;
 
