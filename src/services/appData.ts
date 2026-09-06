@@ -2165,15 +2165,22 @@ function mapCashSession(row: {
 }
 
 // Mapa id de usuario → nombre, para mostrar quién abrió/cerró la caja.
+/** Nombres de los compañeros de la empresa (para mostrar "vendido por",
+ * "abrió la caja", etc.). Va por list_company_profile_names() (RPC) en
+ * vez de leer la tabla profiles directo -- la política de RLS de
+ * profiles (auditoría de seguridad) solo deja ver el propio perfil o,
+ * si eres admin, los de tu empresa, a propósito: esa tabla también
+ * guarda pin_hash del checador, que por diseño nunca debe salir de la
+ * base ("el hash nunca sale de la base", ver 01_install.sql). Un cajero
+ * o finanzas viendo Ventas/Caja/Mermas sí necesita los nombres de sus
+ * compañeros, así que este RPC expone solo id+full_name para cualquiera
+ * de la misma empresa, sin abrir el resto de la fila. */
 export async function fetchProfileNames(
   companyId?: string,
 ): Promise<Record<string, string>> {
   if (!companyId) return {};
   try {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, full_name")
-      .eq("company_id", companyId);
+    const { data, error } = await supabase.rpc("list_company_profile_names");
     if (error) throw error;
     const map: Record<string, string> = {};
     for (const row of data ?? []) map[row.id] = row.full_name;

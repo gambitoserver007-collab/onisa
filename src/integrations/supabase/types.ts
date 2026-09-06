@@ -3031,6 +3031,10 @@ export type Database = {
         Returns: Json;
       };
       get_company_alerts: { Args: never; Returns: Json };
+      list_company_profile_names: {
+        Args: never;
+        Returns: { id: string; full_name: string }[];
+      };
       log_voided_sale: {
         Args: { p_items: Json; p_location_id?: string; p_reason?: string };
         Returns: string;

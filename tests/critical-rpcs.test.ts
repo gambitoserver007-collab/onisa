@@ -6268,4 +6268,446 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(recienteAlert?.cashier_name).toBeTruthy();
     });
   });
+
+  describe("32. Auditoría RLS: sin escritura directa a tablas que solo se escriben vía RPC", () => {
+    // Postgres RLS: sin ninguna política aplicable a un comando, INSERT
+    // siempre lanza error (no hay fila "visible" contra la cual decidir
+    // el WITH CHECK); UPDATE/DELETE en cambio NO lanzan error -- la fila
+    // simplemente no es visible bajo esa política, así que el comando
+    // afecta 0 filas en silencio. Por eso cada caso se prueba con el
+    // assert que de verdad le corresponde.
+    async function expectInsertRejected(fn: () => Promise<unknown>) {
+      await expect(fn()).rejects.toThrow();
+    }
+    async function expectNoOpUpdateOrDelete(
+      fn: () => Promise<unknown>,
+      verifyUnchanged: () => Promise<void>,
+    ) {
+      await fn(); // no debe lanzar -- pero tampoco debe cambiar nada
+      await verifyUnchanged();
+    }
+
+    it("una venta no se puede insertar/editar/borrar directo por REST (ni siendo admin) -- solo create_sale", async () => {
+      const company = await makeCompany(db, "Empresa RLS Sales Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto RLS Sales",
+        50,
+        100,
+        50,
+      );
+
+      await expectInsertRejected(() =>
+        asUser(db, admin, () =>
+          db.query(
+            "insert into public.sales (company_id, location_id, sale_number, document_type, payment_method, customer_name, subtotal, tax, total, created_by) values ($1,$2,'V-FALSA','Ticket','Efectivo','Cliente',100,0,100,$3)",
+            [company.id, company.loc1, admin],
+          ),
+        ),
+      );
+
+      const sale = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 100 }],
+          company.loc1,
+        ),
+      );
+
+      await expectNoOpUpdateOrDelete(
+        () =>
+          asUser(db, admin, () =>
+            db.query("update public.sales set total = 1 where id = $1", [
+              sale.sale_id,
+            ]),
+          ),
+        async () => {
+          const { rows } = await db.query<{ total: string }>(
+            "select total from public.sales where id = $1",
+            [sale.sale_id],
+          );
+          expect(Number(rows[0].total)).toBeCloseTo(100, 2);
+        },
+      );
+
+      await expectNoOpUpdateOrDelete(
+        () =>
+          asUser(db, admin, () =>
+            db.query("delete from public.sales where id = $1", [sale.sale_id]),
+          ),
+        async () => {
+          const { rows } = await db.query(
+            "select id from public.sales where id = $1",
+            [sale.sale_id],
+          );
+          expect(rows).toHaveLength(1);
+        },
+      );
+    });
+
+    it("sale_items/purchases/purchase_items/returns/stock_movements no aceptan INSERT directo por REST", async () => {
+      const company = await makeCompany(db, "Empresa RLS Insert Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto RLS Insert",
+        50,
+        100,
+        50,
+      );
+      const supplier = await (async () => {
+        const { rows } = await db.query<{ id: string }>(
+          "insert into public.suppliers (company_id, name) values ($1,'Proveedor RLS') returning id",
+          [company.id],
+        );
+        return rows[0].id;
+      })();
+
+      await expectInsertRejected(() =>
+        asUser(db, admin, () =>
+          db.query(
+            "insert into public.sale_items (company_id, sale_id, product_id, product_name, qty, unit_price, total) values ($1,gen_random_uuid(),$2,'x',1,1,1)",
+            [company.id, product],
+          ),
+        ),
+      );
+
+      await expectInsertRejected(() =>
+        asUser(db, admin, () =>
+          db.query(
+            "insert into public.purchases (company_id, location_id, supplier_id, purchase_number, total) values ($1,$2,$3,'C-FALSA',1)",
+            [company.id, company.loc1, supplier],
+          ),
+        ),
+      );
+
+      await expectInsertRejected(() =>
+        asUser(db, admin, () =>
+          db.query(
+            "insert into public.purchase_items (company_id, purchase_id, product_id, qty, unit_cost, total) values ($1,gen_random_uuid(),$2,1,1,1)",
+            [company.id, product],
+          ),
+        ),
+      );
+
+      await expectInsertRejected(() =>
+        asUser(db, admin, () =>
+          db.query(
+            "insert into public.returns (company_id, return_number, reason, total) values ($1,'D-FALSA','x',1)",
+            [company.id],
+          ),
+        ),
+      );
+
+      await expectInsertRejected(() =>
+        asUser(db, admin, () =>
+          db.query(
+            "insert into public.stock_movements (company_id, product_id, movement_type, qty) values ($1,$2,'ajuste',1)",
+            [company.id, product],
+          ),
+        ),
+      );
+    });
+
+    it("stock_movements no se puede borrar directo por REST -- taparía un robo sin dejar rastro", async () => {
+      const company = await makeCompany(db, "Empresa RLS StockMov Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto RLS StockMov",
+        50,
+        100,
+        50,
+      );
+      const { rows } = await db.query<{ id: string }>(
+        "insert into public.stock_movements (company_id, product_id, movement_type, qty) values ($1,$2,'merma',-5) returning id",
+        [company.id, product],
+      );
+      const movId = rows[0].id;
+
+      await expectNoOpUpdateOrDelete(
+        () =>
+          asUser(db, admin, () =>
+            db.query("delete from public.stock_movements where id = $1", [
+              movId,
+            ]),
+          ),
+        async () => {
+          const { rows: after } = await db.query(
+            "select id from public.stock_movements where id = $1",
+            [movId],
+          );
+          expect(after).toHaveLength(1);
+        },
+      );
+    });
+
+    it("una caja abierta no se puede editar directo por REST (status/monto real) -- solo por el flujo de arqueo", async () => {
+      const company = await makeCompany(db, "Empresa RLS CashSession Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const sessionId = await asUser(db, admin, () =>
+        db
+          .query<{
+            open_cash_session: string;
+          }>("select open_cash_session($1, $2) as open_cash_session", [
+            100,
+            company.loc1,
+          ])
+          .then((r) => r.rows[0].open_cash_session),
+      );
+
+      await expectNoOpUpdateOrDelete(
+        () =>
+          asUser(db, admin, () =>
+            db.query(
+              "update public.cash_sessions set real_amount = 999999, status = 'closed' where id = $1",
+              [sessionId],
+            ),
+          ),
+        async () => {
+          const { rows } = await db.query<{
+            real_amount: string | null;
+            status: string;
+          }>(
+            "select real_amount, status from public.cash_sessions where id = $1",
+            [sessionId],
+          );
+          expect(rows[0].status).toBe("open");
+          expect(rows[0].real_amount).toBeNull();
+        },
+      );
+    });
+
+    it("un cajero no puede insertar/editar/borrar una merma directo por REST -- ni la suya propia", async () => {
+      const company = await makeCompany(db, "Empresa RLS Merma Test");
+      const cajero = await makeUser(db, company.id, "user");
+      const { rows } = await db.query<{ id: string }>(
+        "insert into public.mermas (company_id, location_id, estimated_loss, reason_category, employee_id, registered_by) values ($1,$2,10,'otro',$3,$3) returning id",
+        [company.id, company.loc1, cajero],
+      );
+      const mermaId = rows[0].id;
+
+      await expectInsertRejected(() =>
+        asUser(db, cajero, () =>
+          db.query(
+            "insert into public.mermas (company_id, location_id, estimated_loss, reason_category, employee_id, registered_by) values ($1,$2,1,'otro',$3,$3)",
+            [company.id, company.loc1, cajero],
+          ),
+        ),
+      );
+
+      await expectNoOpUpdateOrDelete(
+        () =>
+          asUser(db, cajero, () =>
+            db.query(
+              "update public.mermas set estimated_loss = 1 where id = $1",
+              [mermaId],
+            ),
+          ),
+        async () => {
+          const { rows: after } = await db.query<{ estimated_loss: string }>(
+            "select estimated_loss from public.mermas where id = $1",
+            [mermaId],
+          );
+          expect(Number(after[0].estimated_loss)).toBeCloseTo(10, 2);
+        },
+      );
+
+      await expectNoOpUpdateOrDelete(
+        () =>
+          asUser(db, cajero, () =>
+            db.query("delete from public.mermas where id = $1", [mermaId]),
+          ),
+        async () => {
+          const { rows: after } = await db.query(
+            "select id from public.mermas where id = $1",
+            [mermaId],
+          );
+          expect(after).toHaveLength(1);
+        },
+      );
+    });
+
+    it("una cotización no se puede borrar directo por REST -- solo reject_quote/convert_quote_to_sale", async () => {
+      const company = await makeCompany(db, "Empresa RLS Quote Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const { rows: qRows } = await db.query<{ id: string }>(
+        "insert into public.quotes (company_id, quote_number, customer_name, valid_until) values ($1,'COT-FALSA','Cliente', current_date + 1) returning id",
+        [company.id],
+      );
+      const quoteId = qRows[0].id;
+      const { rows: qiRows } = await db.query<{ id: string }>(
+        "insert into public.quote_items (company_id, quote_id, product_name, qty, unit_price, total) values ($1,$2,'x',1,1,1) returning id",
+        [company.id, quoteId],
+      );
+      const itemId = qiRows[0].id;
+
+      await expectNoOpUpdateOrDelete(
+        () =>
+          asUser(db, admin, () =>
+            db.query("delete from public.quotes where id = $1", [quoteId]),
+          ),
+        async () => {
+          const { rows } = await db.query(
+            "select id from public.quotes where id = $1",
+            [quoteId],
+          );
+          expect(rows).toHaveLength(1);
+        },
+      );
+
+      await expectNoOpUpdateOrDelete(
+        () =>
+          asUser(db, admin, () =>
+            db.query("delete from public.quote_items where id = $1", [itemId]),
+          ),
+        async () => {
+          const { rows } = await db.query(
+            "select id from public.quote_items where id = $1",
+            [itemId],
+          );
+          expect(rows).toHaveLength(1);
+        },
+      );
+    });
+
+    it("un apartado activo NO se puede borrar directo por REST -- perdería el stock reservado para siempre sin pasar por cancel_apartado", async () => {
+      const company = await makeCompany(db, "Empresa RLS Apartado Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const customer = await makeCustomer(db, company.id, "Cliente RLS");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto RLS Apartado",
+        20,
+        50,
+        30,
+      );
+      await db.query(
+        "update public.companies set apartado_min_deposit_pct = 0 where id = $1",
+        [company.id],
+      );
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{ create_apartado: { apartado_id: string } }>(
+          `select create_apartado(
+             p_customer_id := $1, p_items := $2::jsonb,
+             p_location_id := $3, p_deposit_amount := 0
+           ) as create_apartado`,
+          [
+            customer,
+            JSON.stringify([{ product_id: product, qty: 3 }]),
+            company.loc1,
+          ],
+        ),
+      );
+      const apartadoId = rows[0].create_apartado.apartado_id;
+      const stockAfterReserve = await getProductStockRls(product);
+      expect(stockAfterReserve).toBe(27); // 30 - 3, reservado
+
+      await expectNoOpUpdateOrDelete(
+        () =>
+          asUser(db, admin, () =>
+            db.query("delete from public.apartados where id = $1", [
+              apartadoId,
+            ]),
+          ),
+        async () => {
+          const { rows: after } = await db.query(
+            "select id from public.apartados where id = $1",
+            [apartadoId],
+          );
+          expect(after).toHaveLength(1);
+          // El stock sigue reservado -- no se "perdió" al intentar el borrado directo.
+          expect(await getProductStockRls(product)).toBe(27);
+        },
+      );
+
+      const { rows: itemRows } = await db.query<{ id: string }>(
+        "select id from public.apartado_items where apartado_id = $1",
+        [apartadoId],
+      );
+      await expectNoOpUpdateOrDelete(
+        () =>
+          asUser(db, admin, () =>
+            db.query("delete from public.apartado_items where id = $1", [
+              itemRows[0].id,
+            ]),
+          ),
+        async () => {
+          const { rows: after } = await db.query(
+            "select id from public.apartado_items where id = $1",
+            [itemRows[0].id],
+          );
+          expect(after).toHaveLength(1);
+        },
+      );
+    });
+
+    async function getProductStockRls(productId: string): Promise<number> {
+      const { rows } = await db.query<{ stock: string }>(
+        "select stock from public.products where id = $1",
+        [productId],
+      );
+      return Number(rows[0].stock);
+    }
+  });
+
+  describe("33. list_company_profile_names(): nombres de compañeros sin exponer pin_hash", () => {
+    it("un cajero SÍ ve los nombres de sus compañeros (para 'vendido por', 'abrió la caja', etc.)", async () => {
+      const company = await makeCompany(db, "Empresa Nombres Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const cajero = await makeUser(db, company.id, "user");
+
+      const { rows } = await asUser(db, cajero, () =>
+        db.query<{ id: string; full_name: string }>(
+          "select id, full_name from list_company_profile_names()",
+        ),
+      );
+      const ids = rows.map((r) => r.id);
+      expect(ids).toContain(admin);
+      expect(ids).toContain(cajero);
+    });
+
+    it("no ve los nombres de otra empresa", async () => {
+      const companyA = await makeCompany(db, "Empresa Nombres A Test");
+      const companyB = await makeCompany(db, "Empresa Nombres B Test");
+      const userA = await makeUser(db, companyA.id, "user");
+      const userB = await makeUser(db, companyB.id, "admin");
+
+      const { rows } = await asUser(db, userA, () =>
+        db.query<{ id: string }>("select id from list_company_profile_names()"),
+      );
+      const ids = rows.map((r) => r.id);
+      expect(ids).toContain(userA);
+      expect(ids).not.toContain(userB);
+    });
+
+    it("un cajero sigue sin poder leer el perfil completo (ni el pin_hash) de un compañero directo de la tabla", async () => {
+      const company = await makeCompany(db, "Empresa PinHash Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const cajero = await makeUser(db, company.id, "user");
+      await db.query(
+        "update public.profiles set pin_hash = 'x' where id = $1",
+        [admin],
+      );
+
+      const { rows } = await asUser(db, cajero, () =>
+        db.query("select id, pin_hash from public.profiles where id = $1", [
+          admin,
+        ]),
+      );
+      // La política de "profiles" (sin ampliar) sigue sin dejar ver la fila
+      // completa de un compañero a un cajero -- list_company_profile_names()
+      // es la única vía, y solo expone id+full_name.
+      expect(rows).toHaveLength(0);
+    });
+  });
 });

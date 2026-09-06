@@ -957,25 +957,35 @@ create policy "suppliers select scoped" on public.suppliers for select to authen
 drop policy if exists "suppliers write scoped" on public.suppliers;
 create policy "suppliers write scoped" on public.suppliers for all to authenticated using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 
+-- sales/sale_items/purchases/purchase_items/cash_sessions/stock_movements/
+-- returns: el frontend SOLO las lee (.select) -- cada escritura real pasa
+-- por su propia función SECURITY DEFINER (create_sale, create_purchase,
+-- open_cash_session/submit_till_count/finish_till_count/
+-- authorize_cash_session, adjust_stock, create_return), que ya corre
+-- sin pasar por RLS. Las políticas "write scoped" (for all) que había
+-- antes aquí no protegían nada que el frontend necesitara -- solo dejaban
+-- que CUALQUIER usuario autenticado de la empresa (incluido un cajero)
+-- insertara/editara/borrara estas filas directo por la API REST,
+-- saltándose toda la lógica de negocio (cálculo de stock, validación de
+-- precio, puntos de lealtad) Y el rastro de auditoría. Por eso se quitan
+-- por completo -- sin política de insert/update/delete para
+-- "authenticated", solo queda la de select. Los "drop policy" se dejan
+-- para limpiar la política vieja en instalaciones que ya la tenían.
 drop policy if exists "sales select scoped" on public.sales;
 create policy "sales select scoped" on public.sales for select to authenticated using (public.can_select_company(company_id, is_demo_data));
 drop policy if exists "sales write scoped" on public.sales;
-create policy "sales write scoped" on public.sales for all to authenticated using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 
 drop policy if exists "sale_items select scoped" on public.sale_items;
 create policy "sale_items select scoped" on public.sale_items for select to authenticated using (public.can_select_company(company_id, is_demo_data));
 drop policy if exists "sale_items write scoped" on public.sale_items;
-create policy "sale_items write scoped" on public.sale_items for all to authenticated using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 
 drop policy if exists "purchases select scoped" on public.purchases;
 create policy "purchases select scoped" on public.purchases for select to authenticated using (public.can_select_company(company_id, is_demo_data));
 drop policy if exists "purchases write scoped" on public.purchases;
-create policy "purchases write scoped" on public.purchases for all to authenticated using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 
 drop policy if exists "purchase_items select scoped" on public.purchase_items;
 create policy "purchase_items select scoped" on public.purchase_items for select to authenticated using (public.can_select_company(company_id, is_demo_data));
 drop policy if exists "purchase_items write scoped" on public.purchase_items;
-create policy "purchase_items write scoped" on public.purchase_items for all to authenticated using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 
 drop policy if exists "promotions select scoped" on public.promotions;
 create policy "promotions select scoped" on public.promotions for select to authenticated using (public.can_select_company(company_id, is_demo_data));
@@ -983,7 +993,6 @@ create policy "promotions select scoped" on public.promotions for select to auth
 drop policy if exists "cash_sessions select scoped" on public.cash_sessions;
 create policy "cash_sessions select scoped" on public.cash_sessions for select to authenticated using (public.can_select_company(company_id, is_demo_data));
 drop policy if exists "cash_sessions write scoped" on public.cash_sessions;
-create policy "cash_sessions write scoped" on public.cash_sessions for all to authenticated using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 
 drop policy if exists "cash_movements select scoped" on public.cash_movements;
 create policy "cash_movements select scoped" on public.cash_movements for select to authenticated using (public.can_select_company(company_id, is_demo_data));
@@ -991,12 +1000,10 @@ create policy "cash_movements select scoped" on public.cash_movements for select
 drop policy if exists "stock_movements select scoped" on public.stock_movements;
 create policy "stock_movements select scoped" on public.stock_movements for select to authenticated using (public.can_select_company(company_id, is_demo_data));
 drop policy if exists "stock_movements write scoped" on public.stock_movements;
-create policy "stock_movements write scoped" on public.stock_movements for all to authenticated using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 
 drop policy if exists "returns select scoped" on public.returns;
 create policy "returns select scoped" on public.returns for select to authenticated using (public.can_select_company(company_id, is_demo_data));
 drop policy if exists "returns write scoped" on public.returns;
-create policy "returns write scoped" on public.returns for all to authenticated using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 
 drop trigger if exists prevent_demo_products_write on public.products;
 create trigger prevent_demo_products_write before insert or update or delete on public.products for each row execute function public.reject_demo_write();
@@ -4420,6 +4427,33 @@ CREATE POLICY "profiles delete admin"
     public.current_user_is_platform_admin()
     OR (company_id = public.current_user_company_id() AND public.current_user_role() = 'admin'::public.app_role)
   );
+
+-- Corrección (auditoría RLS): "profiles select scoped" arriba solo deja ver
+-- el propio perfil o, si eres admin, los de tu empresa -- a propósito,
+-- porque esa fila también guarda pin_hash del checador, que por diseño
+-- nunca debe salir de la base (ver el comentario en set_employee_pin más
+-- abajo). El problema es que fetchProfileNames() (nombres para "vendido
+-- por"/"abrió la caja"/etc.) se usa desde Ventas, Caja y Mermas -- páginas
+-- a las que también entra un cajero o finanzas -- así que con esa política
+-- les salían en blanco los nombres de sus compañeros. Este RPC expone
+-- SOLO id + full_name (nunca pin_hash, commission_rate, allowed_sections,
+-- etc.) a cualquiera de la misma empresa, sin tener que abrir la tabla
+-- completa a más roles.
+create or replace function public.list_company_profile_names()
+returns table (id uuid, full_name text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p.id, p.full_name
+  from public.profiles p
+  where public.current_user_company_id() is not null
+    and p.company_id = public.current_user_company_id();
+$$;
+
+revoke execute on function public.list_company_profile_names() from public, anon;
+grant execute on function public.list_company_profile_names() to authenticated;
 
 -- 3) subscription_plans: switch write policy from {public} to {authenticated}
 DROP POLICY IF EXISTS "plans write platform admin" ON public.subscription_plans;
@@ -9085,24 +9119,20 @@ create policy "mermas select scoped" on public.mermas for select to authenticate
       or registered_by = auth.uid()
     )
   );
--- Insert/update/delete por separado (nunca "for all"): una política "for
--- all" también se aplica a SELECT y, al ser permisiva, se combina con OR
--- junto a "mermas select scoped" -- volvería a dejar ver todas las mermas
--- de la empresa a cualquiera con permiso de escritura, sin importar el
--- filtro por empleado de arriba. Los INSERT/UPDATE/DELETE reales siempre
--- pasan por register_merma/delete_merma (security definer), así que esto
--- es solo defensa adicional a nivel de tabla.
+-- Corrección (auditoría RLS): NO se re-crean insert/update/delete. El
+-- razonamiento anterior ("son solo defensa adicional, total ya pasa por
+-- register_merma/delete_merma") tenía un hueco: can_write_company()
+-- acepta CUALQUIER rol (incluido un cajero), así que estas políticas no
+-- defendían nada -- al revés, dejaban que cualquiera insertara/editara/
+-- borrara una merma directo por la API REST, saltándose por completo
+-- delete_merma() (que exige admin/finanzas) y su reposición de stock.
+-- register_merma/delete_merma son SECURITY DEFINER y no dependen de
+-- ninguna política aquí, así que quitarlas no rompe nada que el frontend
+-- use -- solo cierra el atajo directo a la tabla.
 drop policy if exists "mermas write scoped" on public.mermas;
 drop policy if exists "mermas insert scoped" on public.mermas;
-create policy "mermas insert scoped" on public.mermas for insert to authenticated
-  with check (public.can_write_company(company_id));
 drop policy if exists "mermas update scoped" on public.mermas;
-create policy "mermas update scoped" on public.mermas for update to authenticated
-  using (public.can_write_company(company_id))
-  with check (public.can_write_company(company_id));
 drop policy if exists "mermas delete scoped" on public.mermas;
-create policy "mermas delete scoped" on public.mermas for delete to authenticated
-  using (public.can_write_company(company_id));
 
 drop trigger if exists prevent_demo_mermas_write on public.mermas;
 create trigger prevent_demo_mermas_write before insert or update or delete on public.mermas
@@ -9377,33 +9407,29 @@ alter table public.quote_items enable row level security;
 -- Visible para todos los que tengan acceso a Cotizaciones (admin, finanzas
 -- y cajero) -- a diferencia de Mermas, aquí no hay razón para ocultarle a
 -- un cajero las cotizaciones de otro; es información del negocio, no de
--- desempeño individual. Insert/update/delete por separado (nunca "for
--- all"): ver el comentario en la sección de Mermas sobre por qué.
+-- desempeño individual.
+--
+-- Corrección (auditoría RLS): sin insert/update/delete para "authenticated".
+-- El frontend solo lee esta tabla (.select) -- crear, convertir y rechazar
+-- una cotización siempre pasa por create_quote/convert_quote_to_sale/
+-- reject_quote (SECURITY DEFINER, no dependen de estas políticas). Antes
+-- había políticas de insert/update/delete con can_write_company(), que
+-- acepta cualquier rol -- dejaban que un cajero, por ejemplo, borrara
+-- directo por la API REST una cotización ajena sin pasar por
+-- reject_quote() ni dejar rastro en audit_log.
 drop policy if exists "quotes select scoped" on public.quotes;
 create policy "quotes select scoped" on public.quotes for select to authenticated
   using (public.can_select_company(company_id, is_demo_data));
 drop policy if exists "quotes insert scoped" on public.quotes;
-create policy "quotes insert scoped" on public.quotes for insert to authenticated
-  with check (public.can_write_company(company_id));
 drop policy if exists "quotes update scoped" on public.quotes;
-create policy "quotes update scoped" on public.quotes for update to authenticated
-  using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 drop policy if exists "quotes delete scoped" on public.quotes;
-create policy "quotes delete scoped" on public.quotes for delete to authenticated
-  using (public.can_write_company(company_id));
 
 drop policy if exists "quote_items select scoped" on public.quote_items;
 create policy "quote_items select scoped" on public.quote_items for select to authenticated
   using (public.can_select_company(company_id, is_demo_data));
 drop policy if exists "quote_items insert scoped" on public.quote_items;
-create policy "quote_items insert scoped" on public.quote_items for insert to authenticated
-  with check (public.can_write_company(company_id));
 drop policy if exists "quote_items update scoped" on public.quote_items;
-create policy "quote_items update scoped" on public.quote_items for update to authenticated
-  using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 drop policy if exists "quote_items delete scoped" on public.quote_items;
-create policy "quote_items delete scoped" on public.quote_items for delete to authenticated
-  using (public.can_write_company(company_id));
 
 drop trigger if exists prevent_demo_quotes_write on public.quotes;
 create trigger prevent_demo_quotes_write before insert or update or delete on public.quotes
@@ -10050,46 +10076,40 @@ alter table public.apartado_payments enable row level security;
 
 -- Mismo criterio que Cotizaciones: visible para todos los que tengan
 -- acceso a la sección (admin, finanzas, cajero) -- no hay razón para
--- ocultarle a un cajero los apartados de otro. Insert/update/delete por
--- separado (nunca "for all" -- ver el comentario de Mermas).
+-- ocultarle a un cajero los apartados de otro.
+--
+-- Corrección (auditoría RLS) -- este es el caso más grave de los tres:
+-- sin insert/update/delete para "authenticated" en ninguna de las tres
+-- tablas. El frontend solo las lee (.select); crear, abonar, completar y
+-- cancelar un apartado siempre pasa por create_apartado/
+-- add_apartado_payment/complete_apartado/cancel_apartado (SECURITY
+-- DEFINER). Las políticas de delete que había antes (con
+-- can_write_company(), que acepta cualquier rol) dejaban que CUALQUIER
+-- usuario borrara un apartado activo directo por la API REST -- eso
+-- salta por completo cancel_apartado() y su reposición de stock: el
+-- stock reservado se habría perdido para siempre (nunca vuelve a
+-- product_locations), además de borrar en cascada sus abonos sin dejar
+-- ningún rastro en audit_log.
 drop policy if exists "apartados select scoped" on public.apartados;
 create policy "apartados select scoped" on public.apartados for select to authenticated
   using (public.can_select_company(company_id, is_demo_data));
 drop policy if exists "apartados insert scoped" on public.apartados;
-create policy "apartados insert scoped" on public.apartados for insert to authenticated
-  with check (public.can_write_company(company_id));
 drop policy if exists "apartados update scoped" on public.apartados;
-create policy "apartados update scoped" on public.apartados for update to authenticated
-  using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 drop policy if exists "apartados delete scoped" on public.apartados;
-create policy "apartados delete scoped" on public.apartados for delete to authenticated
-  using (public.can_write_company(company_id));
 
 drop policy if exists "apartado_items select scoped" on public.apartado_items;
 create policy "apartado_items select scoped" on public.apartado_items for select to authenticated
   using (public.can_select_company(company_id, is_demo_data));
 drop policy if exists "apartado_items insert scoped" on public.apartado_items;
-create policy "apartado_items insert scoped" on public.apartado_items for insert to authenticated
-  with check (public.can_write_company(company_id));
 drop policy if exists "apartado_items update scoped" on public.apartado_items;
-create policy "apartado_items update scoped" on public.apartado_items for update to authenticated
-  using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 drop policy if exists "apartado_items delete scoped" on public.apartado_items;
-create policy "apartado_items delete scoped" on public.apartado_items for delete to authenticated
-  using (public.can_write_company(company_id));
 
 drop policy if exists "apartado_payments select scoped" on public.apartado_payments;
 create policy "apartado_payments select scoped" on public.apartado_payments for select to authenticated
   using (public.can_select_company(company_id, is_demo_data));
 drop policy if exists "apartado_payments insert scoped" on public.apartado_payments;
-create policy "apartado_payments insert scoped" on public.apartado_payments for insert to authenticated
-  with check (public.can_write_company(company_id));
 drop policy if exists "apartado_payments update scoped" on public.apartado_payments;
-create policy "apartado_payments update scoped" on public.apartado_payments for update to authenticated
-  using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 drop policy if exists "apartado_payments delete scoped" on public.apartado_payments;
-create policy "apartado_payments delete scoped" on public.apartado_payments for delete to authenticated
-  using (public.can_write_company(company_id));
 
 drop trigger if exists prevent_demo_apartados_write on public.apartados;
 create trigger prevent_demo_apartados_write before insert or update or delete on public.apartados
