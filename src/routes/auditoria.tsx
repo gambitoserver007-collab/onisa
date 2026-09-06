@@ -44,6 +44,7 @@ const ENTITY_FILTERS = [
   { value: "quote", label: "Cotizaciones" },
   { value: "apartado", label: "Apartados" },
   { value: "cash_session", label: "Caja" },
+  { value: "voided_sale", label: "Ventas canceladas" },
 ];
 
 function fmtDateTime(iso: string) {

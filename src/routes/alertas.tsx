@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
   AlertTriangle,
+  Ban,
   Boxes,
   CreditCard,
   PackageCheck,
@@ -310,6 +311,47 @@ function AlertasPage() {
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">
                       {formatMoney(item.creditLimit)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Section>
+
+          <Section
+            icon={Ban}
+            title="Ventas canceladas (últimas 48h)"
+            count={alerts.ventasCanceladas.length}
+          >
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Cuándo</TableHead>
+                  <TableHead>Cajero</TableHead>
+                  <TableHead className="text-right">Productos</TableHead>
+                  <TableHead className="text-right">Valor</TableHead>
+                  <TableHead>Motivo</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {alerts.ventasCanceladas.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                      {fmtDateTime(item.createdAt)}
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      {item.cashierName ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {item.itemCount}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(item.total)}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {item.reason ?? (
+                        <span className="text-destructive">Sin motivo</span>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

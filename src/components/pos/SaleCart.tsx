@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  Ban,
   Minus,
   Plus,
   Search,
@@ -29,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -78,6 +80,12 @@ export interface SaleCartProps {
   onSetQty?: (productId: string, qty: number) => void;
   onRemove: (productId: string) => void;
   onCheckout: () => void;
+  /** Cancela el carrito actual SIN registrar una venta -- exige un motivo
+   * (prevención de robo: sin esto, un cajero podía vaciar el carrito en
+   * silencio después de cobrar en efectivo, sin dejar rastro). Si la
+   * promesa rechaza, el diálogo se queda abierto para reintentar (el
+   * toast de error lo muestra quien pasa este handler). */
+  onVoidSale?: (reason: string) => void | Promise<void>;
   onCreateCustomer?: (input: {
     name: string;
     documentNumber?: string;
@@ -132,6 +140,7 @@ function SaleCartContent({
   onSetQty,
   onRemove,
   onCheckout,
+  onVoidSale,
   onCreateCustomer,
   loyaltyEnabled = false,
   pointsToRedeem = 0,
@@ -161,6 +170,9 @@ function SaleCartContent({
 
   const [newOpen, setNewOpen] = useState(false);
   const [splitEditorOpen, setSplitEditorOpen] = useState(false);
+  const [voidOpen, setVoidOpen] = useState(false);
+  const [voidReason, setVoidReason] = useState("");
+  const [voidSaving, setVoidSaving] = useState(false);
   const [ncName, setNcName] = useState("");
   const [ncDoc, setNcDoc] = useState("");
   const [ncPhone, setNcPhone] = useState("");
@@ -195,6 +207,22 @@ function SaleCartContent({
           );
         })
       : cart;
+
+  const confirmVoidSale = async () => {
+    if (!voidReason.trim()) return;
+    setVoidSaving(true);
+    try {
+      await onVoidSale?.(voidReason.trim());
+      setVoidOpen(false);
+      setVoidReason("");
+    } catch {
+      // El toast de error ya lo muestra quien pasa onVoidSale (pos.tsx) --
+      // aquí el diálogo se queda abierto, con el motivo ya escrito, para
+      // que el cajero pueda reintentar.
+    } finally {
+      setVoidSaving(false);
+    }
+  };
 
   const submitNewCustomer = async () => {
     if (!onCreateCustomer || !ncName.trim()) return;
@@ -642,6 +670,19 @@ function SaleCartContent({
         </div>
       </div>
 
+      {cart.length > 0 && onVoidSale && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="shrink-0 self-end text-xs text-muted-foreground hover:text-destructive"
+          disabled={isCheckingOut}
+          onClick={() => setVoidOpen(true)}
+        >
+          <Ban className="mr-1 h-3.5 w-3.5" /> Cancelar venta
+        </Button>
+      )}
+
       <Button
         variant="brand"
         className="w-full shrink-0"
@@ -659,6 +700,54 @@ function SaleCartContent({
           </>
         )}
       </Button>
+
+      <Dialog
+        open={voidOpen}
+        onOpenChange={(open) => {
+          setVoidOpen(open);
+          if (!open) setVoidReason("");
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancelar venta</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Vas a cancelar un carrito con {itemCount}{" "}
+              {itemCount === 1 ? "producto" : "productos"} por{" "}
+              {formatMoney(finalTotal)}. Esto queda registrado con tu nombre
+              para que el administrador lo revise.
+            </p>
+            <div className="space-y-1">
+              <Label>Motivo *</Label>
+              <Textarea
+                autoFocus
+                value={voidReason}
+                onChange={(event) => setVoidReason(event.target.value)}
+                placeholder="Ej. el cliente se arrepintió, error al escanear los productos..."
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setVoidOpen(false)}
+              disabled={voidSaving}
+            >
+              Volver
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={voidSaving || !voidReason.trim()}
+              onClick={confirmVoidSale}
+            >
+              {voidSaving ? "Cancelando..." : "Confirmar cancelación"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={splitEditorOpen} onOpenChange={setSplitEditorOpen}>
         <DialogContent>

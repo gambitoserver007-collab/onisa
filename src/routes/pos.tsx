@@ -36,6 +36,7 @@ import {
   fetchProductVariants,
   fetchPromotions,
   getErrorMessage,
+  logVoidedSale,
   type ComboItemRow,
   type Promotion,
   type SalePaymentLine,
@@ -977,6 +978,37 @@ function POS() {
     }
   };
 
+  // Prevención de robo: cancelar un carrito con productos SIN cobrarlo
+  // queda registrado (quién, qué iba a vender, por cuánto, y el motivo que
+  // dio) para que admin/finanzas lo revisen en Alertas/Auditoría -- ver
+  // el comentario de voided_sales en 01_install.sql. Si logVoidedSale
+  // falla, se relanza el error para que el diálogo de SaleCart se quede
+  // abierto y el cajero pueda reintentar en vez de perder el motivo ya
+  // escrito.
+  const handleVoidSale = async (reason: string) => {
+    if (cart.length === 0) return;
+    try {
+      await logVoidedSale({
+        items: cart.map((item) => ({
+          productId: item.productId,
+          qty: item.qty,
+        })),
+        locationId: posLocationId,
+        reason,
+      });
+      setCart([]);
+      setPointsToRedeem(0);
+      setSplitMode(false);
+      setSplitPayments([]);
+      toast.success("Venta cancelada y registrada.");
+    } catch (error) {
+      toast.error(
+        getErrorMessage(error, "No se pudo registrar la cancelación."),
+      );
+      throw error;
+    }
+  };
+
   // Atajos de teclado del punto de venta (F4/F6/F9/F10). En Mac, estas
   // teclas están tomadas de fábrica por brillo/multimedia/volumen -- hay
   // que mantener presionada "fn" al usarlas, o activar en Ajustes del
@@ -1059,6 +1091,7 @@ function POS() {
     },
     onRemove: remove,
     onCheckout: checkout,
+    onVoidSale: handleVoidSale,
     onCreateCustomer: handleCreateCustomer,
     loyaltyEnabled,
     pointsToRedeem,

@@ -10790,15 +10790,180 @@ create trigger companies_log_audit after update on public.companies
   for each row execute function public.log_audit_company_settings();
 
 -- ============================================================
+-- Ventas canceladas sin cobrar (prevención de robo): en el POS no existía
+-- NINGÚN botón de "cancelar venta" -- un cajero solo podía vaciar el
+-- carrito quitando productos uno por uno, sin dejar rastro. Eso es
+-- exactamente el hueco que permite el fraude clásico de "no-sale": el
+-- cajero cobra en efectivo, arma el carrito completo, y en vez de
+-- confirmar la venta lo cancela -- se queda con el dinero y el sistema
+-- nunca se entera, porque nada se guarda hasta que create_sale corre.
+--
+-- Por eso el POS ahora sí tiene un botón de "Cancelar venta" (solo
+-- aparece si el carrito ya tiene productos) que EXIGE un motivo antes de
+-- vaciarlo, y ese motivo + el carrito completo quedan aquí para que
+-- admin/finanzas los revisen -- quién, qué iba a vender, por cuánto, y
+-- qué explicó (o no explicó). El precio de cada línea se recalcula con
+-- el precio ACTUAL del producto -- igual que create_sale, nunca se confía
+-- en lo que mande el cliente -- para que un cajero no pueda "abaratar" el
+-- carrito cancelado a propósito y así minimizar lo que se ve. La cantidad
+-- sí viene del cliente (no hay otra fuente posible en este punto, ya que
+-- nada se persistió antes de cancelar) -- limitación conocida y aceptada.
+-- ============================================================
+create table if not exists public.voided_sales (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  location_id uuid references public.locations(id) on delete set null,
+  total numeric(12,2) not null default 0,
+  item_count integer not null default 0,
+  reason text,
+  created_by uuid references public.profiles(id) on delete set null,
+  is_demo_data boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists voided_sales_company_idx on public.voided_sales(company_id, created_at desc);
+
+create table if not exists public.voided_sale_items (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  voided_sale_id uuid not null references public.voided_sales(id) on delete cascade,
+  product_id uuid references public.products(id) on delete set null,
+  product_name text not null,
+  qty numeric(12,3) not null,
+  unit_price numeric(12,2) not null,
+  is_demo_data boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists voided_sale_items_voided_idx on public.voided_sale_items(voided_sale_id);
+
+grant select on public.voided_sales to authenticated;
+grant select on public.voided_sale_items to authenticated;
+grant all on public.voided_sales to service_role;
+grant all on public.voided_sale_items to service_role;
+
+alter table public.voided_sales enable row level security;
+alter table public.voided_sale_items enable row level security;
+
+-- Lectura restringida a admin/finanzas -- igual que audit_log, y por la
+-- misma razón: esto es información de posible fraude, no algo que el
+-- cajero involucrado (u otro cajero) deba poder consultar.
+drop policy if exists "voided_sales select scoped" on public.voided_sales;
+create policy "voided_sales select scoped" on public.voided_sales for select to authenticated
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and public.current_user_role()::text in ('admin', 'finanzas')
+  );
+drop policy if exists "voided_sale_items select scoped" on public.voided_sale_items;
+create policy "voided_sale_items select scoped" on public.voided_sale_items for select to authenticated
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and public.current_user_role()::text in ('admin', 'finanzas')
+  );
+-- Sin política de insert/update/delete para "authenticated": solo vía
+-- log_voided_sale() (SECURITY DEFINER) -- nadie, ni el cajero que la
+-- generó, puede editarla o borrarla después.
+
+drop trigger if exists prevent_demo_voided_sales_write on public.voided_sales;
+create trigger prevent_demo_voided_sales_write before insert or update or delete on public.voided_sales
+  for each row execute function public.reject_demo_write();
+drop trigger if exists prevent_demo_voided_sale_items_write on public.voided_sale_items;
+create trigger prevent_demo_voided_sale_items_write before insert or update or delete on public.voided_sale_items
+  for each row execute function public.reject_demo_write();
+
+create or replace function public.log_voided_sale(
+  p_items jsonb,
+  p_location_id uuid default null,
+  p_reason text default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_role public.app_role;
+  v_voided_id uuid;
+  v_item jsonb;
+  v_product_id uuid;
+  v_qty numeric(12,3);
+  v_unit_price numeric(12,2);
+  v_product_name text;
+  v_total numeric(12,2) := 0;
+  v_item_count integer := 0;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  v_role := public.current_user_role();
+  if v_role not in ('admin', 'finanzas', 'user') then
+    raise exception 'No tienes permiso para registrar esta accion.';
+  end if;
+
+  if p_items is null or jsonb_array_length(p_items) = 0 then
+    raise exception 'El carrito esta vacio.';
+  end if;
+
+  if p_location_id is not null then
+    perform 1 from public.locations where id = p_location_id and company_id = v_company_id;
+    if not found then raise exception 'Sucursal invalida.'; end if;
+  end if;
+
+  insert into public.voided_sales (company_id, location_id, reason, created_by)
+  values (v_company_id, p_location_id, nullif(btrim(coalesce(p_reason, '')), ''), auth.uid())
+  returning id into v_voided_id;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_product_id := nullif(v_item ->> 'product_id', '')::uuid;
+    v_qty := coalesce((v_item ->> 'qty')::numeric, 0);
+    if v_product_id is null or v_qty <= 0 then continue; end if;
+
+    -- SECURITY: precio actual del producto, nunca lo que mande el cliente.
+    select name, price into v_product_name, v_unit_price
+      from public.products where id = v_product_id and company_id = v_company_id;
+    if not found then continue; end if;
+
+    v_total := v_total + (v_qty * v_unit_price);
+    v_item_count := v_item_count + 1;
+
+    insert into public.voided_sale_items (company_id, voided_sale_id, product_id, product_name, qty, unit_price)
+    values (v_company_id, v_voided_id, v_product_id, v_product_name, v_qty, v_unit_price);
+  end loop;
+
+  if v_item_count = 0 then
+    delete from public.voided_sales where id = v_voided_id;
+    raise exception 'El carrito esta vacio.';
+  end if;
+
+  update public.voided_sales set total = v_total, item_count = v_item_count where id = v_voided_id;
+
+  perform public.log_audit(v_company_id, 'voided_sale', v_voided_id, 'cancelled',
+    jsonb_build_object('total', v_total, 'item_count', v_item_count, 'reason', p_reason));
+
+  return v_voided_id;
+end;
+$$;
+
+revoke execute on function public.log_voided_sale(jsonb, uuid, text) from public, anon;
+grant execute on function public.log_voided_sale(jsonb, uuid, text) to authenticated;
+
+-- ============================================================
 -- Alertas generales: un solo RPC que junta, en vivo (sin tabla ni cron
 -- propio -- mismo enfoque que low_stock_summary/purchase_projection), los
 -- focos rojos operativos más comunes del negocio: stock bajo, apartados
 -- vencidos, cotizaciones vencidas, cajas que quedaron abiertas de un
--- turno anterior, y clientes cerca o al límite de su crédito. Cada tipo
--- se resuelve solo cuando alguien actúa sobre él (se surte el producto,
--- se completa/cancela el apartado, se cierra la caja, el cliente paga),
--- así que no hace falta guardar estado de "leído/descartado" por
--- usuario -- la próxima vez que se consulta, si ya no aplica, ya no sale.
+-- turno anterior, clientes cerca o al límite de su crédito, y ventas
+-- canceladas en el POS de las últimas 48h (posible fraude -- ver
+-- voided_sales arriba). Los primeros cinco se resuelven solos cuando
+-- alguien actúa sobre ellos (se surte el producto, se completa/cancela
+-- el apartado, se cierra la caja, el cliente paga), así que no hace
+-- falta guardar estado de "leído/descartado" por usuario -- la próxima
+-- vez que se consulta, si ya no aplica, ya no sale. Las ventas
+-- canceladas simplemente salen de la ventana de 48h -- el historial
+-- completo sigue disponible en Auditoría.
 -- Solo admin/finanzas: mezcla datos financieros sensibles (crédito de
 -- clientes, cajas) que un cajero/operador no necesita ver de golpe.
 -- ============================================================
@@ -10860,6 +11025,15 @@ begin
     where c2.company_id = v_company_id and c2.deleted_at is null
       and coalesce(c2.credit_limit, 0) > 0
       and coalesce(c2.credit_balance, 0) >= c2.credit_limit * 0.9
+  ),
+  -- Ventana corta (48h) a propósito: esto es para revisión inmediata, no
+  -- para el historial completo -- ese ya vive en Auditoría, filtrable por
+  -- "Venta cancelada" sin límite de fecha.
+  ventas_canceladas as (
+    select vs.id, vs.total, vs.item_count, vs.reason, vs.created_at, pr.full_name as cashier_name
+    from public.voided_sales vs
+    left join public.profiles pr on pr.id = vs.created_by
+    where vs.company_id = v_company_id and vs.created_at >= now() - interval '2 days'
   )
   select jsonb_build_object(
     'stock_bajo', coalesce((
@@ -10879,7 +11053,11 @@ begin
       from cajas_abiertas), '[]'::jsonb),
     'clientes_credito', coalesce((
       select jsonb_agg(jsonb_build_object('id', id, 'name', name, 'credit_limit', credit_limit, 'credit_balance', credit_balance) order by credit_balance desc)
-      from clientes_credito), '[]'::jsonb)
+      from clientes_credito), '[]'::jsonb),
+    'ventas_canceladas', coalesce((
+      select jsonb_agg(jsonb_build_object('id', id, 'total', total, 'item_count', item_count,
+                                          'reason', reason, 'cashier_name', cashier_name, 'created_at', created_at) order by created_at desc)
+      from ventas_canceladas), '[]'::jsonb)
   ) into v_result;
 
   return v_result;

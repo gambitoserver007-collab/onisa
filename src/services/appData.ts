@@ -686,12 +686,21 @@ export interface AlertClienteCredito {
   creditLimit: number;
   creditBalance: number;
 }
+export interface AlertVentaCancelada {
+  id: string;
+  total: number;
+  itemCount: number;
+  reason: string | null;
+  cashierName: string | null;
+  createdAt: string;
+}
 export interface CompanyAlerts {
   stockBajo: AlertLowStockItem[];
   apartadosVencidos: AlertApartadoVencido[];
   cotizacionesVencidas: AlertCotizacionVencida[];
   cajasAbiertas: AlertCajaAbierta[];
   clientesCredito: AlertClienteCredito[];
+  ventasCanceladas: AlertVentaCancelada[];
   total: number;
 }
 
@@ -732,6 +741,14 @@ export async function fetchCompanyAlerts(): Promise<CompanyAlerts> {
       credit_limit: number;
       credit_balance: number;
     }[];
+    ventas_canceladas?: {
+      id: string;
+      total: number;
+      item_count: number;
+      reason: string | null;
+      cashier_name: string | null;
+      created_at: string;
+    }[];
   };
   const stockBajo = (payload.stock_bajo ?? []).map((i) => ({
     id: i.id,
@@ -768,18 +785,28 @@ export async function fetchCompanyAlerts(): Promise<CompanyAlerts> {
     creditLimit: toNumber(i.credit_limit),
     creditBalance: toNumber(i.credit_balance),
   }));
+  const ventasCanceladas = (payload.ventas_canceladas ?? []).map((i) => ({
+    id: i.id,
+    total: toNumber(i.total),
+    itemCount: toNumber(i.item_count),
+    reason: i.reason,
+    cashierName: i.cashier_name,
+    createdAt: i.created_at,
+  }));
   return {
     stockBajo,
     apartadosVencidos,
     cotizacionesVencidas,
     cajasAbiertas,
     clientesCredito,
+    ventasCanceladas,
     total:
       stockBajo.length +
       apartadosVencidos.length +
       cotizacionesVencidas.length +
       cajasAbiertas.length +
-      clientesCredito.length,
+      clientesCredito.length +
+      ventasCanceladas.length,
   };
 }
 
@@ -1198,6 +1225,30 @@ export async function createSaleFromCart({
     pointsEarned: payload.points_earned ?? 0,
     pointsRedeemed: payload.points_redeemed ?? 0,
   };
+}
+
+/** Registra en la bitácora un carrito con productos que se canceló SIN
+ * llegar a cobrarse (prevención de robo: cajero cobra en efectivo y luego
+ * cancela la venta para no registrar el dinero en caja). El precio de cada
+ * línea lo recalcula el servidor con el precio ACTUAL del producto -- nunca
+ * confía en lo que mande el cliente, igual que create_sale -- así que no
+ * sirve para que el cajero "abarate" el carrito cancelado a propósito. Solo
+ * admin/finanzas pueden leer estos registros (ver Alertas y Auditoría). */
+export async function logVoidedSale(input: {
+  items: { productId: string; qty: number }[];
+  locationId?: string | null;
+  reason: string;
+}): Promise<void> {
+  const items = input.items
+    .filter((item) => item.productId && item.qty > 0)
+    .map((item) => ({ product_id: item.productId, qty: item.qty }));
+  if (items.length === 0) return;
+  const { error } = await supabase.rpc("log_voided_sale", {
+    p_items: items as unknown as Json,
+    p_location_id: input.locationId || undefined,
+    p_reason: input.reason,
+  });
+  if (error) throw error;
 }
 
 export async function createCategory(session: DemoSession, name: string) {
@@ -2577,6 +2628,7 @@ export const AUDIT_ENTITY_LABELS: Record<string, string> = {
   merma: "Merma",
   quote: "Cotización",
   apartado: "Apartado",
+  voided_sale: "Venta cancelada",
 };
 
 export function describeAuditAction(action: string): string {

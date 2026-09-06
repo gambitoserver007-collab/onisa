@@ -2808,6 +2808,122 @@ export type Database = {
           },
         ];
       };
+      voided_sales: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          is_demo_data: boolean;
+          item_count: number;
+          location_id: string | null;
+          reason: string | null;
+          total: number;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          is_demo_data?: boolean;
+          item_count?: number;
+          location_id?: string | null;
+          reason?: string | null;
+          total?: number;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          is_demo_data?: boolean;
+          item_count?: number;
+          location_id?: string | null;
+          reason?: string | null;
+          total?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "voided_sales_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "voided_sales_location_id_fkey";
+            columns: ["location_id"];
+            isOneToOne: false;
+            referencedRelation: "locations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "voided_sales_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      voided_sale_items: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          id: string;
+          is_demo_data: boolean;
+          product_id: string | null;
+          product_name: string;
+          qty: number;
+          unit_price: number;
+          voided_sale_id: string;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          id?: string;
+          is_demo_data?: boolean;
+          product_id?: string | null;
+          product_name: string;
+          qty: number;
+          unit_price: number;
+          voided_sale_id: string;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          id?: string;
+          is_demo_data?: boolean;
+          product_id?: string | null;
+          product_name?: string;
+          qty?: number;
+          unit_price?: number;
+          voided_sale_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "voided_sale_items_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "voided_sale_items_voided_sale_id_fkey";
+            columns: ["voided_sale_id"];
+            isOneToOne: false;
+            referencedRelation: "voided_sales";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "voided_sale_items_product_id_fkey";
+            columns: ["product_id"];
+            isOneToOne: false;
+            referencedRelation: "products";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: {
       [_ in never]: never;
@@ -2915,6 +3031,10 @@ export type Database = {
         Returns: Json;
       };
       get_company_alerts: { Args: never; Returns: Json };
+      log_voided_sale: {
+        Args: { p_items: Json; p_location_id?: string; p_reason?: string };
+        Returns: string;
+      };
       low_stock_summary: {
         Args: { p_limit?: number; p_location_id?: string };
         Returns: Json;

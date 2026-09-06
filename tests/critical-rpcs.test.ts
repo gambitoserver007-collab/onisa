@@ -6105,4 +6105,167 @@ describe("RPCs críticas de dinero y stock", () => {
       });
     });
   });
+
+  describe("31. Ventas canceladas sin cobrar (prevención de robo)", () => {
+    async function logVoidedSaleAs(
+      userId: string,
+      params: {
+        items: { productId: string; qty: number }[];
+        locationId?: string | null;
+        reason?: string | null;
+      },
+    ): Promise<string> {
+      const itemsJson = JSON.stringify(
+        params.items.map((i) => ({ product_id: i.productId, qty: i.qty })),
+      );
+      const { rows } = await asUser(db, userId, () =>
+        db.query<{ log_voided_sale: string }>(
+          `select log_voided_sale(
+             p_items := $1::jsonb,
+             p_location_id := $2,
+             p_reason := $3
+           ) as log_voided_sale`,
+          [itemsJson, params.locationId ?? null, params.reason ?? null],
+        ),
+      );
+      return rows[0].log_voided_sale;
+    }
+
+    async function setupVoidedSaleCompany() {
+      const company = await makeCompany(db, "Empresa Venta Cancelada Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const cajero = await makeUser(db, company.id, "user");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Cancelado",
+        20,
+        50,
+        100,
+      );
+      return { company, admin, cajero, product };
+    }
+
+    it("un cajero puede registrar la cancelación de su propio carrito, con el precio ACTUAL del producto (no el que mande el cliente)", async () => {
+      const { company, cajero, product } = await setupVoidedSaleCompany();
+
+      const voidedId = await logVoidedSaleAs(cajero, {
+        items: [{ productId: product, qty: 2 }],
+        locationId: company.loc1,
+        reason: "El cliente se arrepintió",
+      });
+
+      const { rows: headerRows } = await db.query<{
+        total: string;
+        item_count: number;
+        reason: string;
+        created_by: string;
+      }>(
+        "select total, item_count, reason, created_by from public.voided_sales where id = $1",
+        [voidedId],
+      );
+      expect(Number(headerRows[0].total)).toBeCloseTo(100, 2); // 2 * 50
+      expect(headerRows[0].item_count).toBe(1);
+      expect(headerRows[0].reason).toBe("El cliente se arrepintió");
+      expect(headerRows[0].created_by).toBe(cajero);
+
+      const { rows: itemRows } = await db.query<{
+        product_name: string;
+        qty: string;
+        unit_price: string;
+      }>(
+        "select product_name, qty, unit_price from public.voided_sale_items where voided_sale_id = $1",
+        [voidedId],
+      );
+      expect(itemRows).toHaveLength(1);
+      expect(itemRows[0].product_name).toBe("Producto Cancelado");
+      expect(Number(itemRows[0].unit_price)).toBeCloseTo(50, 2);
+
+      const { rows: auditRows } = await db.query<{
+        action: string;
+        actor_id: string;
+      }>(
+        "select action, actor_id from public.audit_log where company_id = $1 and entity_type = 'voided_sale'",
+        [company.id],
+      );
+      expect(auditRows).toHaveLength(1);
+      expect(auditRows[0].action).toBe("cancelled");
+      expect(auditRows[0].actor_id).toBe(cajero);
+    });
+
+    it("un carrito vacío (o con productos que ya no existen) se rechaza", async () => {
+      const { cajero } = await setupVoidedSaleCompany();
+      await expect(logVoidedSaleAs(cajero, { items: [] })).rejects.toThrow(
+        /carrito esta vacio/i,
+      );
+
+      await expect(
+        logVoidedSaleAs(cajero, {
+          items: [{ productId: crypto.randomUUID(), qty: 1 }],
+        }),
+      ).rejects.toThrow(/carrito esta vacio/i);
+    });
+
+    it("un precio manipulado por el cliente se ignora -- siempre se recalcula server-side", async () => {
+      const { cajero, product } = await setupVoidedSaleCompany();
+      // El RPC solo acepta product_id/qty -- ni siquiera hay un campo de
+      // precio que un cliente manipulado pueda mandar; esta prueba lo deja
+      // explícito para que quede documentado el diseño.
+      const voidedId = await logVoidedSaleAs(cajero, {
+        items: [{ productId: product, qty: 1 }],
+      });
+      const { rows } = await db.query<{ total: string }>(
+        "select total from public.voided_sales where id = $1",
+        [voidedId],
+      );
+      expect(Number(rows[0].total)).toBeCloseTo(50, 2); // precio real del producto, no otro
+    });
+
+    it("un cajero no puede leer las ventas canceladas -- solo admin/finanzas", async () => {
+      const { cajero, product } = await setupVoidedSaleCompany();
+      await logVoidedSaleAs(cajero, {
+        items: [{ productId: product, qty: 1 }],
+        reason: "Prueba",
+      });
+
+      const seenByCajero = await asUser(db, cajero, () =>
+        db.query("select id from public.voided_sales"),
+      );
+      expect(seenByCajero.rows).toHaveLength(0);
+    });
+
+    it("get_company_alerts incluye una cancelación reciente y excluye una de hace más de 48h", async () => {
+      const { company, admin, cajero, product } =
+        await setupVoidedSaleCompany();
+
+      const reciente = await logVoidedSaleAs(cajero, {
+        items: [{ productId: product, qty: 1 }],
+        reason: "Reciente",
+      });
+      const vieja = await logVoidedSaleAs(cajero, {
+        items: [{ productId: product, qty: 1 }],
+        reason: "Vieja",
+      });
+      await db.query(
+        "update public.voided_sales set created_at = now() - interval '5 days' where id = $1",
+        [vieja],
+      );
+
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{
+          get_company_alerts: {
+            ventas_canceladas: { id: string; cashier_name: string }[];
+          };
+        }>("select get_company_alerts() as get_company_alerts"),
+      );
+      const ids = rows[0].get_company_alerts.ventas_canceladas.map((v) => v.id);
+      expect(ids).toContain(reciente);
+      expect(ids).not.toContain(vieja);
+      const recienteAlert = rows[0].get_company_alerts.ventas_canceladas.find(
+        (v) => v.id === reciente,
+      );
+      expect(recienteAlert?.cashier_name).toBeTruthy();
+    });
+  });
 });
