@@ -5679,4 +5679,360 @@ describe("RPCs críticas de dinero y stock", () => {
       ).rejects.toThrow(/es un servicio/i);
     });
   });
+
+  describe("30. Alertas generales y auditoría universal", () => {
+    async function openCashSession(
+      userId: string,
+      locationId: string,
+      openingAmount = 100,
+    ): Promise<string> {
+      const { rows } = await asUser(db, userId, () =>
+        db.query<{ open_cash_session: string }>(
+          "select open_cash_session($1, $2) as open_cash_session",
+          [openingAmount, locationId],
+        ),
+      );
+      return rows[0].open_cash_session;
+    }
+
+    async function createApartado(
+      userId: string,
+      params: {
+        customerId: string | null;
+        items: { productId: string; qty: number }[];
+        locationId: string;
+        depositAmount: number;
+      },
+    ): Promise<{ apartado_id: string }> {
+      const itemsJson = JSON.stringify(
+        params.items.map((i) => ({ product_id: i.productId, qty: i.qty })),
+      );
+      const { rows } = await asUser(db, userId, () =>
+        db.query<{ create_apartado: { apartado_id: string } }>(
+          `select create_apartado(
+             p_customer_id := $1,
+             p_items := $2::jsonb,
+             p_location_id := $3,
+             p_deposit_amount := $4
+           ) as create_apartado`,
+          [
+            params.customerId,
+            itemsJson,
+            params.locationId,
+            params.depositAmount,
+          ],
+        ),
+      );
+      return rows[0].create_apartado;
+    }
+
+    async function cancelApartado(
+      userId: string,
+      params: { apartadoId: string; refundDeposit: boolean },
+    ): Promise<void> {
+      await asUser(db, userId, () =>
+        db.query(
+          "select cancel_apartado(p_apartado_id := $1, p_refund_deposit := $2)",
+          [params.apartadoId, params.refundDeposit],
+        ),
+      );
+    }
+
+    interface CompanyAlertsPayload {
+      stock_bajo: {
+        id: string;
+        name: string;
+        stock: number;
+        threshold: number;
+      }[];
+      apartados_vencidos: {
+        id: string;
+        apartado_number: string;
+        due_date: string;
+      }[];
+      cotizaciones_vencidas: {
+        id: string;
+        quote_number: string;
+        valid_until: string;
+      }[];
+      cajas_abiertas: { id: string; opened_at: string }[];
+      clientes_credito: {
+        id: string;
+        name: string;
+        credit_limit: string;
+        credit_balance: string;
+      }[];
+    }
+
+    async function getAlerts(userId: string): Promise<CompanyAlertsPayload> {
+      const { rows } = await asUser(db, userId, () =>
+        db.query<{ get_company_alerts: CompanyAlertsPayload }>(
+          "select get_company_alerts() as get_company_alerts",
+        ),
+      );
+      return rows[0].get_company_alerts;
+    }
+
+    async function getAuditRows(
+      companyId: string,
+      entityType: string,
+    ): Promise<
+      {
+        actor_id: string | null;
+        action: string;
+        detail: Record<string, unknown>;
+      }[]
+    > {
+      const { rows } = await db.query<{
+        actor_id: string | null;
+        action: string;
+        detail: Record<string, unknown>;
+      }>(
+        "select actor_id, action, detail from public.audit_log where company_id = $1 and entity_type = $2 order by created_at desc",
+        [companyId, entityType],
+      );
+      return rows;
+    }
+
+    it("un cajero no puede ver las alertas (solo admin/finanzas)", async () => {
+      const company = await makeCompany(db, "Empresa Alertas Permiso Test");
+      const cajero = await makeUser(db, company.id, "user");
+      await expect(getAlerts(cajero)).rejects.toThrow(/no tienes permiso/i);
+    });
+
+    it("get_company_alerts detecta stock bajo, apartados vencidos, cotizaciones vencidas y clientes al límite de crédito", async () => {
+      const company = await makeCompany(db, "Empresa Alertas Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const customer = await makeCustomer(db, company.id, "Cliente Alertas");
+      await db.query(
+        "update public.companies set apartado_min_deposit_pct = 0 where id = $1",
+        [company.id],
+      );
+
+      // Stock bajo: producto con 2 unidades, umbral default 10.
+      const lowStockProduct = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Stock Bajo",
+        10,
+        20,
+        2,
+      );
+
+      // Apartado vencido: due_date en el pasado, status activo.
+      const apartadoProduct = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Apartado Alertas",
+        10,
+        20,
+        50,
+      );
+      const apartado = await createApartado(admin, {
+        customerId: customer,
+        items: [{ productId: apartadoProduct, qty: 1 }],
+        locationId: company.loc1,
+        depositAmount: 0,
+      });
+      await db.query(
+        "update public.apartados set due_date = current_date - interval '5 days' where id = $1",
+        [apartado.apartado_id],
+      );
+
+      // Cotización vencida: valid_until en el pasado, status pendiente.
+      const quoteProduct = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Cotizacion Alertas",
+        10,
+        20,
+        50,
+      );
+      const { rows: quoteRows } = await asUser(db, admin, () =>
+        db.query<{ create_quote: { quote_id: string } }>(
+          `select create_quote(
+             p_items := $1::jsonb,
+             p_customer_id := $2,
+             p_location_id := $3
+           ) as create_quote`,
+          [
+            JSON.stringify([{ product_id: quoteProduct, qty: 1 }]),
+            customer,
+            company.loc1,
+          ],
+        ),
+      );
+      const quoteId = quoteRows[0].create_quote.quote_id;
+      await db.query(
+        "update public.quotes set valid_until = current_date - interval '1 day' where id = $1",
+        [quoteId],
+      );
+
+      // Cliente al límite de crédito.
+      await db.query(
+        "update public.customers set credit_limit = 1000, credit_balance = 950 where id = $1",
+        [customer],
+      );
+
+      const alerts = await getAlerts(admin);
+
+      expect(alerts.stock_bajo.map((i) => i.id)).toContain(lowStockProduct);
+      expect(alerts.apartados_vencidos.map((i) => i.id)).toContain(
+        apartado.apartado_id,
+      );
+      expect(alerts.cotizaciones_vencidas.map((i) => i.id)).toContain(quoteId);
+      expect(alerts.clientes_credito.map((i) => i.id)).toContain(customer);
+    });
+
+    it("get_company_alerts detecta una caja abierta desde un turno anterior", async () => {
+      const company = await makeCompany(db, "Empresa Alertas Caja Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const sessionId = await openCashSession(admin, company.loc1);
+      await db.query(
+        "update public.cash_sessions set opened_at = now() - interval '2 days' where id = $1",
+        [sessionId],
+      );
+
+      const alerts = await getAlerts(admin);
+      expect(alerts.cajas_abiertas.map((i) => i.id)).toContain(sessionId);
+    });
+
+    it("register_merma y delete_merma quedan en la bitácora universal", async () => {
+      const company = await makeCompany(db, "Empresa Auditoria Merma Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Merma Auditoria",
+        10,
+        20,
+        50,
+      );
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{ register_merma: string }>(
+          `select register_merma(
+             p_location_id := $1,
+             p_reason_category := 'danado',
+             p_product_id := $2,
+             p_quantity := 3
+           ) as register_merma`,
+          [company.loc1, product],
+        ),
+      );
+      const mermaId = rows[0].register_merma;
+
+      let audit = await getAuditRows(company.id, "merma");
+      expect(audit).toHaveLength(1);
+      expect(audit[0].action).toBe("registered");
+      expect(audit[0].actor_id).toBe(admin);
+
+      await asUser(db, admin, () =>
+        db.query("select delete_merma($1)", [mermaId]),
+      );
+      audit = await getAuditRows(company.id, "merma");
+      expect(audit).toHaveLength(2);
+      expect(audit.map((a) => a.action).sort()).toEqual([
+        "deleted",
+        "registered",
+      ]);
+    });
+
+    it("rechazar una cotización y cancelar un apartado quedan en la bitácora", async () => {
+      const company = await makeCompany(db, "Empresa Auditoria Rechazo Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const customer = await makeCustomer(db, company.id, "Cliente Auditoria");
+      await db.query(
+        "update public.companies set apartado_min_deposit_pct = 0 where id = $1",
+        [company.id],
+      );
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Auditoria",
+        10,
+        20,
+        50,
+      );
+
+      const { rows: quoteRows } = await asUser(db, admin, () =>
+        db.query<{ create_quote: { quote_id: string } }>(
+          `select create_quote(p_items := $1::jsonb, p_customer_id := $2, p_location_id := $3) as create_quote`,
+          [
+            JSON.stringify([{ product_id: product, qty: 1 }]),
+            customer,
+            company.loc1,
+          ],
+        ),
+      );
+      await asUser(db, admin, () =>
+        db.query("select reject_quote($1)", [
+          quoteRows[0].create_quote.quote_id,
+        ]),
+      );
+      const quoteAudit = await getAuditRows(company.id, "quote");
+      expect(quoteAudit).toHaveLength(1);
+      expect(quoteAudit[0].action).toBe("rejected");
+
+      const apartado = await createApartado(admin, {
+        customerId: customer,
+        items: [{ productId: product, qty: 1 }],
+        locationId: company.loc1,
+        depositAmount: 0,
+      });
+      await cancelApartado(admin, {
+        apartadoId: apartado.apartado_id,
+        refundDeposit: false,
+      });
+      const apartadoAudit = await getAuditRows(company.id, "apartado");
+      expect(apartadoAudit).toHaveLength(1);
+      expect(apartadoAudit[0].action).toBe("cancelled");
+    });
+
+    it("cambiar el límite de crédito de un cliente queda en la bitácora, atribuido a quien lo hizo", async () => {
+      const company = await makeCompany(db, "Empresa Auditoria Credito Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const customer = await makeCustomer(
+        db,
+        company.id,
+        "Cliente Credito Auditoria",
+      );
+
+      await asUser(db, admin, () =>
+        db.query(
+          "update public.customers set credit_limit = 500 where id = $1",
+          [customer],
+        ),
+      );
+
+      const audit = await getAuditRows(company.id, "customer");
+      expect(audit).toHaveLength(1);
+      expect(audit[0].action).toBe("credit_limit_changed");
+      expect(audit[0].actor_id).toBe(admin);
+      expect(audit[0].detail).toMatchObject({ despues: 500 });
+    });
+
+    it("cambiar la configuración de lealtad de la empresa queda en la bitácora", async () => {
+      const company = await makeCompany(db, "Empresa Auditoria Config Test");
+      const admin = await makeUser(db, company.id, "admin");
+
+      await asUser(db, admin, () =>
+        db.query(
+          "update public.companies set loyalty_enabled = true, apartado_min_deposit_pct = 0.3 where id = $1",
+          [company.id],
+        ),
+      );
+
+      const audit = await getAuditRows(company.id, "company");
+      expect(audit).toHaveLength(1);
+      expect(audit[0].action).toBe("settings_changed");
+      expect(audit[0].detail).toMatchObject({
+        loyalty_enabled: { antes: false, despues: true },
+      });
+    });
+  });
 });

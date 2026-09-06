@@ -155,6 +155,13 @@ const ROUTE_ACCESS: Record<string, StoreRole[]> = {
   "/proveedores": ["admin", "finanzas", "operador"],
   "/reportes": ["admin", "finanzas"],
   "/ganancias": ["admin", "finanzas"],
+  // Sin casilla propia en GRANTABLE_SECTIONS a propósito -- igual que
+  // "/mermas/monitor" y "/caja/revision" arriba: mezclan datos financieros
+  // sensibles (crédito de clientes, cajas, cambios de configuración) que
+  // no son para otorgar sección por sección, solo para quien ya ve
+  // reportes de la empresa completa.
+  "/alertas": ["admin", "finanzas"],
+  "/auditoria": ["admin", "finanzas"],
   "/perfil": ["admin", "finanzas", "user", "operador"],
   "/usuarios": ["admin"],
   "/empleados": ["admin"],

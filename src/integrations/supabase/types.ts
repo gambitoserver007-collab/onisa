@@ -2914,6 +2914,7 @@ export type Database = {
         Args: { p_session_id: string };
         Returns: Json;
       };
+      get_company_alerts: { Args: never; Returns: Json };
       low_stock_summary: {
         Args: { p_limit?: number; p_location_id?: string };
         Returns: Json;

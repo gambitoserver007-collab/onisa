@@ -229,6 +229,18 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Auditoría universal: alta de usuario. auth.uid() no sirve aquí para
+    // atribuir el alta (esta función corre con la service role key), así
+    // que se escribe directo con el callerId que sí se conoce del token.
+    await admin.from("audit_log").insert({
+      company_id,
+      actor_id: callerId,
+      entity_type: "profile",
+      entity_id: newUserId,
+      action: "created",
+      detail: { full_name, email, role },
+    });
+
     return json({ profile }, 200);
   } catch (e: any) {
     return json({ error: e?.message ?? "Error inesperado." }, 500);

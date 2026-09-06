@@ -622,6 +622,143 @@ export async function fetchPurchaseProjection(
   };
 }
 
+// ---- Alertas generales (get_company_alerts) ----
+// Todo calculado en vivo server-side, sin tabla ni cron propio (mismo
+// enfoque que low_stock_summary/purchase_projection): cada tipo de alerta
+// se resuelve solo cuando alguien actúa sobre él, así que no hace falta
+// guardar estado de "leído/descartado". Solo admin/finanzas (ya lo exige
+// el RPC también, esto solo evita una llamada que fallaría para otro rol).
+
+export interface AlertLowStockItem {
+  id: string;
+  name: string;
+  unit: string;
+  stock: number;
+  threshold: number;
+}
+export interface AlertApartadoVencido {
+  id: string;
+  apartadoNumber: string;
+  customerName: string;
+  dueDate: string;
+  balance: number;
+}
+export interface AlertCotizacionVencida {
+  id: string;
+  quoteNumber: string;
+  customerName: string;
+  validUntil: string;
+  total: number;
+}
+export interface AlertCajaAbierta {
+  id: string;
+  locationName: string | null;
+  openedAt: string;
+  openedByName: string | null;
+}
+export interface AlertClienteCredito {
+  id: string;
+  name: string;
+  creditLimit: number;
+  creditBalance: number;
+}
+export interface CompanyAlerts {
+  stockBajo: AlertLowStockItem[];
+  apartadosVencidos: AlertApartadoVencido[];
+  cotizacionesVencidas: AlertCotizacionVencida[];
+  cajasAbiertas: AlertCajaAbierta[];
+  clientesCredito: AlertClienteCredito[];
+  total: number;
+}
+
+export async function fetchCompanyAlerts(): Promise<CompanyAlerts> {
+  const { data, error } = await supabase.rpc("get_company_alerts");
+  if (error) throw error;
+  const payload = (data ?? {}) as {
+    stock_bajo?: {
+      id: string;
+      name: string;
+      unit: string;
+      stock: number;
+      threshold: number;
+    }[];
+    apartados_vencidos?: {
+      id: string;
+      apartado_number: string;
+      customer_name: string;
+      due_date: string;
+      balance: number;
+    }[];
+    cotizaciones_vencidas?: {
+      id: string;
+      quote_number: string;
+      customer_name: string;
+      valid_until: string;
+      total: number;
+    }[];
+    cajas_abiertas?: {
+      id: string;
+      location_name: string | null;
+      opened_at: string;
+      opened_by_name: string | null;
+    }[];
+    clientes_credito?: {
+      id: string;
+      name: string;
+      credit_limit: number;
+      credit_balance: number;
+    }[];
+  };
+  const stockBajo = (payload.stock_bajo ?? []).map((i) => ({
+    id: i.id,
+    name: i.name,
+    unit: i.unit,
+    stock: toNumber(i.stock),
+    threshold: toNumber(i.threshold),
+  }));
+  const apartadosVencidos = (payload.apartados_vencidos ?? []).map((i) => ({
+    id: i.id,
+    apartadoNumber: i.apartado_number,
+    customerName: i.customer_name,
+    dueDate: i.due_date,
+    balance: toNumber(i.balance),
+  }));
+  const cotizacionesVencidas = (payload.cotizaciones_vencidas ?? []).map(
+    (i) => ({
+      id: i.id,
+      quoteNumber: i.quote_number,
+      customerName: i.customer_name,
+      validUntil: i.valid_until,
+      total: toNumber(i.total),
+    }),
+  );
+  const cajasAbiertas = (payload.cajas_abiertas ?? []).map((i) => ({
+    id: i.id,
+    locationName: i.location_name,
+    openedAt: i.opened_at,
+    openedByName: i.opened_by_name,
+  }));
+  const clientesCredito = (payload.clientes_credito ?? []).map((i) => ({
+    id: i.id,
+    name: i.name,
+    creditLimit: toNumber(i.credit_limit),
+    creditBalance: toNumber(i.credit_balance),
+  }));
+  return {
+    stockBajo,
+    apartadosVencidos,
+    cotizacionesVencidas,
+    cajasAbiertas,
+    clientesCredito,
+    total:
+      stockBajo.length +
+      apartadosVencidos.length +
+      cotizacionesVencidas.length +
+      cajasAbiertas.length +
+      clientesCredito.length,
+  };
+}
+
 export async function fetchSales(
   companyId?: string,
   locationId?: string,
@@ -2398,10 +2535,32 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   second_count_required: "Se pidió un segundo conteo",
   closed: "Cerró la caja",
   authorized: "Autorizó el corte",
+  created: "Creó",
+  updated: "Actualizó",
+  deleted: "Eliminó",
+  registered: "Registró",
+  cancelled: "Canceló",
+  rejected: "Rechazó",
+  credit_limit_changed: "Cambió el límite de crédito",
+  settings_changed: "Cambió la configuración",
+};
+
+export const AUDIT_ENTITY_LABELS: Record<string, string> = {
+  cash_session: "Caja",
+  profile: "Usuario",
+  customer: "Cliente",
+  company: "Empresa",
+  merma: "Merma",
+  quote: "Cotización",
+  apartado: "Apartado",
 };
 
 export function describeAuditAction(action: string): string {
   return AUDIT_ACTION_LABELS[action] ?? action;
+}
+
+export function describeAuditEntity(entityType: string): string {
+  return AUDIT_ENTITY_LABELS[entityType] ?? entityType;
 }
 
 export async function fetchAuditLog(
@@ -2418,6 +2577,40 @@ export async function fetchAuditLog(
   return (data ?? []).map((row) => ({
     id: row.id,
     actorId: row.actor_id,
+    action: row.action,
+    detail: (row.detail ?? {}) as Record<string, unknown>,
+    createdAt: row.created_at,
+  }));
+}
+
+// Bitácora universal: toda la empresa, sin acotar a una sola entidad --
+// para la pantalla de Auditoría (admin/finanzas). Igual que fetchAuditLog,
+// no hace falta filtrar por rol aquí: la RLS de audit_log ya solo deja
+// leer a admin/finanzas.
+export interface CompanyAuditLogEntry extends AuditLogEntry {
+  entityType: string;
+  entityId: string;
+}
+
+export async function fetchCompanyAuditLog(options?: {
+  entityType?: string;
+  limit?: number;
+}): Promise<CompanyAuditLogEntry[]> {
+  let query = supabase
+    .from("audit_log")
+    .select("id, actor_id, entity_type, entity_id, action, detail, created_at")
+    .order("created_at", { ascending: false })
+    .limit(options?.limit ?? 200);
+  if (options?.entityType) {
+    query = query.eq("entity_type", options.entityType);
+  }
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    actorId: row.actor_id,
+    entityType: row.entity_type,
+    entityId: row.entity_id,
     action: row.action,
     detail: (row.detail ?? {}) as Record<string, unknown>,
     createdAt: row.created_at,

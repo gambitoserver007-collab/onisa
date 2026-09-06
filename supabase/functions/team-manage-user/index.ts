@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
 
     const { data: target, error: targetErr } = await admin
       .from("profiles")
-      .select("id, company_id, role, is_platform_admin")
+      .select("id, company_id, full_name, role, is_active, allowed_sections, location_id, is_platform_admin")
       .eq("id", target_user_id)
       .maybeSingle();
     if (targetErr || !target) return json({ error: "Usuario no encontrado." }, 404);
@@ -70,6 +70,18 @@ Deno.serve(async (req) => {
       if (isSelf) return json({ error: "No puedes eliminar tu propia cuenta." }, 400);
       const { error: delErr } = await admin.auth.admin.deleteUser(target_user_id);
       if (delErr) return json({ error: delErr.message }, 400);
+      // Auditoría universal: quién dio de baja a quién. auth.uid() no sirve
+      // aquí para atribuir el cambio (esta función corre con la service
+      // role key), así que se escribe directo con el callerId que sí se
+      // conoce del token recibido.
+      await admin.from("audit_log").insert({
+        company_id: caller.company_id,
+        actor_id: callerId,
+        entity_type: "profile",
+        entity_id: target_user_id,
+        action: "deleted",
+        detail: { full_name: target.full_name, role: target.role },
+      });
       return json({ ok: true }, 200);
     }
 
@@ -146,6 +158,29 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Auditoría universal: cambios de rol/permisos de usuario. Se compara
+    // contra el valor previo de "target" para no registrar un "cambio" que
+    // en realidad no mueve nada (ej. reenviar el mismo rol).
+    const sensitiveChanges: Record<string, { antes: unknown; despues: unknown }> = {};
+    if ("role" in updates && updates.role !== target.role) {
+      sensitiveChanges.role = { antes: target.role, despues: updates.role };
+    }
+    if ("is_active" in updates && updates.is_active !== target.is_active) {
+      sensitiveChanges.is_active = { antes: target.is_active, despues: updates.is_active };
+    }
+    if (
+      "allowed_sections" in updates &&
+      JSON.stringify(updates.allowed_sections) !== JSON.stringify(target.allowed_sections ?? null)
+    ) {
+      sensitiveChanges.allowed_sections = {
+        antes: target.allowed_sections ?? null,
+        despues: updates.allowed_sections,
+      };
+    }
+    if ("location_id" in updates && updates.location_id !== target.location_id) {
+      sensitiveChanges.location_id = { antes: target.location_id, despues: updates.location_id };
+    }
+
     if (Object.keys(updates).length > 0) {
       updates.updated_at = new Date().toISOString();
       const { error: updErr } = await admin
@@ -153,6 +188,17 @@ Deno.serve(async (req) => {
         .update(updates)
         .eq("id", target_user_id);
       if (updErr) return json({ error: updErr.message }, 500);
+    }
+
+    if (Object.keys(sensitiveChanges).length > 0) {
+      await admin.from("audit_log").insert({
+        company_id: caller.company_id,
+        actor_id: callerId,
+        entity_type: "profile",
+        entity_id: target_user_id,
+        action: "updated",
+        detail: { full_name: target.full_name, ...sensitiveChanges },
+      });
     }
 
     // Replace assignments if location_ids provided

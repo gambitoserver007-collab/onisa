@@ -10,7 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AlertasRouteImport } from './routes/alertas'
 import { Route as ApartadosRouteImport } from './routes/apartados'
+import { Route as AuditoriaRouteImport } from './routes/auditoria'
 import { Route as BackupRouteImport } from './routes/backup'
 import { Route as CajaRouteImport } from './routes/caja'
 import { Route as CategoriasRouteImport } from './routes/categorias'
@@ -63,9 +65,19 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AlertasRoute = AlertasRouteImport.update({
+  id: '/alertas',
+  path: '/alertas',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApartadosRoute = ApartadosRouteImport.update({
   id: '/apartados',
   path: '/apartados',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuditoriaRoute = AuditoriaRouteImport.update({
+  id: '/auditoria',
+  path: '/auditoria',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BackupRoute = BackupRouteImport.update({
@@ -304,7 +316,9 @@ const Char91DotmcpChar93InvokeToolToolRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/alertas': typeof AlertasRoute
   '/apartados': typeof ApartadosRoute
+  '/auditoria': typeof AuditoriaRoute
   '/backup': typeof BackupRoute
   '/caja': typeof CajaRoute
   '/categorias': typeof CategoriasRoute
@@ -354,7 +368,9 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/alertas': typeof AlertasRoute
   '/apartados': typeof ApartadosRoute
+  '/auditoria': typeof AuditoriaRoute
   '/backup': typeof BackupRoute
   '/caja': typeof CajaRoute
   '/categorias': typeof CategoriasRoute
@@ -405,7 +421,9 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/alertas': typeof AlertasRoute
   '/apartados': typeof ApartadosRoute
+  '/auditoria': typeof AuditoriaRoute
   '/backup': typeof BackupRoute
   '/caja': typeof CajaRoute
   '/categorias': typeof CategoriasRoute
@@ -457,7 +475,9 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/alertas'
     | '/apartados'
+    | '/auditoria'
     | '/backup'
     | '/caja'
     | '/categorias'
@@ -507,7 +527,9 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/alertas'
     | '/apartados'
+    | '/auditoria'
     | '/backup'
     | '/caja'
     | '/categorias'
@@ -557,7 +579,9 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/alertas'
     | '/apartados'
+    | '/auditoria'
     | '/backup'
     | '/caja'
     | '/categorias'
@@ -608,7 +632,9 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AlertasRoute: typeof AlertasRoute
   ApartadosRoute: typeof ApartadosRoute
+  AuditoriaRoute: typeof AuditoriaRoute
   BackupRoute: typeof BackupRoute
   CajaRoute: typeof CajaRoute
   CategoriasRoute: typeof CategoriasRoute
@@ -666,11 +692,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/alertas': {
+      id: '/alertas'
+      path: '/alertas'
+      fullPath: '/alertas'
+      preLoaderRoute: typeof AlertasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/apartados': {
       id: '/apartados'
       path: '/apartados'
       fullPath: '/apartados'
       preLoaderRoute: typeof ApartadosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auditoria': {
+      id: '/auditoria'
+      path: '/auditoria'
+      fullPath: '/auditoria'
+      preLoaderRoute: typeof AuditoriaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/backup': {
@@ -1000,7 +1040,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AlertasRoute: AlertasRoute,
   ApartadosRoute: ApartadosRoute,
+  AuditoriaRoute: AuditoriaRoute,
   BackupRoute: BackupRoute,
   CajaRoute: CajaRoute,
   CategoriasRoute: CategoriasRoute,

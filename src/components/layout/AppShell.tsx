@@ -37,6 +37,8 @@ import {
   PackageX,
   FileText,
   PackageCheck,
+  AlertTriangle,
+  History,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logout } from "@/lib/demoAuth";
@@ -116,6 +118,8 @@ const sections: { title: string; items: Item[] }[] = [
     items: [
       { to: "/reportes", label: "Reportes", icon: BarChart3 },
       { to: "/ganancias", label: "Ganancias", icon: TrendingUp },
+      { to: "/alertas", label: "Alertas", icon: AlertTriangle },
+      { to: "/auditoria", label: "Auditoría", icon: History },
     ],
   },
   {

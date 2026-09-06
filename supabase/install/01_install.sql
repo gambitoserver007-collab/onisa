@@ -9211,6 +9211,10 @@ begin
           p_reason_category, nullif(btrim(coalesce(p_notes, '')), ''), v_employee_id, auth.uid())
   returning id into v_merma_id;
 
+  perform public.log_audit(v_company_id, 'merma', v_merma_id, 'registered',
+    jsonb_build_object('reason_category', p_reason_category, 'product_name', v_product.name,
+                        'quantity', v_qty, 'estimated_loss', v_loss));
+
   return v_merma_id;
 end;
 $$;
@@ -9273,6 +9277,9 @@ begin
   end if;
 
   update public.mermas set deleted_at = now() where id = p_merma_id;
+
+  perform public.log_audit(v_company_id, 'merma', p_merma_id, 'deleted',
+    jsonb_build_object('reason_category', v_merma.reason_category, 'estimated_loss', v_merma.estimated_loss));
 end;
 $$;
 
@@ -9575,6 +9582,8 @@ begin
   if not found then
     raise exception 'La cotizacion no existe o ya no esta pendiente.';
   end if;
+
+  perform public.log_audit(v_company_id, 'quote', p_quote_id, 'rejected', '{}'::jsonb);
 end;
 $$;
 
@@ -10652,6 +10661,9 @@ begin
   update public.apartados set status = 'cancelado', cancel_refunded = p_refund_deposit, updated_at = now()
     where id = p_apartado_id;
 
+  perform public.log_audit(v_company_id, 'apartado', p_apartado_id, 'cancelled',
+    jsonb_build_object('refund_deposit', p_refund_deposit, 'paid_total', v_apartado.paid_total));
+
   return jsonb_build_object(
     'apartado_id', p_apartado_id,
     'refunded', p_refund_deposit,
@@ -10662,3 +10674,208 @@ $$;
 
 revoke execute on function public.cancel_apartado(uuid, boolean) from public, anon;
 grant execute on function public.cancel_apartado(uuid, boolean) to authenticated;
+
+-- ============================================================
+-- Auditoría universal (fase 2 de la bitácora): hasta ahora audit_log solo
+-- registraba el módulo de arqueo de caja. Se extiende a las acciones más
+-- sensibles del resto del sistema -- cambios de rol/permisos de usuario,
+-- alta/baja de usuarios, cambios de límite de crédito de un cliente, y
+-- cambios de configuración de la empresa (impuesto, comisión de tarjeta,
+-- lealtad, % mínimo de apartado, umbral de stock bajo). Las cancelaciones
+-- de apartados/cotizaciones y las mermas ya quedaron cubiertas arriba,
+-- dentro de sus propias funciones (cancel_apartado/reject_quote/
+-- register_merma/delete_merma), porque ahí SÍ hay una función con
+-- auth.uid() de por medio para llamar log_audit() directo.
+--
+-- role/is_active/allowed_sections/location_id de un perfil, en cambio, se
+-- editan SIEMPRE desde las Edge Functions team-create-user/team-manage-user
+-- (nunca desde el frontend directo -- protect_profile_sensitive_columns lo
+-- bloquea salvo que auth.uid() sea null, que es como corren esas Edge
+-- Functions al usar la service role key). Como ahí auth.uid() es null,
+-- log_audit() no podría atribuirle el cambio a nadie -- por eso esas dos
+-- Edge Functions escriben su propia fila en audit_log directo (con el
+-- callerId que sí conocen) en vez de depender de un trigger aquí.
+-- Mismo argumento no aplica a credit_limit (se edita directo desde
+-- Clientes, con sesión de usuario real) ni a las columnas de
+-- configuración de companies (directo desde Configuración) -- esas sí se
+-- capturan con un trigger normal, abajo.
+-- ============================================================
+
+create or replace function public.log_audit_customer_credit()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  if new.credit_limit is distinct from old.credit_limit then
+    perform public.log_audit(new.company_id, 'customer', new.id, 'credit_limit_changed',
+      jsonb_build_object('antes', old.credit_limit, 'despues', new.credit_limit, 'name', new.name));
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists customers_log_audit_credit on public.customers;
+create trigger customers_log_audit_credit after update on public.customers
+  for each row execute function public.log_audit_customer_credit();
+
+create or replace function public.log_audit_company_settings()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_changes jsonb := '{}'::jsonb;
+begin
+  if new.tax_rate is distinct from old.tax_rate then
+    v_changes := v_changes || jsonb_build_object('tax_rate', jsonb_build_object('antes', old.tax_rate, 'despues', new.tax_rate));
+  end if;
+  if new.card_commission_rate is distinct from old.card_commission_rate then
+    v_changes := v_changes || jsonb_build_object('card_commission_rate', jsonb_build_object('antes', old.card_commission_rate, 'despues', new.card_commission_rate));
+  end if;
+  if new.loyalty_enabled is distinct from old.loyalty_enabled then
+    v_changes := v_changes || jsonb_build_object('loyalty_enabled', jsonb_build_object('antes', old.loyalty_enabled, 'despues', new.loyalty_enabled));
+  end if;
+  if new.loyalty_point_value is distinct from old.loyalty_point_value then
+    v_changes := v_changes || jsonb_build_object('loyalty_point_value', jsonb_build_object('antes', old.loyalty_point_value, 'despues', new.loyalty_point_value));
+  end if;
+  if new.loyalty_earn_rate is distinct from old.loyalty_earn_rate then
+    v_changes := v_changes || jsonb_build_object('loyalty_earn_rate', jsonb_build_object('antes', old.loyalty_earn_rate, 'despues', new.loyalty_earn_rate));
+  end if;
+  if new.loyalty_tiers_enabled is distinct from old.loyalty_tiers_enabled then
+    v_changes := v_changes || jsonb_build_object('loyalty_tiers_enabled', jsonb_build_object('antes', old.loyalty_tiers_enabled, 'despues', new.loyalty_tiers_enabled));
+  end if;
+  if new.loyalty_tier2_min_spend is distinct from old.loyalty_tier2_min_spend then
+    v_changes := v_changes || jsonb_build_object('loyalty_tier2_min_spend', jsonb_build_object('antes', old.loyalty_tier2_min_spend, 'despues', new.loyalty_tier2_min_spend));
+  end if;
+  if new.loyalty_tier3_min_spend is distinct from old.loyalty_tier3_min_spend then
+    v_changes := v_changes || jsonb_build_object('loyalty_tier3_min_spend', jsonb_build_object('antes', old.loyalty_tier3_min_spend, 'despues', new.loyalty_tier3_min_spend));
+  end if;
+  if new.loyalty_tier1_earn_rate is distinct from old.loyalty_tier1_earn_rate then
+    v_changes := v_changes || jsonb_build_object('loyalty_tier1_earn_rate', jsonb_build_object('antes', old.loyalty_tier1_earn_rate, 'despues', new.loyalty_tier1_earn_rate));
+  end if;
+  if new.loyalty_tier2_earn_rate is distinct from old.loyalty_tier2_earn_rate then
+    v_changes := v_changes || jsonb_build_object('loyalty_tier2_earn_rate', jsonb_build_object('antes', old.loyalty_tier2_earn_rate, 'despues', new.loyalty_tier2_earn_rate));
+  end if;
+  if new.loyalty_tier3_earn_rate is distinct from old.loyalty_tier3_earn_rate then
+    v_changes := v_changes || jsonb_build_object('loyalty_tier3_earn_rate', jsonb_build_object('antes', old.loyalty_tier3_earn_rate, 'despues', new.loyalty_tier3_earn_rate));
+  end if;
+  if new.apartado_min_deposit_pct is distinct from old.apartado_min_deposit_pct then
+    v_changes := v_changes || jsonb_build_object('apartado_min_deposit_pct', jsonb_build_object('antes', old.apartado_min_deposit_pct, 'despues', new.apartado_min_deposit_pct));
+  end if;
+  if new.low_stock_threshold_default is distinct from old.low_stock_threshold_default then
+    v_changes := v_changes || jsonb_build_object('low_stock_threshold_default', jsonb_build_object('antes', old.low_stock_threshold_default, 'despues', new.low_stock_threshold_default));
+  end if;
+
+  if v_changes <> '{}'::jsonb then
+    perform public.log_audit(new.id, 'company', new.id, 'settings_changed', v_changes);
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists companies_log_audit on public.companies;
+create trigger companies_log_audit after update on public.companies
+  for each row execute function public.log_audit_company_settings();
+
+-- ============================================================
+-- Alertas generales: un solo RPC que junta, en vivo (sin tabla ni cron
+-- propio -- mismo enfoque que low_stock_summary/purchase_projection), los
+-- focos rojos operativos más comunes del negocio: stock bajo, apartados
+-- vencidos, cotizaciones vencidas, cajas que quedaron abiertas de un
+-- turno anterior, y clientes cerca o al límite de su crédito. Cada tipo
+-- se resuelve solo cuando alguien actúa sobre él (se surte el producto,
+-- se completa/cancela el apartado, se cierra la caja, el cliente paga),
+-- así que no hace falta guardar estado de "leído/descartado" por
+-- usuario -- la próxima vez que se consulta, si ya no aplica, ya no sale.
+-- Solo admin/finanzas: mezcla datos financieros sensibles (crédito de
+-- clientes, cajas) que un cajero/operador no necesita ver de golpe.
+-- ============================================================
+create or replace function public.get_company_alerts()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_role public.app_role;
+  v_result jsonb;
+begin
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  v_role := public.current_user_role();
+  if v_role not in ('admin', 'finanzas') then
+    raise exception 'No tienes permiso para ver las alertas.';
+  end if;
+
+  with company as (
+    select id, coalesce(low_stock_threshold_default, 10) as low_stock_threshold_default
+    from public.companies where id = v_company_id
+  ),
+  stock_bajo as (
+    select p.id, p.name, p.unit, p.stock,
+      coalesce(p.low_stock_threshold, c.low_stock_threshold_default) as threshold
+    from public.products p, company c
+    where p.company_id = v_company_id and p.deleted_at is null and p.active = true
+      and p.product_type = 'standard'
+      and p.stock <= coalesce(p.low_stock_threshold, c.low_stock_threshold_default)
+  ),
+  apartados_vencidos as (
+    select a.id, a.apartado_number, a.customer_name, a.due_date, (a.total - a.paid_total) as balance
+    from public.apartados a
+    where a.company_id = v_company_id and a.status = 'activo' and a.due_date < current_date
+      and a.deleted_at is null
+  ),
+  cotizaciones_vencidas as (
+    select q.id, q.quote_number, q.customer_name, q.valid_until, q.total
+    from public.quotes q
+    where q.company_id = v_company_id and q.status = 'pendiente' and q.valid_until < current_date
+      and q.deleted_at is null
+  ),
+  cajas_abiertas as (
+    select cs.id, l.name as location_name, cs.opened_at, pr.full_name as opened_by_name
+    from public.cash_sessions cs
+    left join public.tills t on t.id = cs.till_id
+    left join public.locations l on l.id = t.location_id
+    left join public.profiles pr on pr.id = cs.opened_by
+    where cs.company_id = v_company_id and cs.status = 'open'
+      and cs.opened_at < date_trunc('day', now())
+  ),
+  clientes_credito as (
+    select c2.id, c2.name, c2.credit_limit, c2.credit_balance
+    from public.customers c2
+    where c2.company_id = v_company_id and c2.deleted_at is null
+      and coalesce(c2.credit_limit, 0) > 0
+      and coalesce(c2.credit_balance, 0) >= c2.credit_limit * 0.9
+  )
+  select jsonb_build_object(
+    'stock_bajo', coalesce((
+      select jsonb_agg(jsonb_build_object('id', id, 'name', name, 'unit', unit, 'stock', stock, 'threshold', threshold) order by stock asc)
+      from stock_bajo), '[]'::jsonb),
+    'apartados_vencidos', coalesce((
+      select jsonb_agg(jsonb_build_object('id', id, 'apartado_number', apartado_number, 'customer_name', customer_name,
+                                          'due_date', due_date, 'balance', balance) order by due_date asc)
+      from apartados_vencidos), '[]'::jsonb),
+    'cotizaciones_vencidas', coalesce((
+      select jsonb_agg(jsonb_build_object('id', id, 'quote_number', quote_number, 'customer_name', customer_name,
+                                          'valid_until', valid_until, 'total', total) order by valid_until asc)
+      from cotizaciones_vencidas), '[]'::jsonb),
+    'cajas_abiertas', coalesce((
+      select jsonb_agg(jsonb_build_object('id', id, 'location_name', location_name, 'opened_at', opened_at,
+                                          'opened_by_name', opened_by_name) order by opened_at asc)
+      from cajas_abiertas), '[]'::jsonb),
+    'clientes_credito', coalesce((
+      select jsonb_agg(jsonb_build_object('id', id, 'name', name, 'credit_limit', credit_limit, 'credit_balance', credit_balance) order by credit_balance desc)
+      from clientes_credito), '[]'::jsonb)
+  ) into v_result;
+
+  return v_result;
+end;
+$$;
+
+revoke execute on function public.get_company_alerts() from public, anon;
+grant execute on function public.get_company_alerts() to authenticated;
