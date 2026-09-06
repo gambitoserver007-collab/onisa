@@ -11,4 +11,15 @@ export default defineConfig({
     server: { entry: "server" },
   },
   plugins: [...lovableMcpPlugins],
+  // Ya eran los valores por defecto de Vite (confirmado inspeccionando
+  // .output/public/assets tras un build real: JS minificado en una sola
+  // línea, sin .map ni comentario sourceMappingURL) -- se dejan explícitos
+  // para que no dependan de un default implícito que una futura versión
+  // de Vite pudiera cambiar.
+  vite: {
+    build: {
+      sourcemap: false,
+      minify: true,
+    },
+  },
 });
