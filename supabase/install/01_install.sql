@@ -1746,8 +1746,25 @@ grant all on public.locations to service_role;
 alter table public.locations enable row level security;
 drop policy if exists "locations select scoped" on public.locations;
 create policy "locations select scoped" on public.locations for select to authenticated using (public.can_select_company(company_id, is_demo_data));
+-- "locations write scoped" (for all) se reemplaza por políticas separadas
+-- por comando -- auditoría 2026-09, hallazgo #1: con "for all", CUALQUIER
+-- miembro de la empresa (no solo el admin) podía hacer DELETE de una
+-- sucursal completa, con cascada sobre tills/product_locations/
+-- product_variant_locations/profile_locations. INSERT/UPDATE siguen
+-- abiertos a cualquier miembro (nombre/dirección/teléfono/config de
+-- ticket), como ya documentado más abajo; DELETE ahora exige admin.
 drop policy if exists "locations write scoped" on public.locations;
-create policy "locations write scoped" on public.locations for all to authenticated using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
+drop policy if exists "locations insert scoped" on public.locations;
+create policy "locations insert scoped" on public.locations
+  for insert to authenticated
+  with check (public.can_write_company(company_id));
+drop policy if exists "locations update scoped" on public.locations;
+create policy "locations update scoped" on public.locations
+  for update to authenticated
+  using (public.can_write_company(company_id))
+  with check (public.can_write_company(company_id));
+-- "locations delete admin" se crea más abajo, al final del archivo --
+-- can_admin_company() todavía no existe en este punto del instalador.
 drop trigger if exists touch_locations_updated_at on public.locations;
 create trigger touch_locations_updated_at before update on public.locations for each row execute function public.touch_updated_at();
 insert into public.locations (company_id, name, is_demo_data)
@@ -7862,6 +7879,7 @@ begin
   v_apply := least(p_amount, coalesce(v_balance, 0));
   if v_apply <= 0 then raise exception 'Este cliente no tiene saldo pendiente.'; end if;
 
+  perform set_config('app.bypass_customer_credit_loyalty', 'true', true);
   update public.customers set credit_balance = coalesce(credit_balance,0) - v_apply, updated_at = now()
     where id = p_customer_id;
 
@@ -8957,6 +8975,7 @@ begin
     -- venta (post-descuento por canje), se haya usado o no para el nivel.
     v_year_spend := v_year_spend + greatest(v_total, 0);
 
+    perform set_config('app.bypass_customer_credit_loyalty', 'true', true);
     update public.customers
       set loyalty_points = coalesce(loyalty_points, 0) + v_points_earned - v_points_redeemed_actual,
           loyalty_year_spend = v_year_spend,
@@ -9010,6 +9029,7 @@ begin
           if v_payment_amount > v_credit_available then
             raise exception 'El credito disponible del cliente (%) es menor al monto a credito (%).', round(v_credit_available,2), round(v_payment_amount,2);
           end if;
+          perform set_config('app.bypass_customer_credit_loyalty', 'true', true);
           update public.customers set credit_balance = coalesce(credit_balance,0) + v_payment_amount, updated_at = now()
             where id = p_customer_id;
         end if;
@@ -9044,6 +9064,7 @@ begin
         if v_total > v_credit_available then
           raise exception 'El credito disponible del cliente (%) es menor al total de la venta (%).', round(v_credit_available,2), round(v_total,2);
         end if;
+        perform set_config('app.bypass_customer_credit_loyalty', 'true', true);
         update public.customers set credit_balance = coalesce(credit_balance,0) + v_total, updated_at = now()
           where id = p_customer_id;
       end if;
@@ -9923,6 +9944,7 @@ begin
       end if;
 
       v_year_spend := v_year_spend + greatest(v_total, 0);
+      perform set_config('app.bypass_customer_credit_loyalty', 'true', true);
 
       update public.customers
         set loyalty_points = coalesce(loyalty_points, 0) + v_points_earned - v_points_redeemed_actual,
@@ -9959,6 +9981,7 @@ begin
         raise exception 'El credito disponible del cliente (%) es menor al total de la venta (%).',
           round(v_credit_available, 2), round(v_total, 2);
       end if;
+      perform set_config('app.bypass_customer_credit_loyalty', 'true', true);
       update public.customers set credit_balance = coalesce(credit_balance, 0) + v_total, updated_at = now()
         where id = v_quote.customer_id;
     end if;
@@ -10617,6 +10640,7 @@ begin
 
     v_year_spend := v_year_spend + v_apartado.total;
 
+    perform set_config('app.bypass_customer_credit_loyalty', 'true', true);
     update public.customers
       set loyalty_points = coalesce(loyalty_points, 0) + v_points_earned,
           loyalty_year_spend = v_year_spend,
@@ -11265,3 +11289,70 @@ create trigger prevent_demo_calendar_events_write
 
 grant select, insert, update, delete on public.company_calendar_events to authenticated;
 grant all on public.company_calendar_events to service_role;
+
+-- ============================================================
+-- locations: DELETE solo para admin -- auditoría 2026-09, hallazgo #1.
+-- Se crea aquí (no junto a la tabla) porque can_admin_company() aún no
+-- existe en ese punto del instalador. INSERT/UPDATE siguen abiertos a
+-- cualquier miembro de la empresa ("locations insert/update scoped",
+-- ver arriba); solo el DELETE -- que hace cascade sobre tills/
+-- product_locations/product_variant_locations/profile_locations --
+-- ahora exige admin.
+-- ============================================================
+drop policy if exists "locations delete admin" on public.locations;
+create policy "locations delete admin" on public.locations
+  for delete to authenticated
+  using (public.can_admin_company(company_id));
+
+-- ============================================================
+-- Protección de customers.credit_balance / loyalty_points /
+-- loyalty_year_spend / loyalty_year_spend_year -- auditoría 2026-09,
+-- hallazgo #2.
+--
+-- La política "customers write scoped" (for all, can_write_company) deja
+-- editar estas columnas con un UPDATE directo desde cualquier empleado con
+-- acceso de escritura -- a diferencia de customer_credit_payments/
+-- loyalty_ledger, que ya son RPC-only por ser "dinero-equivalente" (ver
+-- comentario junto a collect_customer_credit). Sin este trigger, un cajero
+-- podría poner credit_balance en 0 (borrar una deuda real sin dejar
+-- rastro) o inflar loyalty_points para canjear productos gratis, sin
+-- ninguna entrada en audit_log ni loyalty_ledger.
+--
+-- Mismo patrón que protect_profile_sensitive_columns, pero sin tocar el
+-- claim de sesión (create_sale/convert_quote_to_sale/complete_apartado
+-- siguen necesitando auth.uid() real después de tocar estas columnas, p.ej.
+-- para la comisión del vendedor) -- en su lugar, cada RPC que sí debe
+-- escribir aquí prende un GUC de sesión (app.bypass_customer_credit_loyalty)
+-- justo antes del UPDATE correspondiente.
+create or replace function public.protect_customer_credit_loyalty_columns()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  if auth.uid() is null or public.current_user_is_platform_admin() then
+    return new;
+  end if;
+  if coalesce(current_setting('app.bypass_customer_credit_loyalty', true), '') = 'true' then
+    return new;
+  end if;
+
+  if new.credit_balance is distinct from old.credit_balance
+     or new.loyalty_points is distinct from old.loyalty_points
+     or new.loyalty_year_spend is distinct from old.loyalty_year_spend
+     or new.loyalty_year_spend_year is distinct from old.loyalty_year_spend_year
+  then
+    raise exception 'El saldo de credito y los puntos de lealtad solo se modifican mediante una venta o un cobro, no directamente.';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.protect_customer_credit_loyalty_columns() from public, anon, authenticated;
+
+drop trigger if exists protect_customer_credit_loyalty_columns on public.customers;
+create trigger protect_customer_credit_loyalty_columns
+  before update on public.customers
+  for each row execute function public.protect_customer_credit_loyalty_columns();

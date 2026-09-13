@@ -7053,4 +7053,146 @@ describe("RPCs críticas de dinero y stock", () => {
       ).rejects.toThrow();
     });
   });
+
+  describe("36. RLS de locations: DELETE de sucursal solo para admin (auditoría 2026-09, hallazgo #1)", () => {
+    it("un cajero no puede borrar una sucursal directo por REST (RLS: 0 filas afectadas, sin error)", async () => {
+      const company = await makeCompany(
+        db,
+        "Empresa RLS Locations Cajero Test",
+      );
+      const cajero = await makeUser(db, company.id, "user");
+
+      await asUser(db, cajero, () =>
+        db.query("delete from public.locations where id = $1", [company.loc2]),
+      ); // no lanza -- RLS no le muestra la fila para DELETE, 0 filas afectadas
+
+      const { rows } = await db.query(
+        "select id from public.locations where id = $1",
+        [company.loc2],
+      );
+      expect(rows).toHaveLength(1);
+    });
+
+    it("un cajero SÍ puede seguir editando nombre/dirección de una sucursal -- solo DELETE quedó restringido", async () => {
+      const company = await makeCompany(
+        db,
+        "Empresa RLS Locations Update Test",
+      );
+      const cajero = await makeUser(db, company.id, "user");
+
+      await asUser(db, cajero, () =>
+        db.query(
+          "update public.locations set name = 'Sucursal renombrada' where id = $1",
+          [company.loc2],
+        ),
+      );
+
+      const { rows } = await db.query<{ name: string }>(
+        "select name from public.locations where id = $1",
+        [company.loc2],
+      );
+      expect(rows[0].name).toBe("Sucursal renombrada");
+    });
+
+    it("un admin SÍ puede borrar una sucursal de su propia empresa", async () => {
+      const company = await makeCompany(db, "Empresa RLS Locations Admin Test");
+      const admin = await makeUser(db, company.id, "admin");
+
+      await asUser(db, admin, () =>
+        db.query("delete from public.locations where id = $1", [company.loc2]),
+      );
+
+      const { rows } = await db.query(
+        "select id from public.locations where id = $1",
+        [company.loc2],
+      );
+      expect(rows).toHaveLength(0);
+    });
+
+    it("un admin de OTRA empresa no puede borrar una sucursal ajena", async () => {
+      const companyA = await makeCompany(db, "Empresa RLS Locations Ajena A");
+      const companyB = await makeCompany(db, "Empresa RLS Locations Ajena B");
+      const adminB = await makeUser(db, companyB.id, "admin");
+
+      await asUser(db, adminB, () =>
+        db.query("delete from public.locations where id = $1", [companyA.loc2]),
+      );
+
+      const { rows } = await db.query(
+        "select id from public.locations where id = $1",
+        [companyA.loc2],
+      );
+      expect(rows).toHaveLength(1);
+    });
+  });
+
+  describe("37. Protección de customers.credit_balance/loyalty_points contra UPDATE directo (auditoría 2026-09, hallazgo #2)", () => {
+    it("un cajero no puede poner credit_balance en 0 directo por REST", async () => {
+      const company = await makeCompany(db, "Empresa Credito Directo Test");
+      const cajero = await makeUser(db, company.id, "user");
+      const customer = await makeCustomer(db, company.id, "Cliente con deuda");
+      await db.query(
+        "update public.customers set credit_limit=500, credit_balance=300 where id=$1",
+        [customer],
+      );
+
+      await asUser(db, cajero, async () => {
+        await expect(
+          db.query(
+            "update public.customers set credit_balance = 0 where id = $1",
+            [customer],
+          ),
+        ).rejects.toThrow(/no directamente/i);
+      });
+
+      const { rows } = await db.query<{ credit_balance: number }>(
+        "select credit_balance from public.customers where id=$1",
+        [customer],
+      );
+      expect(Number(rows[0].credit_balance)).toBe(300);
+    });
+
+    it("un admin de la empresa tampoco puede inflar loyalty_points directo por REST -- solo vía RPC", async () => {
+      const company = await makeCompany(db, "Empresa Lealtad Directa Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const customer = await makeCustomer(db, company.id, "Cliente leal", 10);
+
+      await asUser(db, admin, async () => {
+        await expect(
+          db.query(
+            "update public.customers set loyalty_points = 99999 where id = $1",
+            [customer],
+          ),
+        ).rejects.toThrow(/no directamente/i);
+      });
+
+      const { rows } = await db.query<{ loyalty_points: number }>(
+        "select loyalty_points from public.customers where id=$1",
+        [customer],
+      );
+      expect(Number(rows[0].loyalty_points)).toBe(10);
+    });
+
+    it("el resto de las columnas de customers (nombre, credit_limit) se siguen pudiendo editar directo, sin RPC", async () => {
+      const company = await makeCompany(db, "Empresa Cliente Editable Test");
+      const cajero = await makeUser(db, company.id, "user");
+      const customer = await makeCustomer(db, company.id, "Cliente Original");
+
+      await asUser(db, cajero, () =>
+        db.query(
+          "update public.customers set name = 'Cliente Renombrado', credit_limit = 1000 where id = $1",
+          [customer],
+        ),
+      );
+
+      const { rows } = await db.query<{
+        name: string;
+        credit_limit: number;
+      }>("select name, credit_limit from public.customers where id=$1", [
+        customer,
+      ]);
+      expect(rows[0].name).toBe("Cliente Renombrado");
+      expect(Number(rows[0].credit_limit)).toBe(1000);
+    });
+  });
 });
