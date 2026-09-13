@@ -3090,6 +3090,10 @@ export type Database = {
         Args: { p_merma_id: string };
         Returns: undefined;
       };
+      update_location_weekly_hours: {
+        Args: { p_location_id: string; p_weekly_hours: Json };
+        Returns: undefined;
+      };
       create_quote: {
         Args: {
           p_customer_id?: string;

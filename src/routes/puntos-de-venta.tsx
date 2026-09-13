@@ -39,9 +39,12 @@ import {
   setTillActive,
   updateLocation,
   updateLocationTicketSettings,
+  updateLocationWeeklyHours,
   updateTill,
+  WEEKLY_HOURS_DAYS,
   type Location,
   type Till,
+  type WeeklyHours,
   getErrorMessage,
 } from "@/services/appData";
 
@@ -49,24 +52,17 @@ export const Route = createFileRoute("/puntos-de-venta")({
   component: PuntosDeVenta,
 });
 
-// El horario se guarda como "HH:MM - HH:MM" en la columna opening_hours.
-function buildHours(open: string, close: string) {
-  if (open && close) return `${open} - ${close}`;
-  return open || close || "";
-}
-function parseHours(value: string | null) {
-  const isTime = /^\d{1,2}:\d{2}$/;
-  const [open = "", close = ""] = (value ?? "")
-    .split(" - ")
-    .map((part) => part.trim());
-  return {
-    open: isTime.test(open) ? open : "",
-    close: isTime.test(close) ? close : "",
-  };
+function defaultWeeklyHours(): WeeklyHours {
+  return Object.fromEntries(
+    WEEKLY_HOURS_DAYS.map((day) => [
+      day.key,
+      { open: true, from: "09:00", to: "18:00" },
+    ]),
+  );
 }
 
 function PuntosDeVenta() {
-  const { isDemo, session, isReady } = useDemoSession();
+  const { isDemo, session, isReady, role } = useDemoSession();
   const [locations, setLocations] = useState<Location[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -78,8 +74,15 @@ function PuntosDeVenta() {
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [managerName, setManagerName] = useState("");
-  const [openHour, setOpenHour] = useState("");
-  const [closeHour, setCloseHour] = useState("");
+  // Horario por día -- solo un admin lo edita (ver updateLocationWeeklyHours).
+  // legacyOpeningHours no se muestra ni se edita aquí, solo se conserva tal
+  // cual para no perder el valor viejo si alguien más lo sigue leyendo.
+  const [weeklyHours, setWeeklyHours] =
+    useState<WeeklyHours>(defaultWeeklyHours());
+  const [legacyOpeningHours, setLegacyOpeningHours] = useState<string | null>(
+    null,
+  );
+  const isAdmin = role === "admin";
 
   // Cajas (tills): catálogo de cajas físicas por sucursal -- Etapa 1 del
   // módulo de arqueo. No afecta apertura/cierre de caja todavía.
@@ -127,8 +130,8 @@ function PuntosDeVenta() {
     setAddress("");
     setPhone("");
     setManagerName("");
-    setOpenHour("");
-    setCloseHour("");
+    setWeeklyHours(defaultWeeklyHours());
+    setLegacyOpeningHours(null);
   };
 
   const openNew = () => {
@@ -145,10 +148,36 @@ function PuntosDeVenta() {
     setAddress(location.address ?? "");
     setPhone(location.phone ?? "");
     setManagerName(location.managerName ?? "");
-    const hours = parseHours(location.openingHours);
-    setOpenHour(hours.open);
-    setCloseHour(hours.close);
+    setWeeklyHours(location.weeklyHours ?? defaultWeeklyHours());
+    setLegacyOpeningHours(location.openingHours);
     setOpen(true);
+  };
+
+  const toggleWeeklyHoursDay = (dayKey: string) => {
+    setWeeklyHours((prev) => {
+      const current = prev[dayKey];
+      return {
+        ...prev,
+        [dayKey]: current?.open
+          ? { open: false }
+          : {
+              open: true,
+              from: current?.from || "09:00",
+              to: current?.to || "18:00",
+            },
+      };
+    });
+  };
+
+  const setWeeklyHoursTime = (
+    dayKey: string,
+    field: "from" | "to",
+    value: string,
+  ) => {
+    setWeeklyHours((prev) => ({
+      ...prev,
+      [dayKey]: { ...prev[dayKey], open: true, [field]: value },
+    }));
   };
 
   const handleSave = async () => {
@@ -166,17 +195,28 @@ function PuntosDeVenta() {
         address,
         phone,
         managerName,
-        openingHours: buildHours(openHour, closeHour),
+        // Ya no se edita aquí -- se conserva tal cual para no perder el
+        // valor viejo (lo sigue usando el checador como respaldo si la
+        // sucursal nunca se configuró con el horario por día).
+        openingHours: legacyOpeningHours ?? undefined,
       };
+      let locationId: string;
       if (editing) {
         await updateLocation(editing.id, {
           ...fields,
           isActive: editing.isActive,
         });
+        locationId = editing.id;
         toast.success("Sucursal actualizada.");
       } else {
-        await createLocation(session, fields);
+        locationId = await createLocation(session, fields);
         toast.success("Sucursal creada.");
+      }
+      // El horario solo lo puede tocar un admin -- ver
+      // update_location_weekly_hours (RLS/rol se valida también server-side,
+      // esto solo evita mandar la llamada si ya sabemos que va a fallar).
+      if (isAdmin) {
+        await updateLocationWeeklyHours(locationId, weeklyHours);
       }
       setOpen(false);
       await reload();
@@ -513,24 +553,71 @@ function PuntosDeVenta() {
             </div>
             <div className="space-y-1">
               <Label>Horario de atención</Label>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 space-y-1">
-                  <span className="text-xs text-muted-foreground">Abre</span>
-                  <Input
-                    type="time"
-                    value={openHour}
-                    onChange={(event) => setOpenHour(event.target.value)}
-                  />
-                </div>
-                <span className="pt-5 text-muted-foreground">—</span>
-                <div className="flex-1 space-y-1">
-                  <span className="text-xs text-muted-foreground">Cierra</span>
-                  <Input
-                    type="time"
-                    value={closeHour}
-                    onChange={(event) => setCloseHour(event.target.value)}
-                  />
-                </div>
+              <p className="text-xs text-muted-foreground">
+                {isAdmin
+                  ? "Distinto por día."
+                  : "Solo un administrador puede cambiarlo."}
+              </p>
+              <div className="space-y-2 rounded-lg border p-3">
+                {WEEKLY_HOURS_DAYS.map((day) => {
+                  const entry = weeklyHours[day.key] ?? { open: false };
+                  return (
+                    <div key={day.key} className="flex items-center gap-3">
+                      <span className="w-20 shrink-0 text-sm font-medium">
+                        {day.label}
+                      </span>
+                      {isAdmin ? (
+                        <Switch
+                          checked={entry.open}
+                          onCheckedChange={() => toggleWeeklyHoursDay(day.key)}
+                        />
+                      ) : (
+                        <span
+                          className={`h-2 w-2 shrink-0 rounded-full ${entry.open ? "bg-success" : "bg-muted-foreground/40"}`}
+                        />
+                      )}
+                      {entry.open ? (
+                        isAdmin ? (
+                          <div className="flex flex-1 items-center gap-2">
+                            <Input
+                              type="time"
+                              className="h-8"
+                              value={entry.from ?? "09:00"}
+                              onChange={(event) =>
+                                setWeeklyHoursTime(
+                                  day.key,
+                                  "from",
+                                  event.target.value,
+                                )
+                              }
+                            />
+                            <span className="text-muted-foreground">–</span>
+                            <Input
+                              type="time"
+                              className="h-8"
+                              value={entry.to ?? "18:00"}
+                              onChange={(event) =>
+                                setWeeklyHoursTime(
+                                  day.key,
+                                  "to",
+                                  event.target.value,
+                                )
+                              }
+                            />
+                          </div>
+                        ) : (
+                          <span className="flex-1 text-sm">
+                            {entry.from} – {entry.to}
+                          </span>
+                        )
+                      ) : (
+                        <span className="flex-1 text-xs italic text-muted-foreground">
+                          Cerrado
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

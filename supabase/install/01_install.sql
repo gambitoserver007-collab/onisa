@@ -1819,6 +1819,12 @@ alter table public.locations add column if not exists manager_name text;
 -- ============================================================
 alter table public.locations add column if not exists short_code text;
 alter table public.locations add column if not exists opening_hours text;
+-- Horario por día de la semana (reemplaza el "Abre/Cierra" único de
+-- opening_hours, que no distinguía días). Llaves ISO "1".."7" (1=lunes,
+-- 7=domingo) -> {"open": bool, "from"?: "HH:MM", "to"?: "HH:MM"}. Nullable
+-- a propósito: una sucursal sin configurar aquí sigue funcionando con el
+-- opening_hours viejo (ver update_location_weekly_hours y punch_employee).
+alter table public.locations add column if not exists weekly_hours jsonb;
 
 -- ============================================================
 -- 20260620025625_5257a5b9-148d-4d8a-93b3-ea4a8a0dbb37.sql
@@ -6401,6 +6407,9 @@ declare
   v_is_late boolean := false;
   v_is_early_leave boolean := false;
   v_loc_hours text;
+  v_loc_weekly jsonb;
+  v_day_key text;
+  v_day_entry jsonb;
   v_open_time time;
   v_close_time time;
   v_now_time time;
@@ -6431,6 +6440,8 @@ begin
 
   v_location_id := coalesce(p_location_id, v_profile.location_id);
   v_now_time := (now() at time zone coalesce(p_tz, 'UTC'))::time;
+  -- ISO: 1=lunes .. 7=domingo, mismas llaves que locations.weekly_hours.
+  v_day_key := extract(isodow from (now() at time zone coalesce(p_tz, 'UTC')))::int::text;
 
   select * into v_open from public.employee_attendance
     where company_id = v_company_id and profile_id = v_profile.id and status = 'open'
@@ -6440,8 +6451,17 @@ begin
   if v_open.id is not null then
     v_close_time := v_profile.shift_end;
     if v_close_time is null and v_location_id is not null then
-      select opening_hours into v_loc_hours from public.locations where id = v_location_id;
-      if v_loc_hours ~ '-\s*([0-9]{1,2}:[0-9]{2})' then
+      select opening_hours, weekly_hours into v_loc_hours, v_loc_weekly
+        from public.locations where id = v_location_id;
+      -- weekly_hours manda si ya está configurado; si no, cae al texto
+      -- libre viejo (opening_hours) -- así una sucursal que nunca migró al
+      -- horario por día sigue funcionando exactamente igual que antes.
+      if v_loc_weekly is not null then
+        v_day_entry := v_loc_weekly -> v_day_key;
+        if v_day_entry is not null and coalesce((v_day_entry ->> 'open')::boolean, false) then
+          v_close_time := nullif(v_day_entry ->> 'to', '')::time;
+        end if;
+      elsif v_loc_hours ~ '-\s*([0-9]{1,2}:[0-9]{2})' then
         v_close_time := (regexp_match(v_loc_hours, '-\s*([0-9]{1,2}:[0-9]{2})'))[1]::time;
       end if;
     end if;
@@ -6463,8 +6483,14 @@ begin
 
   v_open_time := v_profile.shift_start;
   if v_open_time is null and v_location_id is not null then
-    select opening_hours into v_loc_hours from public.locations where id = v_location_id;
-    if v_loc_hours ~ '^\s*([0-9]{1,2}:[0-9]{2})' then
+    select opening_hours, weekly_hours into v_loc_hours, v_loc_weekly
+      from public.locations where id = v_location_id;
+    if v_loc_weekly is not null then
+      v_day_entry := v_loc_weekly -> v_day_key;
+      if v_day_entry is not null and coalesce((v_day_entry ->> 'open')::boolean, false) then
+        v_open_time := nullif(v_day_entry ->> 'from', '')::time;
+      end if;
+    elsif v_loc_hours ~ '^\s*([0-9]{1,2}:[0-9]{2})' then
       v_open_time := (regexp_match(v_loc_hours, '^\s*([0-9]{1,2}:[0-9]{2})'))[1]::time;
     end if;
   end if;
@@ -11086,3 +11112,87 @@ $$;
 
 revoke execute on function public.get_company_alerts() from public, anon;
 grant execute on function public.get_company_alerts() to authenticated;
+
+-- ============================================================
+-- Horario por día de la semana para sucursales (solo admin lo configura).
+-- Antes locations.opening_hours era un solo "Abre/Cierra" para toda la
+-- semana; ahora cada día puede tener su propio horario, o estar cerrado.
+-- Es una RPC (no un update directo vía RLS) precisamente para poder exigir
+-- rol admin aquí sin restringir también quién puede editar el nombre/
+-- dirección/teléfono de la sucursal -- eso sigue igual que antes
+-- ("locations write scoped", cualquier miembro de la empresa).
+-- ============================================================
+create or replace function public.update_location_weekly_hours(
+  p_location_id uuid,
+  p_weekly_hours jsonb
+)
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_day text;
+  v_entry jsonb;
+  v_open boolean;
+  v_from text;
+  v_to text;
+  v_seen_days text[] := array[]::text[];
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+
+  select company_id into v_company_id from public.locations where id = p_location_id;
+  if v_company_id is null then raise exception 'Sucursal no encontrada.'; end if;
+  if not public.can_admin_company(v_company_id) then
+    raise exception 'Solo un administrador puede configurar el horario de la sucursal.';
+  end if;
+
+  if p_weekly_hours is null or jsonb_typeof(p_weekly_hours) <> 'object' then
+    raise exception 'Formato de horario invalido.';
+  end if;
+
+  for v_day in select jsonb_object_keys(p_weekly_hours) loop
+    if v_day !~ '^[1-7]$' then
+      raise exception 'Dia de horario invalido: %.', v_day;
+    end if;
+    v_seen_days := array_append(v_seen_days, v_day);
+
+    v_entry := p_weekly_hours -> v_day;
+    if jsonb_typeof(v_entry) <> 'object' then
+      raise exception 'Formato de horario invalido para el dia %.', v_day;
+    end if;
+
+    v_open := (v_entry ->> 'open')::boolean;
+    if v_open is null then
+      raise exception 'Falta indicar si el dia % esta abierto.', v_day;
+    end if;
+
+    if v_open then
+      v_from := v_entry ->> 'from';
+      v_to := v_entry ->> 'to';
+      if v_from !~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        or v_to !~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' then
+        raise exception 'Hora invalida en el dia %.', v_day;
+      end if;
+      if v_to <= v_from then
+        raise exception 'La hora de cierre debe ser despues de la de apertura (dia %).', v_day;
+      end if;
+    end if;
+  end loop;
+
+  if array_length(v_seen_days, 1) is distinct from 7 then
+    raise exception 'El horario debe incluir los 7 dias de la semana.';
+  end if;
+
+  update public.locations
+  set weekly_hours = p_weekly_hours, updated_at = now()
+  where id = p_location_id;
+end;
+$$;
+
+revoke execute on function public.update_location_weekly_hours(uuid, jsonb) from public, anon;
+grant execute on function public.update_location_weekly_hours(uuid, jsonb) to authenticated;

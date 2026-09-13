@@ -3015,6 +3015,27 @@ export async function fetchProfitReport(
 
 // ---- Puntos de venta (locales / tiendas / bodegas) ----
 
+export interface WeeklyHoursDay {
+  open: boolean;
+  /** "HH:MM", solo cuando open=true. */
+  from?: string;
+  to?: string;
+}
+
+/** Llaves ISO "1".."7" (1=lunes .. 7=domingo) -- mismas que usa Postgres en
+ * extract(isodow from ...), así el backend no tiene que traducir nada. */
+export type WeeklyHours = Record<string, WeeklyHoursDay>;
+
+export const WEEKLY_HOURS_DAYS: { key: string; label: string }[] = [
+  { key: "1", label: "Lunes" },
+  { key: "2", label: "Martes" },
+  { key: "3", label: "Miércoles" },
+  { key: "4", label: "Jueves" },
+  { key: "5", label: "Viernes" },
+  { key: "6", label: "Sábado" },
+  { key: "7", label: "Domingo" },
+];
+
 export interface Location {
   id: string;
   name: string;
@@ -3024,6 +3045,10 @@ export interface Location {
   phone: string | null;
   managerName: string | null;
   openingHours: string | null;
+  /** Horario por día -- null si la sucursal nunca se configuró así (sigue
+   * cayendo al openingHours viejo en el checador). Solo un admin lo edita,
+   * ver updateLocationWeeklyHours(). */
+  weeklyHours: WeeklyHours | null;
   isActive: boolean;
   ticketShowLogo: boolean;
   ticketShowFiscalInfo: boolean;
@@ -3079,6 +3104,8 @@ export async function fetchLocations(
     managerName: (row as { manager_name?: string | null }).manager_name ?? null,
     openingHours:
       (row as { opening_hours?: string | null }).opening_hours ?? null,
+    weeklyHours:
+      (row as { weekly_hours?: WeeklyHours | null }).weekly_hours ?? null,
     isActive: row.is_active,
     ticketShowLogo:
       (row as { ticket_show_logo?: boolean | null }).ticket_show_logo ?? true,
@@ -3129,7 +3156,7 @@ export async function updateLocationTicketSettings(
 export async function createLocation(
   session: DemoSession,
   input: LocationInput,
-) {
+): Promise<string> {
   const name = input.name.trim();
   if (!name) throw new Error("Ingresa el nombre de la sucursal.");
   const base = {
@@ -3145,11 +3172,16 @@ export async function createLocation(
     manager_name: input.managerName?.trim() || null,
     opening_hours: input.openingHours?.trim() || null,
   };
-  let res = await supabase.from("locations").insert(full as never);
+  let res = await supabase
+    .from("locations")
+    .insert(full as never)
+    .select("id")
+    .single();
   if (res.error && isMissingColumnError(res.error)) {
-    res = await supabase.from("locations").insert(base);
+    res = await supabase.from("locations").insert(base).select("id").single();
   }
   if (res.error) throw res.error;
+  return (res.data as { id: string }).id;
 }
 
 export async function updateLocation(locationId: string, input: LocationInput) {
@@ -3180,6 +3212,20 @@ export async function updateLocation(locationId: string, input: LocationInput) {
       .eq("id", locationId);
   }
   if (res.error) throw res.error;
+}
+
+/** Guarda el horario por día de una sucursal -- pasa por una RPC (no un
+ * update directo como el resto de locations) porque solo un administrador
+ * puede tocarlo; ver update_location_weekly_hours en 01_install.sql. */
+export async function updateLocationWeeklyHours(
+  locationId: string,
+  weeklyHours: WeeklyHours,
+): Promise<void> {
+  const { error } = await supabase.rpc("update_location_weekly_hours", {
+    p_location_id: locationId,
+    p_weekly_hours: weeklyHours as unknown as Json,
+  });
+  if (error) throw error;
 }
 
 export async function setLocationActive(locationId: string, isActive: boolean) {

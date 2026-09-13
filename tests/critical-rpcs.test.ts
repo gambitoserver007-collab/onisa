@@ -1566,6 +1566,50 @@ describe("RPCs críticas de dinero y stock", () => {
       });
     });
 
+    it("weekly_hours (horario por día) tiene prioridad sobre opening_hours cuando ambos existen", async () => {
+      const { company, admin, employee } = await setupEmployeeCompany();
+      const isoDow = ((new Date().getUTCDay() + 6) % 7) + 1; // 1=lunes..7=domingo
+      // opening_hours (el formato viejo) abre "00:01" -- diría "tarde"
+      // casi siempre. weekly_hours para hoy abre "23:58" -- prácticamente
+      // nunca tarde -- y debe ser el que gane.
+      await db.query(
+        "update public.locations set opening_hours='00:01 - 23:59', weekly_hours=$2::jsonb where id=$1",
+        [
+          company.loc1,
+          JSON.stringify({
+            [isoDow]: { open: true, from: "23:58", to: "23:59" },
+          }),
+        ],
+      );
+      await asUser(db, admin, async () => {
+        await db.query("select set_employee_pin($1, '6677')", [employee]);
+        const { rows } = await db.query<{ punch_employee: unknown }>(
+          "select punch_employee('6677', $1) as punch_employee",
+          [company.loc1],
+        );
+        const checkIn = rows[0].punch_employee as { is_late: boolean };
+        expect(checkIn.is_late).toBe(false);
+      });
+    });
+
+    it("un día marcado cerrado en weekly_hours no marca retardo ese día", async () => {
+      const { company, admin, employee } = await setupEmployeeCompany();
+      const isoDow = ((new Date().getUTCDay() + 6) % 7) + 1;
+      await db.query(
+        "update public.locations set weekly_hours=$2::jsonb where id=$1",
+        [company.loc1, JSON.stringify({ [isoDow]: { open: false } })],
+      );
+      await asUser(db, admin, async () => {
+        await db.query("select set_employee_pin($1, '8899')", [employee]);
+        const { rows } = await db.query<{ punch_employee: unknown }>(
+          "select punch_employee('8899', $1) as punch_employee",
+          [company.loc1],
+        );
+        const checkIn = rows[0].punch_employee as { is_late: boolean };
+        expect(checkIn.is_late).toBe(false);
+      });
+    });
+
     it("dos empleados de la misma sucursal con turnos distintos se evalúan cada uno con el suyo", async () => {
       const {
         company,
@@ -6708,6 +6752,138 @@ describe("RPCs críticas de dinero y stock", () => {
       // completa de un compañero a un cajero -- list_company_profile_names()
       // es la única vía, y solo expone id+full_name.
       expect(rows).toHaveLength(0);
+    });
+  });
+
+  describe("34. update_location_weekly_hours(): horario por día, solo admin", () => {
+    function fullWeek(
+      overrides: Record<
+        number,
+        { open: boolean; from?: string; to?: string }
+      > = {},
+    ) {
+      const week: Record<
+        string,
+        { open: boolean; from?: string; to?: string }
+      > = {};
+      for (let d = 1; d <= 7; d++) {
+        week[d] = overrides[d] ?? { open: true, from: "09:00", to: "18:00" };
+      }
+      return week;
+    }
+
+    it("un admin configura el horario de una sucursal", async () => {
+      const company = await makeCompany(db, "Empresa Horario Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const week = fullWeek({ 7: { open: false } });
+
+      await asUser(db, admin, () =>
+        db.query("select update_location_weekly_hours($1, $2::jsonb)", [
+          company.loc1,
+          JSON.stringify(week),
+        ]),
+      );
+
+      const { rows } = await db.query<{ weekly_hours: unknown }>(
+        "select weekly_hours from public.locations where id = $1",
+        [company.loc1],
+      );
+      expect(rows[0].weekly_hours).toEqual(week);
+    });
+
+    it("un cajero no puede configurar el horario, aunque sea de su propia sucursal", async () => {
+      const company = await makeCompany(db, "Empresa Horario Cajero Test");
+      const cajero = await makeUser(db, company.id, "user");
+
+      await asUser(db, cajero, () =>
+        expect(
+          db.query("select update_location_weekly_hours($1, $2::jsonb)", [
+            company.loc1,
+            JSON.stringify(fullWeek()),
+          ]),
+        ).rejects.toThrow(/solo un administrador/i),
+      );
+    });
+
+    it("un admin de otra empresa no puede tocar una sucursal ajena", async () => {
+      const companyA = await makeCompany(db, "Empresa Horario A Test");
+      const companyB = await makeCompany(db, "Empresa Horario B Test");
+      const adminB = await makeUser(db, companyB.id, "admin");
+
+      await asUser(db, adminB, () =>
+        expect(
+          db.query("select update_location_weekly_hours($1, $2::jsonb)", [
+            companyA.loc1,
+            JSON.stringify(fullWeek()),
+          ]),
+        ).rejects.toThrow(/solo un administrador/i),
+      );
+    });
+
+    it("rechaza un horario incompleto (faltan días)", async () => {
+      const company = await makeCompany(db, "Empresa Horario Incompleto Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const week = fullWeek();
+      delete (week as Record<string, unknown>)["7"];
+
+      await asUser(db, admin, () =>
+        expect(
+          db.query("select update_location_weekly_hours($1, $2::jsonb)", [
+            company.loc1,
+            JSON.stringify(week),
+          ]),
+        ).rejects.toThrow(/7 dias/i),
+      );
+    });
+
+    it("rechaza una hora con formato inválido", async () => {
+      const company = await makeCompany(db, "Empresa Horario Formato Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const week = fullWeek({ 1: { open: true, from: "9am", to: "18:00" } });
+
+      await asUser(db, admin, () =>
+        expect(
+          db.query("select update_location_weekly_hours($1, $2::jsonb)", [
+            company.loc1,
+            JSON.stringify(week),
+          ]),
+        ).rejects.toThrow(/hora invalida/i),
+      );
+    });
+
+    it("rechaza que la hora de cierre sea antes (o igual) que la de apertura", async () => {
+      const company = await makeCompany(db, "Empresa Horario Orden Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const week = fullWeek({ 3: { open: true, from: "18:00", to: "09:00" } });
+
+      await asUser(db, admin, () =>
+        expect(
+          db.query("select update_location_weekly_hours($1, $2::jsonb)", [
+            company.loc1,
+            JSON.stringify(week),
+          ]),
+        ).rejects.toThrow(/despues de la de apertura/i),
+      );
+    });
+
+    it("un día cerrado no exige from/to", async () => {
+      const company = await makeCompany(db, "Empresa Horario Cerrado Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const week = fullWeek({ 7: { open: false } });
+
+      await asUser(db, admin, () =>
+        db.query("select update_location_weekly_hours($1, $2::jsonb)", [
+          company.loc1,
+          JSON.stringify(week),
+        ]),
+      );
+
+      const { rows } = await db.query<{
+        weekly_hours: { "7": { open: boolean } };
+      }>("select weekly_hours from public.locations where id = $1", [
+        company.loc1,
+      ]);
+      expect(rows[0].weekly_hours["7"].open).toBe(false);
     });
   });
 });
