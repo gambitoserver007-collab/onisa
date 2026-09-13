@@ -39,6 +39,7 @@ import {
   PackageCheck,
   AlertTriangle,
   History,
+  CalendarDays,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logout } from "@/lib/demoAuth";
@@ -129,6 +130,7 @@ const sections: { title: string; items: Item[] }[] = [
       { to: "/puntos-de-venta", label: "Sucursales", icon: Store },
       { to: "/usuarios", label: "Usuarios", icon: Shield },
       { to: "/empleados", label: "Empleados", icon: Clock },
+      { to: "/calendario", label: "Calendario", icon: CalendarDays },
       { to: "/suscripcion", label: "Mi Suscripción", icon: CreditCard },
       { to: "/configuracion", label: "Configuración", icon: Settings },
       { to: "/backup", label: "Respaldo", icon: Database },

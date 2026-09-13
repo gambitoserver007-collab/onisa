@@ -11196,3 +11196,72 @@ $$;
 
 revoke execute on function public.update_location_weekly_hours(uuid, jsonb) from public, anon;
 grant execute on function public.update_location_weekly_hours(uuid, jsonb) to authenticated;
+
+-- ============================================================
+-- Calendario del equipo: descansos de empleados, días festivos,
+-- cumpleaños y cierres oficiales del negocio. Visible para todo el
+-- equipo (misma regla de lectura que el resto de la empresa); solo un
+-- administrador agrega/edita/borra eventos -- por eso son políticas
+-- separadas por operación (nunca "for all"), como el resto de tablas
+-- reforzadas en la auditoría de RLS.
+-- ============================================================
+create table if not exists public.company_calendar_events (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  event_type text not null check (event_type in ('rest', 'holiday', 'birthday', 'closure')),
+  event_date date not null,
+  -- Para eventos de más de un día (ej. vacaciones, cierre de varios días).
+  -- Si es null, el evento es de un solo día (= event_date).
+  end_date date,
+  -- Solo aplica a 'rest'/'birthday' (el empleado al que corresponde).
+  -- 'holiday'/'closure' son de toda la empresa, sin empleado.
+  profile_id uuid references public.profiles(id) on delete set null,
+  title text not null,
+  notes text,
+  created_by uuid references public.profiles(id) on delete set null,
+  is_demo_data boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint company_calendar_events_date_range_chk check (end_date is null or end_date >= event_date)
+);
+
+create index if not exists company_calendar_events_company_idx
+  on public.company_calendar_events(company_id, event_date);
+create index if not exists company_calendar_events_profile_idx
+  on public.company_calendar_events(profile_id);
+
+alter table public.company_calendar_events enable row level security;
+
+drop policy if exists "company_calendar_events select scoped" on public.company_calendar_events;
+create policy "company_calendar_events select scoped" on public.company_calendar_events
+  for select to authenticated
+  using (public.can_select_company(company_id, is_demo_data));
+
+drop policy if exists "company_calendar_events insert admin" on public.company_calendar_events;
+create policy "company_calendar_events insert admin" on public.company_calendar_events
+  for insert to authenticated
+  with check (public.can_admin_company(company_id));
+
+drop policy if exists "company_calendar_events update admin" on public.company_calendar_events;
+create policy "company_calendar_events update admin" on public.company_calendar_events
+  for update to authenticated
+  using (public.can_admin_company(company_id))
+  with check (public.can_admin_company(company_id));
+
+drop policy if exists "company_calendar_events delete admin" on public.company_calendar_events;
+create policy "company_calendar_events delete admin" on public.company_calendar_events
+  for delete to authenticated
+  using (public.can_admin_company(company_id));
+
+drop trigger if exists company_calendar_events_touch_updated_at on public.company_calendar_events;
+create trigger company_calendar_events_touch_updated_at
+  before update on public.company_calendar_events
+  for each row execute function public.touch_updated_at();
+
+drop trigger if exists prevent_demo_calendar_events_write on public.company_calendar_events;
+create trigger prevent_demo_calendar_events_write
+  before insert or update or delete on public.company_calendar_events
+  for each row execute function public.reject_demo_write();
+
+grant select, insert, update, delete on public.company_calendar_events to authenticated;
+grant all on public.company_calendar_events to service_role;

@@ -60,6 +60,7 @@ export const GRANTABLE_SECTIONS: SectionDef[] = [
   { key: "/proveedores", label: "Proveedores", group: "Contactos" },
   { key: "/reportes", label: "Reportes", group: "Análisis" },
   { key: "/ganancias", label: "Ganancias", group: "Análisis" },
+  { key: "/calendario", label: "Calendario", group: "Ajustes" },
   { key: "/perfil", label: "Mi Perfil", group: "Ajustes" },
   { key: "/puntos-de-venta", label: "Sucursales", group: "Ajustes" },
   { key: "/usuarios", label: "Usuarios", group: "Ajustes" },
@@ -88,6 +89,7 @@ export const ROLE_DEFAULT_SECTIONS: Record<StoreRole, string[]> = {
     "/proveedores",
     "/reportes",
     "/ganancias",
+    "/calendario",
     "/perfil",
   ],
   user: [
@@ -102,6 +104,7 @@ export const ROLE_DEFAULT_SECTIONS: Record<StoreRole, string[]> = {
     "/productos",
     "/inventario",
     "/clientes",
+    "/calendario",
     "/perfil",
   ],
   operador: [
@@ -113,6 +116,7 @@ export const ROLE_DEFAULT_SECTIONS: Record<StoreRole, string[]> = {
     "/compras",
     "/proveedores",
     "/mermas",
+    "/calendario",
     "/perfil",
   ],
 };
@@ -162,6 +166,7 @@ const ROUTE_ACCESS: Record<string, StoreRole[]> = {
   // reportes de la empresa completa.
   "/alertas": ["admin", "finanzas"],
   "/auditoria": ["admin", "finanzas"],
+  "/calendario": ["admin", "finanzas", "user", "operador"],
   "/perfil": ["admin", "finanzas", "user", "operador"],
   "/usuarios": ["admin"],
   "/empleados": ["admin"],

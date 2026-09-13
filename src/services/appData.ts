@@ -5332,6 +5332,126 @@ export async function deleteTimeEvent(id: string) {
   if (error) throw error;
 }
 
+// ---- Calendario del equipo (descansos, festivos, cumpleaños, cierres) ----
+// Visible para todo el equipo; solo un admin agrega/edita/borra -- lo exige
+// la política RLS de la tabla misma (company_calendar_events insert/update/
+// delete admin), no una RPC: a diferencia del horario de sucursales, esta
+// es una tabla dedicada nueva, no una columna dentro de una tabla que otros
+// roles ya podían escribir por otros motivos.
+
+export type CalendarEventType = "rest" | "holiday" | "birthday" | "closure";
+
+export interface CalendarEvent {
+  id: string;
+  eventType: CalendarEventType;
+  /** "YYYY-MM-DD". */
+  date: string;
+  /** Solo eventos de varios días (ej. vacaciones); null = un solo día. */
+  endDate: string | null;
+  /** A quién le aplica -- solo tiene sentido para "rest"/"birthday". */
+  profileId: string | null;
+  title: string;
+  notes: string | null;
+  createdBy: string | null;
+}
+
+export interface CalendarEventInput {
+  eventType: CalendarEventType;
+  date: string;
+  endDate?: string | null;
+  profileId?: string | null;
+  title: string;
+  notes?: string | null;
+}
+
+function mapCalendarEvent(row: {
+  id: string;
+  event_type: string;
+  event_date: string;
+  end_date: string | null;
+  profile_id: string | null;
+  title: string;
+  notes: string | null;
+  created_by: string | null;
+}): CalendarEvent {
+  return {
+    id: row.id,
+    eventType: row.event_type as CalendarEventType,
+    date: row.event_date,
+    endDate: row.end_date,
+    profileId: row.profile_id,
+    title: row.title,
+    notes: row.notes,
+    createdBy: row.created_by,
+  };
+}
+
+export async function fetchCalendarEvents(
+  companyId?: string,
+  opts: { from?: string; to?: string } = {},
+): Promise<CalendarEvent[]> {
+  let query = supabase
+    .from("company_calendar_events")
+    .select(
+      "id, event_type, event_date, end_date, profile_id, title, notes, created_by",
+    )
+    .order("event_date");
+  if (companyId) query = query.eq("company_id", companyId);
+  if (opts.from) query = query.gte("event_date", opts.from);
+  if (opts.to) query = query.lte("event_date", opts.to);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map(mapCalendarEvent);
+}
+
+export async function createCalendarEvent(
+  session: DemoSession,
+  input: CalendarEventInput,
+): Promise<void> {
+  const title = input.title.trim();
+  if (!title) throw new Error("Ingresa un título para el evento.");
+  const companyId = requireCompanyId(session);
+  const { error } = await supabase.from("company_calendar_events").insert({
+    company_id: companyId,
+    event_type: input.eventType,
+    event_date: input.date,
+    end_date: input.endDate || null,
+    profile_id: input.profileId || null,
+    title,
+    notes: input.notes?.trim() || null,
+    created_by: session.userId ?? null,
+  } as never);
+  if (error) throw error;
+}
+
+export async function updateCalendarEvent(
+  eventId: string,
+  input: CalendarEventInput,
+): Promise<void> {
+  const title = input.title.trim();
+  if (!title) throw new Error("Ingresa un título para el evento.");
+  const { error } = await supabase
+    .from("company_calendar_events")
+    .update({
+      event_type: input.eventType,
+      event_date: input.date,
+      end_date: input.endDate || null,
+      profile_id: input.profileId || null,
+      title,
+      notes: input.notes?.trim() || null,
+    } as never)
+    .eq("id", eventId);
+  if (error) throw error;
+}
+
+export async function deleteCalendarEvent(eventId: string): Promise<void> {
+  const { error } = await supabase
+    .from("company_calendar_events")
+    .delete()
+    .eq("id", eventId);
+  if (error) throw error;
+}
+
 // ---- Backup (export real) ----
 
 export async function buildBackupExport(companyId?: string) {

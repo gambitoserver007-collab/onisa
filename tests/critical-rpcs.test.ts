@@ -6886,4 +6886,171 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(rows[0].weekly_hours["7"].open).toBe(false);
     });
   });
+
+  describe("35. Calendario del equipo (company_calendar_events): visible para todos, solo admin escribe", () => {
+    async function insertEvent(
+      companyId: string,
+      overrides: Partial<{
+        event_type: string;
+        event_date: string;
+        end_date: string | null;
+        title: string;
+        profile_id: string | null;
+      }> = {},
+    ) {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.company_calendar_events
+           (company_id, event_type, event_date, end_date, title, profile_id)
+         values ($1, $2, $3, $4, $5, $6)
+         returning id`,
+        [
+          companyId,
+          overrides.event_type ?? "holiday",
+          overrides.event_date ?? "2026-09-16",
+          overrides.end_date ?? null,
+          overrides.title ?? "Día festivo",
+          overrides.profile_id ?? null,
+        ],
+      );
+      return rows[0].id;
+    }
+
+    it("un admin puede crear, editar y borrar un evento", async () => {
+      const company = await makeCompany(db, "Empresa Calendario Admin Test");
+      const admin = await makeUser(db, company.id, "admin");
+
+      let eventId = "";
+      await asUser(db, admin, async () => {
+        eventId = await insertEvent(company.id, {
+          event_type: "closure",
+          title: "Cierre por inventario",
+        });
+        await db.query(
+          "update public.company_calendar_events set title = $2 where id = $1",
+          [eventId, "Cierre por inventario (actualizado)"],
+        );
+      });
+
+      const { rows } = await db.query<{ title: string }>(
+        "select title from public.company_calendar_events where id = $1",
+        [eventId],
+      );
+      expect(rows[0].title).toBe("Cierre por inventario (actualizado)");
+
+      await asUser(db, admin, () =>
+        db.query("delete from public.company_calendar_events where id = $1", [
+          eventId,
+        ]),
+      );
+      const { rows: afterDelete } = await db.query(
+        "select id from public.company_calendar_events where id = $1",
+        [eventId],
+      );
+      expect(afterDelete).toHaveLength(0);
+    });
+
+    it("un cajero NO puede crear, editar ni borrar eventos, aunque sí los ve", async () => {
+      const company = await makeCompany(db, "Empresa Calendario Cajero Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const cajero = await makeUser(db, company.id, "user");
+      const eventId = await insertEvent(company.id);
+      void admin;
+
+      await asUser(db, cajero, async () => {
+        await expect(
+          insertEvent(company.id, { title: "Intento de cajero" }),
+        ).rejects.toThrow();
+        // UPDATE/DELETE sin política aplicable no lanzan error -- solo
+        // afectan 0 filas (a diferencia de INSERT, que sí rechaza sin
+        // política -- comportamiento normal de RLS en Postgres).
+        await db.query(
+          "update public.company_calendar_events set title = 'hackeado' where id = $1",
+          [eventId],
+        );
+        await db.query(
+          "delete from public.company_calendar_events where id = $1",
+          [eventId],
+        );
+        const { rows: visible } = await db.query(
+          "select id, title from public.company_calendar_events where id = $1",
+          [eventId],
+        );
+        expect(visible).toHaveLength(1); // sigue ahí -- sí lo puede ver
+        expect(visible[0].title).not.toBe("hackeado"); // pero no se editó
+      });
+    });
+
+    it("finanzas y operador tampoco pueden escribir, pero sí ven los eventos", async () => {
+      const company = await makeCompany(db, "Empresa Calendario Roles Test");
+      const finanzas = await makeUser(db, company.id, "finanzas");
+      const operador = await makeUser(db, company.id, "operador");
+      const eventId = await insertEvent(company.id);
+
+      for (const userId of [finanzas, operador]) {
+        await asUser(db, userId, async () => {
+          await expect(insertEvent(company.id)).rejects.toThrow();
+          const { rows } = await db.query(
+            "select id from public.company_calendar_events where id = $1",
+            [eventId],
+          );
+          expect(rows).toHaveLength(1);
+        });
+      }
+    });
+
+    it("un admin de otra empresa no ve ni puede tocar los eventos de esta", async () => {
+      const companyA = await makeCompany(db, "Empresa Calendario A Test");
+      const companyB = await makeCompany(db, "Empresa Calendario B Test");
+      const adminB = await makeUser(db, companyB.id, "admin");
+      const eventId = await insertEvent(companyA.id);
+
+      await asUser(db, adminB, async () => {
+        const { rows } = await db.query(
+          "select id from public.company_calendar_events where id = $1",
+          [eventId],
+        );
+        expect(rows).toHaveLength(0);
+
+        await expect(
+          db.query(
+            "update public.company_calendar_events set title = 'ajeno' where id = $1",
+            [eventId],
+          ),
+        ).resolves.toBeDefined(); // no lanza, pero...
+      });
+
+      // La verificación de "no afectó nada" no puede hacerse como adminB --
+      // su propia política de select tampoco lo dejaría ver la fila de la
+      // otra empresa. Se confirma sin RLS (conexión directa).
+      const { rows: unchanged } = await db.query(
+        "select title from public.company_calendar_events where id = $1",
+        [eventId],
+      );
+      expect(unchanged[0].title).not.toBe("ajeno");
+    });
+
+    it("rechaza un rango de fechas invertido (end_date antes que event_date)", async () => {
+      const company = await makeCompany(db, "Empresa Calendario Rango Test");
+      await expect(
+        db.query(
+          `insert into public.company_calendar_events
+             (company_id, event_type, event_date, end_date, title)
+           values ($1, 'closure', '2026-09-20', '2026-09-18', 'Cierre mal capturado')`,
+          [company.id],
+        ),
+      ).rejects.toThrow();
+    });
+
+    it("rechaza un event_type fuera del catálogo permitido", async () => {
+      const company = await makeCompany(db, "Empresa Calendario Tipo Test");
+      await expect(
+        db.query(
+          `insert into public.company_calendar_events
+             (company_id, event_type, event_date, title)
+           values ($1, 'vacaciones', '2026-09-20', 'Tipo inválido')`,
+          [company.id],
+        ),
+      ).rejects.toThrow();
+    });
+  });
 });

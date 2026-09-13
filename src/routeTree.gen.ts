@@ -15,6 +15,7 @@ import { Route as ApartadosRouteImport } from './routes/apartados'
 import { Route as AuditoriaRouteImport } from './routes/auditoria'
 import { Route as BackupRouteImport } from './routes/backup'
 import { Route as CajaRouteImport } from './routes/caja'
+import { Route as CalendarioRouteImport } from './routes/calendario'
 import { Route as CategoriasRouteImport } from './routes/categorias'
 import { Route as ClientesRouteImport } from './routes/clientes'
 import { Route as ConfiguracionRouteImport } from './routes/configuracion'
@@ -88,6 +89,11 @@ const BackupRoute = BackupRouteImport.update({
 const CajaRoute = CajaRouteImport.update({
   id: '/caja',
   path: '/caja',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CalendarioRoute = CalendarioRouteImport.update({
+  id: '/calendario',
+  path: '/calendario',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CategoriasRoute = CategoriasRouteImport.update({
@@ -321,6 +327,7 @@ export interface FileRoutesByFullPath {
   '/auditoria': typeof AuditoriaRoute
   '/backup': typeof BackupRoute
   '/caja': typeof CajaRoute
+  '/calendario': typeof CalendarioRoute
   '/categorias': typeof CategoriasRoute
   '/clientes': typeof ClientesRoute
   '/configuracion': typeof ConfiguracionRoute
@@ -373,6 +380,7 @@ export interface FileRoutesByTo {
   '/auditoria': typeof AuditoriaRoute
   '/backup': typeof BackupRoute
   '/caja': typeof CajaRoute
+  '/calendario': typeof CalendarioRoute
   '/categorias': typeof CategoriasRoute
   '/clientes': typeof ClientesRoute
   '/configuracion': typeof ConfiguracionRoute
@@ -426,6 +434,7 @@ export interface FileRoutesById {
   '/auditoria': typeof AuditoriaRoute
   '/backup': typeof BackupRoute
   '/caja': typeof CajaRoute
+  '/calendario': typeof CalendarioRoute
   '/categorias': typeof CategoriasRoute
   '/clientes': typeof ClientesRoute
   '/configuracion': typeof ConfiguracionRoute
@@ -480,6 +489,7 @@ export interface FileRouteTypes {
     | '/auditoria'
     | '/backup'
     | '/caja'
+    | '/calendario'
     | '/categorias'
     | '/clientes'
     | '/configuracion'
@@ -532,6 +542,7 @@ export interface FileRouteTypes {
     | '/auditoria'
     | '/backup'
     | '/caja'
+    | '/calendario'
     | '/categorias'
     | '/clientes'
     | '/configuracion'
@@ -584,6 +595,7 @@ export interface FileRouteTypes {
     | '/auditoria'
     | '/backup'
     | '/caja'
+    | '/calendario'
     | '/categorias'
     | '/clientes'
     | '/configuracion'
@@ -637,6 +649,7 @@ export interface RootRouteChildren {
   AuditoriaRoute: typeof AuditoriaRoute
   BackupRoute: typeof BackupRoute
   CajaRoute: typeof CajaRoute
+  CalendarioRoute: typeof CalendarioRoute
   CategoriasRoute: typeof CategoriasRoute
   ClientesRoute: typeof ClientesRoute
   ConfiguracionRoute: typeof ConfiguracionRoute
@@ -725,6 +738,13 @@ declare module '@tanstack/react-router' {
       path: '/caja'
       fullPath: '/caja'
       preLoaderRoute: typeof CajaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/calendario': {
+      id: '/calendario'
+      path: '/calendario'
+      fullPath: '/calendario'
+      preLoaderRoute: typeof CalendarioRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/categorias': {
@@ -1045,6 +1065,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuditoriaRoute: AuditoriaRoute,
   BackupRoute: BackupRoute,
   CajaRoute: CajaRoute,
+  CalendarioRoute: CalendarioRoute,
   CategoriasRoute: CategoriasRoute,
   ClientesRoute: ClientesRoute,
   ConfiguracionRoute: ConfiguracionRoute,
