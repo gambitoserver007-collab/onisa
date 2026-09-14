@@ -390,73 +390,12 @@ begin
 end;
 $$;
 
-create or replace function public.handle_new_user()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_company_id uuid;
-  v_company_name text;
-  v_country_code text;
-  v_currency_code text;
-  v_locale text;
-begin
-  v_company_name := coalesce(new.raw_user_meta_data ->> 'company_name', 'Mi Tienda');
-  v_country_code := coalesce(new.raw_user_meta_data ->> 'country_code', 'MX');
-  v_currency_code := coalesce(new.raw_user_meta_data ->> 'currency_code', 'MXN');
-  v_locale := coalesce(new.raw_user_meta_data ->> 'locale', 'es-MX');
-
-  v_company_id := nullif(new.raw_user_meta_data ->> 'company_id', '')::uuid;
-
-  if v_company_id is null then
-    insert into public.companies (
-      name,
-      contact_email,
-      country_code,
-      currency_code,
-      locale,
-      fiscal_id_label,
-      tax_name,
-      tax_rate
-    )
-    values (
-      v_company_name,
-      new.email,
-      v_country_code,
-      v_currency_code,
-      v_locale,
-      coalesce(new.raw_user_meta_data ->> 'fiscal_id_label', 'ID fiscal'),
-      coalesce(new.raw_user_meta_data ->> 'tax_name', 'Impuesto demo'),
-      coalesce(nullif(new.raw_user_meta_data ->> 'tax_rate', '')::numeric, 0.18)
-    )
-    returning id into v_company_id;
-  end if;
-
-  insert into public.profiles (
-    id,
-    company_id,
-    email,
-    full_name,
-    role,
-    is_demo,
-    demo_mode
-  )
-  values (
-    new.id,
-    v_company_id,
-    new.email,
-    coalesce(new.raw_user_meta_data ->> 'full_name', v_company_name),
-    'user',
-    false,
-    'none'
-  )
-  on conflict (id) do nothing;
-
-  return new;
-end;
-$$;
+-- handle_new_user() de esta primera pasada del esquema se eliminó --
+-- auditoría 2026-09, hallazgo #9: era una versión ya superada (y en su
+-- momento vulnerable, ver comentario junto a la definición canónica más
+-- abajo) que "create or replace function" dejaba muerta desde que se
+-- redefinió más adelante en este mismo archivo. Solo estorbaba como
+-- trampa para quien reordene o divida el archivo a futuro.
 
 alter table public.subscription_plans enable row level security;
 alter table public.companies enable row level security;
@@ -879,42 +818,11 @@ begin
 end;
 $$;
 
-create or replace function public.handle_new_user()
-returns trigger language plpgsql security definer set search_path = public
-as $$
-declare
-  v_company_id uuid;
-  v_company_name text;
-  v_country_code text;
-  v_currency_code text;
-  v_locale text;
-begin
-  v_company_name := coalesce(new.raw_user_meta_data ->> 'company_name', 'Mi Tienda');
-  v_country_code := coalesce(new.raw_user_meta_data ->> 'country_code', 'MX');
-  v_currency_code := coalesce(new.raw_user_meta_data ->> 'currency_code', 'MXN');
-  v_locale := coalesce(new.raw_user_meta_data ->> 'locale', 'es-MX');
-  v_company_id := nullif(new.raw_user_meta_data ->> 'company_id', '')::uuid;
-  if v_company_id is null then
-    insert into public.companies (name, contact_email, country_code, currency_code, locale, fiscal_id_label, tax_name, tax_rate)
-    values (v_company_name, new.email, v_country_code, v_currency_code, v_locale,
-      coalesce(new.raw_user_meta_data ->> 'fiscal_id_label', 'ID fiscal'),
-      coalesce(new.raw_user_meta_data ->> 'tax_name', 'Impuesto demo'),
-      coalesce(nullif(new.raw_user_meta_data ->> 'tax_rate', '')::numeric, 0.18))
-    returning id into v_company_id;
-  end if;
-  insert into public.profiles (id, company_id, email, full_name, role, is_demo, demo_mode)
-  values (new.id, v_company_id, new.email,
-    coalesce(new.raw_user_meta_data ->> 'full_name', v_company_name),
-    'user', false, 'none')
-  on conflict (id) do nothing;
-  return new;
-end;
-$$;
-
-drop trigger if exists on_auth_user_created_tienda_agil on auth.users;
-create trigger on_auth_user_created_tienda_agil
-after insert on auth.users
-for each row execute function public.handle_new_user();
+-- handle_new_user() de esta segunda pasada también se eliminó -- misma
+-- razón que arriba (auditoría 2026-09, hallazgo #9): quedaba muerta
+-- desde que se redefinió más adelante en este mismo archivo. El trigger
+-- que la conectaba a auth.users se movió junto a la definición canónica,
+-- al final del archivo -- aquí la función todavía no existe.
 
 alter table public.subscription_plans enable row level security;
 alter table public.companies enable row level security;
@@ -1314,7 +1222,9 @@ GRANT EXECUTE ON FUNCTION public.bootstrap_owner_profile(text) TO service_role;
 -- reject_demo_write and sync_profile_email_from_auth_user are trigger-only; remove public execute.
 REVOKE EXECUTE ON FUNCTION public.reject_demo_write() FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.sync_profile_email_from_auth_user() FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated;
+-- El REVOKE de handle_new_user() se movió junto a su definición canónica,
+-- al final del archivo -- aquí, tras quitar sus 3 copias muertas
+-- (auditoría 2026-09, hallazgo #9), la función todavía no existe.
 REVOKE EXECUTE ON FUNCTION public.touch_updated_at() FROM PUBLIC, anon, authenticated;
 
 
@@ -2125,55 +2035,9 @@ alter table public.stock_movements add column if not exists product_variant_id u
 -- ============================================================
 begin;
 
-create or replace function public.handle_new_user()
-returns trigger
-language plpgsql
-security definer
-set search_path to 'public'
-as $function$
-declare
-  v_company_id uuid;
-  v_company_name text;
-  v_country_code text;
-  v_currency_code text;
-  v_locale text;
-  v_is_owner boolean;
-begin
-  v_company_name  := coalesce(new.raw_user_meta_data ->> 'company_name', 'Mi Tienda');
-  v_country_code  := coalesce(new.raw_user_meta_data ->> 'country_code', 'MX');
-  v_currency_code := coalesce(new.raw_user_meta_data ->> 'currency_code', 'MXN');
-  v_locale        := coalesce(new.raw_user_meta_data ->> 'locale', 'es-MX');
-  v_company_id    := nullif(new.raw_user_meta_data ->> 'company_id', '')::uuid;
-
-  v_is_owner := (v_company_id is null);
-
-  if v_company_id is null then
-    -- Auditoría 2026-07: se asigna fecha de vencimiento de prueba (14 días).
-    -- Antes ninguna empresa nueva tenía expires_at, así que un trial nunca
-    -- vencía por sí solo (ajustable: cambia el intervalo si quieres otro
-    -- largo de periodo de prueba).
-    insert into public.companies (name, contact_email, country_code, currency_code, locale,
-                                  fiscal_id_label, tax_name, tax_rate, expires_at)
-    values (v_company_name, new.email, v_country_code, v_currency_code, v_locale,
-      coalesce(new.raw_user_meta_data ->> 'fiscal_id_label', 'ID fiscal'),
-      coalesce(new.raw_user_meta_data ->> 'tax_name', 'Impuesto demo'),
-      coalesce(nullif(new.raw_user_meta_data ->> 'tax_rate', '')::numeric, 0.18),
-      (now() + interval '14 days')::date)
-    returning id into v_company_id;
-  end if;
-
-  insert into public.profiles (id, company_id, email, full_name, role,
-                               is_platform_admin, is_demo, demo_mode)
-  values (new.id, v_company_id, new.email,
-    coalesce(new.raw_user_meta_data ->> 'full_name', v_company_name),
-    case when v_is_owner then 'admin'::public.app_role else 'user'::public.app_role end,
-    false,
-    false, 'none')
-  on conflict (id) do nothing;
-
-  return new;
-end;
-$function$;
+-- handle_new_user() de esta tercera pasada también se eliminó -- misma
+-- razón que las anteriores (auditoría 2026-09, hallazgo #9): quedaba
+-- muerta desde que se redefinió más adelante en este mismo archivo.
 
 -- Corrección puntual del perfil de prueba.
 update public.profiles
@@ -8124,6 +7988,16 @@ begin
   return new;
 end;
 $function$;
+
+-- El trigger que conecta esta función a auth.users se crea aquí (no antes)
+-- porque, tras quitar las 3 copias muertas de handle_new_user() (auditoría
+-- 2026-09, hallazgo #9), esta es la primera vez en el archivo que la
+-- función existe de verdad -- CREATE TRIGGER exige que ya exista.
+drop trigger if exists on_auth_user_created_tienda_agil on auth.users;
+create trigger on_auth_user_created_tienda_agil
+after insert on auth.users
+for each row execute function public.handle_new_user();
+REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated;
 
 -- ============================================================
 -- Alertas de stock bajo: umbral configurable en vez de un "< 10" fijo para
