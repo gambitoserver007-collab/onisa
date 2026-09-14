@@ -26,6 +26,13 @@ export function useCompanyCatalog() {
   const sessionKey = session
     ? `${session.userId ?? session.email}:${session.companyId ?? ""}`
     : "";
+  // companyId/isDemo (primitivos) en vez de todo el objeto session en los deps
+  // de reload -- session cambia de referencia varias veces mientras arranca la
+  // sesión (aunque el contenido real no cambie), y eso volvía a disparar todo
+  // el catálogo de la empresa (categorías/productos/clientes/proveedores) 2-3
+  // veces seguidas en cada carga.
+  const companyId = session?.companyId;
+  const isDemo = isDemoSession(session);
   const [state, setState] = useState<CatalogState>({
     ...EMPTY_CATALOG,
     error: null,
@@ -42,7 +49,7 @@ export function useCompanyCatalog() {
     setState((current) => ({ ...current, isLoading: true, error: null }));
 
     try {
-      const catalog = await fetchCompanyCatalog(session?.companyId);
+      const catalog = await fetchCompanyCatalog(companyId);
       setState({
         ...catalog,
         error: null,
@@ -53,13 +60,13 @@ export function useCompanyCatalog() {
       // Only fall back to demo data for demo sessions; real accounts show their
       // own (empty) state plus the error so demo numbers never leak in.
       setState({
-        ...(isDemoSession(session) ? demoCatalog : EMPTY_CATALOG),
+        ...(isDemo ? demoCatalog : EMPTY_CATALOG),
         error: getErrorMessage(error),
         isLoading: false,
         source: "demo-fallback",
       });
     }
-  }, [session, session?.companyId, sessionKey]);
+  }, [sessionKey, companyId, isDemo]);
 
   useEffect(() => {
     if (!isReady) return;

@@ -32,6 +32,12 @@ export function useDashboardData(locationId?: string, range?: DashboardRange) {
   const sessionKey = session
     ? `${session.userId ?? session.email}:${session.companyId ?? ""}`
     : "";
+  // companyId/isDemo (primitivos) en vez de todo el objeto session en los deps
+  // de reload -- session cambia de referencia varias veces mientras arranca la
+  // sesión (aunque el contenido real no cambie), y eso volvía a disparar TODA
+  // la batería de queries del dashboard 2-3 veces seguidas en cada carga.
+  const companyId = session?.companyId;
+  const isDemo = isDemoSession(session);
   const [data, setData] = useState<DashboardData>(() => emptyDashboardData());
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -64,10 +70,10 @@ export function useDashboardData(locationId?: string, range?: DashboardRange) {
         : undefined;
 
       const [counts, lowStock, aggregates, recentSales] = await Promise.all([
-        fetchCompanyCounts(session?.companyId),
+        fetchCompanyCounts(companyId),
         fetchLowStockSummary(locationId),
         fetchSalesAggregates(tz, locationId, fromTs, toTs),
-        fetchRecentSales(session?.companyId, locationId, 4),
+        fetchRecentSales(companyId, locationId, 4),
       ]);
 
       setData({
@@ -85,17 +91,13 @@ export function useDashboardData(locationId?: string, range?: DashboardRange) {
       });
       setSource("supabase");
     } catch (loadError) {
-      setData(
-        isDemoSession(session)
-          ? buildDemoDashboardData()
-          : emptyDashboardData(),
-      );
+      setData(isDemo ? buildDemoDashboardData() : emptyDashboardData());
       setError(getErrorMessage(loadError));
       setSource("demo-fallback");
     } finally {
       setIsLoading(false);
     }
-  }, [session, sessionKey, locationId, rangeFrom, rangeTo]);
+  }, [sessionKey, companyId, isDemo, locationId, rangeFrom, rangeTo]);
 
   useEffect(() => {
     if (!isReady) return;
