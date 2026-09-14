@@ -100,6 +100,18 @@ Deno.serve(async (req) => {
         .maybeSingle();
       const phantomCompanyId = phantomProfile?.company_id ?? null;
 
+      // Se registra en la cola ANTES de intentar borrarla: si algo falla
+      // entre aquí y el delete de abajo (perfil, red, lo que sea), la fantasma
+      // no se pierde sin rastro -- queda pendiente para que
+      // cleanup_phantom_companies() la recoja después (hallazgo #10,
+      // auditoría 2026-09). Si el delete de abajo sí tiene éxito, el
+      // "on delete cascade" de la tabla se encarga de esta fila solo.
+      if (phantomCompanyId && phantomCompanyId !== company.id) {
+        await admin
+          .from("phantom_company_cleanup_queue")
+          .upsert({ company_id: phantomCompanyId, source: "admin-create-company" });
+      }
+
       const { data: profile, error: profileErr } = await admin
         .from("profiles")
         .upsert(

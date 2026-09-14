@@ -11263,3 +11263,71 @@ drop policy if exists "units write scoped" on public.units;
 create policy "units write scoped" on public.units for all to authenticated
   using (public.can_write_company(company_id) and public.current_user_role() in ('admin','operador'))
   with check (public.can_write_company(company_id) and public.current_user_role() in ('admin','operador'));
+
+-- ============================================================
+-- Cola de limpieza de "empresas fantasma" -- auditoría 2026-09, hallazgo
+-- #10. Cuando admin-create-company o team-create-user llaman
+-- auth.admin.createUser(), handle_new_user() (que ya no confía en el
+-- company_id del user_metadata, por seguridad) siempre crea una empresa
+-- nueva "fantasma" para ese usuario; el edge function corrige el perfil a
+-- la empresa real y borra la fantasma en el mismo request. Si algo falla
+-- entre esos dos pasos (perfil, red, lo que sea), antes la fantasma
+-- quedaba huérfana sin ningún rastro. Ahora cada edge function primero
+-- encola el company_id de la fantasma aquí; si el delete de la fantasma
+-- sí tiene éxito, el "on delete cascade" limpia esta fila solo -- si no,
+-- cleanup_phantom_companies() (de abajo) la recoge después.
+--
+-- Solo escriben aquí las Edge Functions (service_role) -- nadie en el
+-- frontend necesita leer ni escribir esta cola directamente.
+-- ============================================================
+create table if not exists public.phantom_company_cleanup_queue (
+  company_id uuid primary key references public.companies(id) on delete cascade,
+  source text,
+  created_at timestamptz not null default now()
+);
+alter table public.phantom_company_cleanup_queue enable row level security;
+grant all on public.phantom_company_cleanup_queue to service_role;
+
+-- Borra las empresas encoladas que de verdad siguen sin ningún perfil (si
+-- alguna se reclamó de otra forma mientras tanto, se deja intacta y solo
+-- se descarta de la cola). Se llama de forma oportunista desde el
+-- frontend cuando el Super Admin abre /admin/empresas (mismo patrón, sin
+-- depender de pg_cron, que ya usa expire_overdue_trials más arriba).
+create or replace function public.cleanup_phantom_companies()
+returns integer
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_deleted_companies integer;
+begin
+  if not public.current_user_is_platform_admin() then
+    raise exception 'Solo un administrador de la plataforma puede ejecutar esto.';
+  end if;
+
+  with candidatas as (
+    select q.company_id
+    from public.phantom_company_cleanup_queue q
+    where not exists (
+      select 1 from public.profiles p where p.company_id = q.company_id
+    )
+  )
+  delete from public.companies c
+  using candidatas
+  where c.id = candidatas.company_id;
+  get diagnostics v_deleted_companies = row_count;
+
+  -- Filas que quedaron apuntando a una empresa que ya tiene perfil (se
+  -- reclamó mientras tanto) o que ya no existe (se borró por fuera de esta
+  -- función): se descartan de la cola sin tocar nada más.
+  delete from public.phantom_company_cleanup_queue q
+  where exists (select 1 from public.profiles p where p.company_id = q.company_id)
+     or not exists (select 1 from public.companies c where c.id = q.company_id);
+
+  return v_deleted_companies;
+end;
+$$;
+
+revoke execute on function public.cleanup_phantom_companies() from public, anon;
+grant execute on function public.cleanup_phantom_companies() to authenticated;

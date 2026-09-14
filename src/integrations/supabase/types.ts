@@ -404,6 +404,32 @@ export type Database = {
           },
         ];
       };
+      phantom_company_cleanup_queue: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          source: string | null;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          source?: string | null;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          source?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "phantom_company_cleanup_queue_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: true;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       country_payment_methods: {
         Row: {
           country_code: string;
@@ -3020,6 +3046,7 @@ export type Database = {
         Returns: boolean;
       };
       can_write_company: { Args: { p_company_id: string }; Returns: boolean };
+      cleanup_phantom_companies: { Args: never; Returns: number };
       clear_employee_pin: {
         Args: { p_profile_id: string };
         Returns: undefined;

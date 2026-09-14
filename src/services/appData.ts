@@ -5516,6 +5516,14 @@ export async function fetchAdminCompanies(): Promise<AdminCompany[]> {
     // ignorar: el listado se muestra igual con lo que ya había
   }
 
+  // Mismo patrón: limpia oportunistamente cualquier empresa "fantasma" que
+  // haya quedado pendiente (ver cleanup_phantom_companies en el instalador).
+  try {
+    await supabase.rpc("cleanup_phantom_companies");
+  } catch {
+    // ignorar: el listado se muestra igual con lo que ya había
+  }
+
   const { data: companies, error } = await supabase
     .from("companies")
     .select(

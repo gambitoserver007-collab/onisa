@@ -7323,4 +7323,91 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(rows).toHaveLength(1);
     });
   });
+
+  describe("39. cleanup_phantom_companies(): cola de limpieza de empresas fantasma (auditoría 2026-09, hallazgo #10)", () => {
+    it("solo un admin de plataforma puede ejecutarla", async () => {
+      const company = await makeCompany(db, "Empresa Cleanup Rol Test");
+      const admin = await makeUser(db, company.id, "admin");
+      await asUser(db, admin, async () => {
+        await expect(
+          db.query("select cleanup_phantom_companies()"),
+        ).rejects.toThrow(/administrador de la plataforma/i);
+      });
+    });
+
+    it("borra una empresa encolada que sigue sin ningún perfil", async () => {
+      const phantom = await makeCompany(db, "Empresa Fantasma Test");
+      await db.query(
+        "insert into public.phantom_company_cleanup_queue (company_id, source) values ($1,'test')",
+        [phantom.id],
+      );
+
+      const platformAdmin = await makeUser(db, companyA.id, "admin", true);
+      await asUser(db, platformAdmin, async () => {
+        await db.query("select cleanup_phantom_companies()");
+      });
+
+      const { rows } = await db.query(
+        "select id from public.companies where id=$1",
+        [phantom.id],
+      );
+      expect(rows).toHaveLength(0);
+    });
+
+    it("el on delete cascade limpia sola la fila de la cola cuando la fantasma ya se borró a mano", async () => {
+      const phantom = await makeCompany(db, "Empresa Fantasma Cascade Test");
+      await db.query(
+        "insert into public.phantom_company_cleanup_queue (company_id, source) values ($1,'test')",
+        [phantom.id],
+      );
+      await db.query("delete from public.companies where id=$1", [phantom.id]);
+
+      const { rows } = await db.query(
+        "select company_id from public.phantom_company_cleanup_queue where company_id=$1",
+        [phantom.id],
+      );
+      expect(rows).toHaveLength(0);
+    });
+
+    it("no toca una empresa encolada que mientras tanto sí consiguió un perfil real", async () => {
+      const reclaimed = await makeCompany(db, "Empresa Reclamada Test");
+      await makeUser(db, reclaimed.id, "admin");
+      await db.query(
+        "insert into public.phantom_company_cleanup_queue (company_id, source) values ($1,'test')",
+        [reclaimed.id],
+      );
+
+      const platformAdmin = await makeUser(db, companyA.id, "admin", true);
+      await asUser(db, platformAdmin, async () => {
+        await db.query("select cleanup_phantom_companies()");
+      });
+
+      const { rows } = await db.query(
+        "select id from public.companies where id=$1",
+        [reclaimed.id],
+      );
+      expect(rows).toHaveLength(1);
+
+      const { rows: queueRows } = await db.query(
+        "select company_id from public.phantom_company_cleanup_queue where company_id=$1",
+        [reclaimed.id],
+      );
+      expect(queueRows).toHaveLength(0);
+    });
+
+    it("no toca una empresa con cero perfiles que nunca se encoló (no es un barrido general)", async () => {
+      const untouched = await makeCompany(db, "Empresa Sin Encolar Test");
+
+      const platformAdmin = await makeUser(db, companyA.id, "admin", true);
+      await asUser(db, platformAdmin, async () => {
+        await db.query("select cleanup_phantom_companies()");
+      });
+
+      const { rows } = await db.query(
+        "select id from public.companies where id=$1",
+        [untouched.id],
+      );
+      expect(rows).toHaveLength(1);
+    });
+  });
 });

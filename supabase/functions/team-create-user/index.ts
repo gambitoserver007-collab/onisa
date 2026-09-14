@@ -172,6 +172,17 @@ Deno.serve(async (req) => {
       .maybeSingle();
     const phantomCompanyId = phantomProfile?.company_id ?? null;
 
+    // Se registra en la cola ANTES de intentar borrarla: si algo falla entre
+    // aquí y el delete de abajo, la fantasma no se pierde sin rastro -- queda
+    // pendiente para que cleanup_phantom_companies() la recoja después
+    // (hallazgo #10, auditoría 2026-09). Si el delete de abajo sí tiene
+    // éxito, el "on delete cascade" de la tabla se encarga de esta fila sola.
+    if (phantomCompanyId && phantomCompanyId !== company_id) {
+      await admin
+        .from("phantom_company_cleanup_queue")
+        .upsert({ company_id: phantomCompanyId, source: "team-create-user" });
+    }
+
     const isPlatformAdmin = role === "admin" && saas_panel === true;
 
     // Upsert profile
@@ -201,9 +212,9 @@ Deno.serve(async (req) => {
     }
 
     if (phantomCompanyId && phantomCompanyId !== company_id) {
-      // Best-effort: si falla, queda una empresa vacía sin dueño real y sin
-      // ningún dato -- inofensivo, no vale la pena fallar la creación del
-      // usuario por esto.
+      // Best-effort: si falla, ya quedó en phantom_company_cleanup_queue
+      // (arriba) para que se limpie después -- no vale la pena fallar la
+      // creación del usuario por esto.
       await admin.from("companies").delete().eq("id", phantomCompanyId);
     }
 
