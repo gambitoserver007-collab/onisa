@@ -5,16 +5,13 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useDemoSession } from "@/hooks/useDemoSession";
-import { blockDemoAction } from "@/lib/demoMode";
 import {
   fetchPlans,
   fetchPlanUsage,
-  setCompanyPlan,
   type PlanUsage,
   type SubscriptionPlan,
   getErrorMessage,
@@ -37,10 +34,9 @@ const pct = (value: number, limit: number) =>
 
 function Suscripcion() {
   const { formatMoney } = useBusinessSettings();
-  const { isDemo, session, isReady } = useDemoSession();
+  const { session, isReady } = useDemoSession();
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [usage, setUsage] = useState<PlanUsage | null>(null);
-  const [changingId, setChangingId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -65,24 +61,6 @@ function Suscripcion() {
     if (usage?.plan) return usage.plan;
     return plans.slice().sort((a, b) => a.price - b.price)[0] ?? null;
   }, [plans, usage]);
-
-  const handleChange = async (plan: SubscriptionPlan) => {
-    if (isDemo) {
-      blockDemoAction();
-      return;
-    }
-    if (!session?.companyId) return;
-    setChangingId(plan.id);
-    try {
-      await setCompanyPlan(session.companyId, plan.id);
-      toast.success(`Plan cambiado a ${plan.name}.`);
-      await reload();
-    } catch (error) {
-      toast.error(getErrorMessage(error, "No se pudo cambiar el plan."));
-    } finally {
-      setChangingId(null);
-    }
-  };
 
   const productsCount = usage?.productsCount ?? 0;
   const salesThisMonth = usage?.salesThisMonth ?? 0;
@@ -219,18 +197,19 @@ function Suscripcion() {
                   <Check className="h-4 w-4 text-primary" />{" "}
                   {formatLimit(plan.salesLimit)} ventas/mes
                 </p>
-                <Button
-                  className="mt-3 w-full"
-                  variant={isCurrent ? "secondary" : "brand"}
-                  disabled={isCurrent || changingId === plan.id}
-                  onClick={() => handleChange(plan)}
-                >
-                  {isCurrent
-                    ? "Plan actual"
-                    : changingId === plan.id
-                      ? "Cambiando..."
-                      : "Cambiar a este plan"}
-                </Button>
+                {isCurrent ? (
+                  <Badge
+                    variant="secondary"
+                    className="mt-3 w-full justify-center py-2"
+                  >
+                    Plan actual
+                  </Badge>
+                ) : (
+                  <p className="mt-3 text-center text-xs text-muted-foreground">
+                    Contacta al administrador de la plataforma para cambiar de
+                    plan.
+                  </p>
+                )}
               </CardContent>
             </Card>
           );

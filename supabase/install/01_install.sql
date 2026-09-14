@@ -3097,7 +3097,14 @@ commit;
 -- PASO 9 — Re-auditoría RPCs y RLS
 -- =====================================================================
 
--- §4) Permitir que el admin de la empresa cambie plan_id
+-- §4) Permitir que el admin de la empresa cambie plan_id -- REVERTIDO en la
+-- auditoría 2026-09, hallazgo #11: sin ninguna pasarela de pago integrada
+-- en la app, dejar plan_id abierto al admin de la empresa le permitía
+-- autoasignarse los límites del plan más caro (enforce_product_limit,
+-- team-create-user) sin pagar nada -- subscription_status/expires_at ya
+-- eran platform-admin-only, plan_id ahora sigue el mismo criterio. Cambiar
+-- de plan pasa a requerir al administrador de la plataforma (ya tiene el
+-- selector de plan en /admin/empresas).
 create or replace function public.protect_company_subscription_fields()
 returns trigger
 language plpgsql
@@ -3109,18 +3116,11 @@ begin
     return new;
   end if;
 
-  -- subscription_status / expires_at: solo platform admin
   if new.subscription_status is distinct from old.subscription_status
      or new.expires_at is distinct from old.expires_at
+     or new.plan_id is distinct from old.plan_id
   then
-    raise exception 'Solo un administrador de la plataforma puede cambiar el estado o el vencimiento de la suscripción.';
-  end if;
-
-  -- plan_id: admin de la empresa puede cambiarlo
-  if new.plan_id is distinct from old.plan_id then
-    if not public.can_admin_company(new.id) then
-      raise exception 'Solo el administrador de la empresa puede cambiar el plan.';
-    end if;
+    raise exception 'Solo un administrador de la plataforma puede cambiar el plan o el estado de la suscripción.';
   end if;
 
   return new;

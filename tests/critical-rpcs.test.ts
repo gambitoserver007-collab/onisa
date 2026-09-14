@@ -7410,4 +7410,43 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(rows).toHaveLength(1);
     });
   });
+
+  describe("40. companies.plan_id: solo el administrador de la plataforma lo cambia (auditoría 2026-09, hallazgo #11)", () => {
+    it("un admin de empresa ya no puede autoasignarse un plan distinto", async () => {
+      const plan = await fetchAnyPlanId();
+      const admin = await makeUser(db, companyA.id, "admin");
+      await asUser(db, admin, async () => {
+        await expect(
+          db.query("update public.companies set plan_id=$1 where id=$2", [
+            plan,
+            companyA.id,
+          ]),
+        ).rejects.toThrow(/solo un administrador de la plataforma/i);
+      });
+    });
+
+    it("un administrador de la plataforma sí puede cambiar el plan de cualquier empresa", async () => {
+      const plan = await fetchAnyPlanId();
+      const platformAdmin = await makeUser(db, companyA.id, "admin", true);
+      await asUser(db, platformAdmin, async () => {
+        await db.query("update public.companies set plan_id=$1 where id=$2", [
+          plan,
+          companyA.id,
+        ]);
+      });
+
+      const { rows } = await db.query<{ plan_id: string }>(
+        "select plan_id from public.companies where id=$1",
+        [companyA.id],
+      );
+      expect(rows[0].plan_id).toBe(plan);
+    });
+
+    async function fetchAnyPlanId(): Promise<string> {
+      const { rows } = await db.query<{ id: string }>(
+        "select id from public.subscription_plans limit 1",
+      );
+      return rows[0].id;
+    }
+  });
 });

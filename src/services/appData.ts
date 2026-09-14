@@ -4558,18 +4558,6 @@ export async function fetchPlanUsage(companyId?: string): Promise<PlanUsage> {
   };
 }
 
-export async function setCompanyPlan(companyId: string, planId: string) {
-  const { error } = await supabase
-    .from("companies")
-    .update({
-      plan_id: planId,
-      subscription_status: "active",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", companyId);
-  if (error) throw error;
-}
-
 // ---- Equipo (Usuarios) ----
 
 export interface TeamMember {
