@@ -28,6 +28,7 @@ import { Route as GananciasRouteImport } from './routes/ganancias'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as McpRouteImport } from './routes/mcp'
 import { Route as MermasRouteImport } from './routes/mermas'
+import { Route as OlvidePasswordRouteImport } from './routes/olvide-password'
 import { Route as PerfilRouteImport } from './routes/perfil'
 import { Route as PosRouteImport } from './routes/pos'
 import { Route as ProductosRouteImport } from './routes/productos'
@@ -36,6 +37,7 @@ import { Route as ProveedoresRouteImport } from './routes/proveedores'
 import { Route as PuntosDeVentaRouteImport } from './routes/puntos-de-venta'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as ReportesRouteImport } from './routes/reportes'
+import { Route as RestablecerPasswordRouteImport } from './routes/restablecer-password'
 import { Route as SuscripcionRouteImport } from './routes/suscripcion'
 import { Route as UsuariosRouteImport } from './routes/usuarios'
 import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]/list-tools'
@@ -156,6 +158,11 @@ const MermasRoute = MermasRouteImport.update({
   path: '/mermas',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OlvidePasswordRoute = OlvidePasswordRouteImport.update({
+  id: '/olvide-password',
+  path: '/olvide-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PerfilRoute = PerfilRouteImport.update({
   id: '/perfil',
   path: '/perfil',
@@ -194,6 +201,11 @@ const RegisterRoute = RegisterRouteImport.update({
 const ReportesRoute = ReportesRouteImport.update({
   id: '/reportes',
   path: '/reportes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RestablecerPasswordRoute = RestablecerPasswordRouteImport.update({
+  id: '/restablecer-password',
+  path: '/restablecer-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SuscripcionRoute = SuscripcionRouteImport.update({
@@ -340,6 +352,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/mcp': typeof McpRoute
   '/mermas': typeof MermasRoute
+  '/olvide-password': typeof OlvidePasswordRoute
   '/perfil': typeof PerfilRoute
   '/pos': typeof PosRoute
   '/productos': typeof ProductosRoute
@@ -348,6 +361,7 @@ export interface FileRoutesByFullPath {
   '/puntos-de-venta': typeof PuntosDeVentaRoute
   '/register': typeof RegisterRoute
   '/reportes': typeof ReportesRoute
+  '/restablecer-password': typeof RestablecerPasswordRoute
   '/suscripcion': typeof SuscripcionRoute
   '/usuarios': typeof UsuariosRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
@@ -393,6 +407,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/mcp': typeof McpRoute
   '/mermas': typeof MermasRoute
+  '/olvide-password': typeof OlvidePasswordRoute
   '/perfil': typeof PerfilRoute
   '/pos': typeof PosRoute
   '/productos': typeof ProductosRoute
@@ -401,6 +416,7 @@ export interface FileRoutesByTo {
   '/puntos-de-venta': typeof PuntosDeVentaRoute
   '/register': typeof RegisterRoute
   '/reportes': typeof ReportesRoute
+  '/restablecer-password': typeof RestablecerPasswordRoute
   '/suscripcion': typeof SuscripcionRoute
   '/usuarios': typeof UsuariosRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
@@ -447,6 +463,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/mcp': typeof McpRoute
   '/mermas': typeof MermasRoute
+  '/olvide-password': typeof OlvidePasswordRoute
   '/perfil': typeof PerfilRoute
   '/pos': typeof PosRoute
   '/productos': typeof ProductosRoute
@@ -455,6 +472,7 @@ export interface FileRoutesById {
   '/puntos-de-venta': typeof PuntosDeVentaRoute
   '/register': typeof RegisterRoute
   '/reportes': typeof ReportesRoute
+  '/restablecer-password': typeof RestablecerPasswordRoute
   '/suscripcion': typeof SuscripcionRoute
   '/usuarios': typeof UsuariosRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
@@ -502,6 +520,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/mcp'
     | '/mermas'
+    | '/olvide-password'
     | '/perfil'
     | '/pos'
     | '/productos'
@@ -510,6 +529,7 @@ export interface FileRouteTypes {
     | '/puntos-de-venta'
     | '/register'
     | '/reportes'
+    | '/restablecer-password'
     | '/suscripcion'
     | '/usuarios'
     | '/.mcp/list-tools'
@@ -555,6 +575,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/mcp'
     | '/mermas'
+    | '/olvide-password'
     | '/perfil'
     | '/pos'
     | '/productos'
@@ -563,6 +584,7 @@ export interface FileRouteTypes {
     | '/puntos-de-venta'
     | '/register'
     | '/reportes'
+    | '/restablecer-password'
     | '/suscripcion'
     | '/usuarios'
     | '/.mcp/list-tools'
@@ -608,6 +630,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/mcp'
     | '/mermas'
+    | '/olvide-password'
     | '/perfil'
     | '/pos'
     | '/productos'
@@ -616,6 +639,7 @@ export interface FileRouteTypes {
     | '/puntos-de-venta'
     | '/register'
     | '/reportes'
+    | '/restablecer-password'
     | '/suscripcion'
     | '/usuarios'
     | '/.mcp/list-tools'
@@ -662,6 +686,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   McpRoute: typeof McpRoute
   MermasRoute: typeof MermasRoute
+  OlvidePasswordRoute: typeof OlvidePasswordRoute
   PerfilRoute: typeof PerfilRoute
   PosRoute: typeof PosRoute
   ProductosRoute: typeof ProductosRoute
@@ -670,6 +695,7 @@ export interface RootRouteChildren {
   PuntosDeVentaRoute: typeof PuntosDeVentaRoute
   RegisterRoute: typeof RegisterRoute
   ReportesRoute: typeof ReportesRoute
+  RestablecerPasswordRoute: typeof RestablecerPasswordRoute
   SuscripcionRoute: typeof SuscripcionRoute
   UsuariosRoute: typeof UsuariosRoute
   Char91DotmcpChar93ListToolsRoute: typeof Char91DotmcpChar93ListToolsRoute
@@ -831,6 +857,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MermasRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/olvide-password': {
+      id: '/olvide-password'
+      path: '/olvide-password'
+      fullPath: '/olvide-password'
+      preLoaderRoute: typeof OlvidePasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/perfil': {
       id: '/perfil'
       path: '/perfil'
@@ -885,6 +918,13 @@ declare module '@tanstack/react-router' {
       path: '/reportes'
       fullPath: '/reportes'
       preLoaderRoute: typeof ReportesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/restablecer-password': {
+      id: '/restablecer-password'
+      path: '/restablecer-password'
+      fullPath: '/restablecer-password'
+      preLoaderRoute: typeof RestablecerPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/suscripcion': {
@@ -1078,6 +1118,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   McpRoute: McpRoute,
   MermasRoute: MermasRoute,
+  OlvidePasswordRoute: OlvidePasswordRoute,
   PerfilRoute: PerfilRoute,
   PosRoute: PosRoute,
   ProductosRoute: ProductosRoute,
@@ -1086,6 +1127,7 @@ const rootRouteChildren: RootRouteChildren = {
   PuntosDeVentaRoute: PuntosDeVentaRoute,
   RegisterRoute: RegisterRoute,
   ReportesRoute: ReportesRoute,
+  RestablecerPasswordRoute: RestablecerPasswordRoute,
   SuscripcionRoute: SuscripcionRoute,
   UsuariosRoute: UsuariosRoute,
   Char91DotmcpChar93ListToolsRoute: Char91DotmcpChar93ListToolsRoute,

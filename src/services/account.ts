@@ -36,3 +36,21 @@ export async function updateAccountPassword(password: string) {
   const { error } = await supabase.auth.updateUser({ password: cleanPassword });
   if (error) throw error;
 }
+
+/** Envía el correo de "restablecer contraseña" (self-service, sin sesión
+ * iniciada). Supabase nunca revela si el correo existe o no -- por diseño,
+ * responde igual en ambos casos para no permitir enumerar cuentas. */
+export async function requestPasswordReset(email: string) {
+  const cleanEmail = normalizeEmail(email);
+  if (!cleanEmail) throw new Error("Ingresa un correo válido.");
+
+  const redirectTo =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/restablecer-password`
+      : undefined;
+
+  const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+    redirectTo,
+  });
+  if (error) throw error;
+}
