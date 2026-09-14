@@ -7195,4 +7195,132 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(Number(rows[0].credit_limit)).toBe(1000);
     });
   });
+
+  describe("38. RLS de suppliers/units: escritura solo para los roles con acceso a esa pantalla (auditoría 2026-09, hallazgo #4)", () => {
+    it("un cajero no puede crear/editar/borrar proveedores directo por REST", async () => {
+      const company = await makeCompany(
+        db,
+        "Empresa RLS Suppliers Cajero Test",
+      );
+      const cajero = await makeUser(db, company.id, "user");
+      const { rows: existing } = await db.query<{ id: string }>(
+        "insert into public.suppliers (company_id, name) values ($1,'Proveedor Original') returning id",
+        [company.id],
+      );
+      const supplierId = existing[0].id;
+
+      await expect(
+        asUser(db, cajero, () =>
+          db.query(
+            "insert into public.suppliers (company_id, name) values ($1,'Proveedor Cajero')",
+            [company.id],
+          ),
+        ),
+      ).rejects.toThrow();
+
+      await asUser(db, cajero, () =>
+        db.query(
+          "update public.suppliers set name = 'Hackeado' where id = $1",
+          [supplierId],
+        ),
+      ); // no lanza -- RLS no le muestra la fila, 0 filas afectadas
+
+      await asUser(db, cajero, () =>
+        db.query("delete from public.suppliers where id = $1", [supplierId]),
+      ); // idem
+
+      const { rows } = await db.query<{ name: string }>(
+        "select name from public.suppliers where id = $1",
+        [supplierId],
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0].name).toBe("Proveedor Original");
+    });
+
+    it("finanzas y operador SÍ pueden gestionar proveedores (como ya permite la pantalla /proveedores)", async () => {
+      const company = await makeCompany(
+        db,
+        "Empresa RLS Suppliers Finanzas Test",
+      );
+      const finanzas = await makeUser(db, company.id, "finanzas");
+      const operador = await makeUser(db, company.id, "operador");
+
+      const { rows } = await asUser(db, finanzas, () =>
+        db.query<{ id: string }>(
+          "insert into public.suppliers (company_id, name) values ($1,'Proveedor Finanzas') returning id",
+          [company.id],
+        ),
+      );
+      const supplierId = rows[0].id;
+
+      await asUser(db, operador, () =>
+        db.query(
+          "update public.suppliers set name = 'Proveedor Editado' where id = $1",
+          [supplierId],
+        ),
+      );
+
+      const { rows: after } = await db.query<{ name: string }>(
+        "select name from public.suppliers where id = $1",
+        [supplierId],
+      );
+      expect(after[0].name).toBe("Proveedor Editado");
+    });
+
+    it("un cajero no puede crear/editar/borrar unidades directo por REST", async () => {
+      const company = await makeCompany(db, "Empresa RLS Units Cajero Test");
+      const cajero = await makeUser(db, company.id, "user");
+      const { rows: existing } = await db.query<{ id: string }>(
+        "insert into public.units (company_id, name) values ($1,'Pieza') returning id",
+        [company.id],
+      );
+      const unitId = existing[0].id;
+
+      await expect(
+        asUser(db, cajero, () =>
+          db.query(
+            "insert into public.units (company_id, name) values ($1,'Kilo')",
+            [company.id],
+          ),
+        ),
+      ).rejects.toThrow();
+
+      await asUser(db, cajero, () =>
+        db.query("delete from public.units where id = $1", [unitId]),
+      ); // no lanza -- RLS no le muestra la fila, 0 filas afectadas
+
+      const { rows } = await db.query(
+        "select id from public.units where id = $1",
+        [unitId],
+      );
+      expect(rows).toHaveLength(1);
+    });
+
+    it("finanzas NO puede gestionar unidades (la pantalla /etiquetas es solo admin/operador)", async () => {
+      const company = await makeCompany(db, "Empresa RLS Units Finanzas Test");
+      const finanzas = await makeUser(db, company.id, "finanzas");
+
+      await expect(
+        asUser(db, finanzas, () =>
+          db.query(
+            "insert into public.units (company_id, name) values ($1,'Litro')",
+            [company.id],
+          ),
+        ),
+      ).rejects.toThrow();
+    });
+
+    it("operador SÍ puede gestionar unidades (como ya permite la pantalla /etiquetas)", async () => {
+      const company = await makeCompany(db, "Empresa RLS Units Operador Test");
+      const operador = await makeUser(db, company.id, "operador");
+
+      const { rows } = await asUser(db, operador, () =>
+        db.query<{ id: string }>(
+          "insert into public.units (company_id, name) values ($1,'Caja') returning id",
+          [company.id],
+        ),
+      );
+      expect(rows).toHaveLength(1);
+    });
+  });
 });

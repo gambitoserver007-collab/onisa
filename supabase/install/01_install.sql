@@ -954,8 +954,10 @@ create policy "customers write scoped" on public.customers for all to authentica
 
 drop policy if exists "suppliers select scoped" on public.suppliers;
 create policy "suppliers select scoped" on public.suppliers for select to authenticated using (public.can_select_company(company_id, is_demo_data));
+-- "suppliers write scoped" se redefine más abajo, al final del archivo --
+-- necesita 'finanzas'/'operador' en el enum app_role, que todavía no
+-- existen en este punto del instalador (auditoría 2026-09, hallazgo #4).
 drop policy if exists "suppliers write scoped" on public.suppliers;
-create policy "suppliers write scoped" on public.suppliers for all to authenticated using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 
 -- sales/sale_items/purchases/purchase_items/cash_sessions/stock_movements/
 -- returns: el frontend SOLO las lee (.select) -- cada escritura real pasa
@@ -1864,9 +1866,10 @@ alter table public.units enable row level security;
 drop policy if exists "units select scoped" on public.units;
 create policy "units select scoped" on public.units for select to authenticated
   using (public.can_select_company(company_id, is_demo_data));
+-- "units write scoped" se redefine más abajo, al final del archivo --
+-- necesita 'operador' en el enum app_role, que todavía no existe en este
+-- punto del instalador (auditoría 2026-09, hallazgo #4).
 drop policy if exists "units write scoped" on public.units;
-create policy "units write scoped" on public.units for all to authenticated
-  using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 drop trigger if exists touch_units_updated_at on public.units;
 create trigger touch_units_updated_at before update on public.units
   for each row execute function public.touch_updated_at();
@@ -11356,3 +11359,33 @@ drop trigger if exists protect_customer_credit_loyalty_columns on public.custome
 create trigger protect_customer_credit_loyalty_columns
   before update on public.customers
   for each row execute function public.protect_customer_credit_loyalty_columns();
+
+-- ============================================================
+-- suppliers/units: escritura solo para los roles que de verdad tienen
+-- acceso a esas pantallas -- auditoría 2026-09, hallazgo #4.
+--
+-- "suppliers write scoped"/"units write scoped" (for all, can_write_company)
+-- dejaban insertar/editar/borrar proveedores y unidades a CUALQUIER
+-- miembro de la empresa, incluido un cajero (role='user') que en la app
+-- nunca ve /proveedores ni /etiquetas (ver ROUTE_ACCESS en
+-- src/lib/permissions.ts) -- solo la UI se lo ocultaba, un REST directo
+-- lo permitía igual. A diferencia de locations (hallazgo #1), aquí no
+-- hay un caso legítimo de "cualquier empleado edita, solo admin borra":
+-- ningún rol sin acceso a la pantalla tiene motivo para tocar estas
+-- tablas de ninguna forma, así que se re-crean como "for all" pero
+-- exigiendo el mismo rol que ya exige la pantalla -- ni más
+-- (can_admin_company hubiera bloqueado también a finanzas/operador, que
+-- sí gestionan proveedores/unidades hoy) ni menos.
+-- Se crea aquí (no junto a cada tabla) porque los roles 'finanzas' y
+-- 'operador' del enum app_role todavía no existen en ese punto del
+-- instalador.
+-- ============================================================
+drop policy if exists "suppliers write scoped" on public.suppliers;
+create policy "suppliers write scoped" on public.suppliers for all to authenticated
+  using (public.can_write_company(company_id) and public.current_user_role() in ('admin','finanzas','operador'))
+  with check (public.can_write_company(company_id) and public.current_user_role() in ('admin','finanzas','operador'));
+
+drop policy if exists "units write scoped" on public.units;
+create policy "units write scoped" on public.units for all to authenticated
+  using (public.can_write_company(company_id) and public.current_user_role() in ('admin','operador'))
+  with check (public.can_write_company(company_id) and public.current_user_role() in ('admin','operador'));
