@@ -15,11 +15,13 @@ import { fetchAssignedLocationIds } from "@/services/appData";
 // tiendas"; a cashier stays pinned to their assigned (or first) store.
 export function useCurrentLocation() {
   const { session, isReady } = useDemoSession();
+
   const state = useSyncExternalStore(
     subscribeLocation,
     getLocationState,
     getLocationState,
   );
+
   const allowAll = session?.role === "admin" || session?.role === "finanzas";
 
   useEffect(() => {
@@ -30,6 +32,7 @@ export function useCurrentLocation() {
       // Sucursales asignadas (vacío = todas). El admin/dueño normalmente no tiene
       // asignación → ve todas.
       const allowedIds = await fetchAssignedLocationIds(session.userId);
+
       if (!active) return;
       await loadLocationsForCompany(companyId, {
         preferredId: session.locationId,
@@ -37,6 +40,7 @@ export function useCurrentLocation() {
         allowedIds,
       });
     })().catch(() => {});
+
     return () => {
       active = false;
     };
@@ -49,6 +53,7 @@ export function useCurrentLocation() {
   ]);
 
   const isAllLocations = state.currentId === ALL_LOCATIONS;
+
   const currentLocation = isAllLocations
     ? null
     : (state.locations.find((loc) => loc.id === state.currentId) ??

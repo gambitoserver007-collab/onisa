@@ -20,6 +20,7 @@ export function LandingPage() {
 
   useEffect(() => {
     const root = rootRef.current;
+
     if (!root) return;
 
     const cleanups: Array<() => void> = [];
@@ -32,41 +33,52 @@ export function LandingPage() {
           const el = entry.target as HTMLElement;
           const target = Number(el.dataset.count ?? "0");
           const start = performance.now();
+
           const step = (now: number) => {
             const p = Math.min((now - start) / 1400, 1);
             el.textContent = Math.floor(p * target).toLocaleString("es");
+
             if (p < 1) requestAnimationFrame(step);
           };
+
           requestAnimationFrame(step);
           countIO.unobserve(el);
         });
       },
       { threshold: 0.5 },
     );
+
     root.querySelectorAll("[data-count]").forEach((el) => countIO.observe(el));
     cleanups.push(() => countIO.disconnect());
 
     // Parallax sutil de la figura del hero.
     const shape = root.querySelector<HTMLElement>(".floating-shape");
+
     const onScroll = () => {
       const y = window.scrollY;
+
       if (shape && y < 900) shape.style.transform = `translateY(${y * 0.12}px)`;
     };
+
     window.addEventListener("scroll", onScroll, { passive: true });
     cleanups.push(() => window.removeEventListener("scroll", onScroll));
 
     // Enlaces internos → navegación SPA (con href como respaldo si el JS no corre).
     const onClick = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0) return;
+
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
         return;
       const anchor = (event.target as HTMLElement)?.closest("a");
+
       if (!anchor) return;
       const href = anchor.getAttribute("href");
+
       if (!href || !href.startsWith("/")) return;
       event.preventDefault();
       navigateRef.current({ to: href });
     };
+
     root.addEventListener("click", onClick);
     cleanups.push(() => root.removeEventListener("click", onClick));
 

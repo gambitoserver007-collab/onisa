@@ -27,6 +27,7 @@ export function VariantSelectorDialog({
   onClose,
 }: VariantSelectorDialogProps) {
   const { formatMoney } = useBusinessSettings();
+
   return (
     <Dialog
       open={!!product}
@@ -52,10 +53,12 @@ export function VariantSelectorDialog({
           <div className="grid max-h-[60vh] gap-2 overflow-y-auto">
             {variants.map((variant) => {
               const stock = variantStock.get(variant.id) ?? 0;
+
               const price =
                 variant.priceOverride != null
                   ? variant.priceOverride
                   : (product?.price ?? 0);
+
               return (
                 <Button
                   key={variant.id}

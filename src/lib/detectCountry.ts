@@ -85,6 +85,7 @@ const TZ_TO_COUNTRY: Record<string, string> = {
 function regionFromLocale(locale: string): string | null {
   try {
     const region = new Intl.Locale(locale).region;
+
     return region && region.length === 2 ? region.toUpperCase() : null;
   } catch {
     return null;
@@ -97,10 +98,12 @@ export function detectCountryCode(): string {
   // 1) Geographic signal — device timezone.
   try {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
     if (tz) {
       if (tz.startsWith("America/Argentina/") && SUPPORTED.has("AR"))
         return "AR";
       const byTz = TZ_TO_COUNTRY[tz];
+
       if (byTz && SUPPORTED.has(byTz)) return byTz;
     }
   } catch {
@@ -113,8 +116,10 @@ export function detectCountryCode(): string {
       navigator.languages && navigator.languages.length
         ? navigator.languages
         : [navigator.language];
+
     for (const lang of langs) {
       const region = regionFromLocale(lang);
+
       if (region && SUPPORTED.has(region)) return region;
     }
   } catch {

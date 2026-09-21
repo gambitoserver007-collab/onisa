@@ -40,20 +40,25 @@ export default defineTool({
         isError: true,
       };
     const client = supabaseForUser(ctx);
+
     let query = client
       .from("products")
       .select("id,name,sku,price,stock,category_id,supplier_id")
       .limit(limit ?? 50);
+
     if (search && search.trim()) {
       const term = `%${search.trim()}%`;
       query = query.or(`name.ilike.${term},sku.ilike.${term}`);
     }
+
     const { data, error } = await query;
+
     if (error)
       return {
         content: [{ type: "text", text: error.message }],
         isError: true,
       };
+
     return {
       content: [{ type: "text", text: JSON.stringify(data ?? []) }],
       structuredContent: { products: data ?? [] },

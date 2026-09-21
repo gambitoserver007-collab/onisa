@@ -70,7 +70,9 @@ const STATUS_LABELS: Record<string, string> = {
 
 function statusVariant(status: string) {
   if (status === "active") return "success" as const;
+
   if (status === "trial") return "warm" as const;
+
   return "destructive" as const;
 }
 
@@ -139,8 +141,10 @@ function Empresas() {
   const openCreate = () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     setEditing(null);
     resetForm();
     setOpen(true);
@@ -149,8 +153,10 @@ function Empresas() {
   const openEdit = (company: AdminCompany) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     setEditing(company);
     setName(company.name);
     setFiscalId(company.fiscalId ?? "");
@@ -167,9 +173,12 @@ function Empresas() {
   const handleSave = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     setIsSaving(true);
+
     try {
       if (editing) {
         await adminUpdateCompany(editing.id, {
@@ -194,6 +203,7 @@ function Empresas() {
         });
         toast.success("Tienda creada.");
       }
+
       setOpen(false);
       setEditing(null);
       resetForm();
@@ -208,6 +218,7 @@ function Empresas() {
   const handleDelete = async () => {
     if (!deleting) return;
     setIsDeleting(true);
+
     try {
       await adminDeleteCompany(deleting.id);
       toast.success("Empresa eliminada.");
@@ -238,6 +249,7 @@ function Empresas() {
         open={open}
         onOpenChange={(value) => {
           setOpen(value);
+
           if (!value) {
             setEditing(null);
             resetForm();
@@ -458,8 +470,10 @@ function Empresas() {
                             onClick={() => {
                               if (isDemo) {
                                 blockDemoAction();
+
                                 return;
                               }
+
                               setDeleting(company);
                             }}
                           >

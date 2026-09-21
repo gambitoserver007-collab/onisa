@@ -43,16 +43,20 @@ export const Route = createFileRoute("/categorias")({ component: Categorias });
 function Categorias() {
   const { categories, products, error, source, isLoading, reload, session } =
     useCompanyCatalog();
+
   const { isDemo } = useDemoSession();
   const [query, setQuery] = useState("");
   const [name, setName] = useState("");
   const [open, setOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(
     null,
   );
+
   const [editName, setEditName] = useState("");
   const [isEditSaving, setIsEditSaving] = useState(false);
+
   const list = useMemo(
     () =>
       categories.filter((category) =>
@@ -64,6 +68,7 @@ function Categorias() {
   const handleCreate = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
 
@@ -86,8 +91,10 @@ function Categorias() {
   const openEdit = (category: { id: string; name: string }) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     setEditing(category);
     setEditName(category.name);
   };
@@ -95,6 +102,7 @@ function Categorias() {
   const handleUpdate = async () => {
     if (!editing) return;
     setIsEditSaving(true);
+
     try {
       await updateCategory(editing.id, editName);
       toast.success("Categoría actualizada.");
@@ -112,18 +120,22 @@ function Categorias() {
   const handleDelete = async (categoryId: string) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
 
     // No dejar productos huérfanos: si la categoría está en uso, bloquear el borrado.
     const cat = categories.find((c) => c.id === categoryId);
+
     const enUso = cat
       ? products.filter((p) => p.category === cat.name).length
       : 0;
+
     if (enUso > 0) {
       toast.error(
         `No puedes eliminar "${cat?.name}": ${enUso} producto(s) la usan. Reasígnalos a otra categoría primero.`,
       );
+
       return;
     }
 

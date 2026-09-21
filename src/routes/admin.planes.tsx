@@ -84,13 +84,16 @@ function Planes() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<PlanForm>(EMPTY_FORM);
   const [isSaving, setIsSaving] = useState(false);
+
   const [deleteTarget, setDeleteTarget] = useState<SubscriptionPlan | null>(
     null,
   );
+
   const [isDeleting, setIsDeleting] = useState(false);
 
   const load = async () => {
     setIsLoading(true);
+
     try {
       const data = await fetchPlans();
       setPlans(data);
@@ -131,9 +134,12 @@ function Planes() {
   const handleSave = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     setIsSaving(true);
+
     const input = {
       name: form.name,
       price: Number(form.price) || 0,
@@ -141,6 +147,7 @@ function Planes() {
       userLimit: Number(form.userLimit) || 0,
       salesLimit: Number(form.salesLimit) || 0,
     };
+
     try {
       if (editingId) {
         await updatePlan(editingId, input);
@@ -149,6 +156,7 @@ function Planes() {
         await createPlan(input);
         toast.success("Plan creado.");
       }
+
       setFormOpen(false);
       await load();
     } catch (error) {
@@ -160,12 +168,16 @@ function Planes() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
+
     if (isDemo) {
       blockDemoAction();
       setDeleteTarget(null);
+
       return;
     }
+
     setIsDeleting(true);
+
     try {
       await deletePlan(deleteTarget.id);
       toast.success("Plan eliminado.");
@@ -222,18 +234,22 @@ function Planes() {
         <div className="grid gap-4 md:grid-cols-3">
           {plans.map((plan) => {
             const featured = plans.length > 1 && plan.price === maxPrice;
+
             const productLine =
               plan.productLimit >= UNLIMITED
                 ? "Productos ilimitados"
                 : `${plan.productLimit.toLocaleString()} productos`;
+
             const salesLine =
               plan.salesLimit >= UNLIMITED
                 ? "Ventas ilimitadas"
                 : `${plan.salesLimit.toLocaleString()} ventas/mes`;
+
             const userLine =
               plan.userLimit >= UNLIMITED
                 ? "Usuarios ilimitados"
                 : `${plan.userLimit} ${plan.userLimit === 1 ? "usuario" : "usuarios"}`;
+
             return (
               <Card
                 key={plan.id}

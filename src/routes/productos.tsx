@@ -50,8 +50,10 @@ export const Route = createFileRoute("/productos")({
 
 function ProductosPage() {
   const { formatMoney, settings } = useBusinessSettings();
+
   const { products, suppliers, error, source, isLoading, reload, session } =
     useCompanyCatalog();
+
   const { isDemo } = useDemoSession();
   const canManage = canManageCatalog(session?.role);
   const [query, setQuery] = useState("");
@@ -88,12 +90,16 @@ function ProductosPage() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
+
     if (isDemo) {
       blockDemoAction();
       setDeleteTarget(null);
+
       return;
     }
+
     setIsDeleting(true);
+
     try {
       await deleteProduct(deleteTarget.id);
       toast.success("Producto eliminado.");
@@ -186,6 +192,7 @@ function ProductosPage() {
                       list.map((product) => {
                         const image = getProductImage(product);
                         const visual = getProductVisual(product);
+
                         const status = stockStatus(
                           product.stock,
                           effectiveLowStockThreshold(
@@ -193,6 +200,7 @@ function ProductosPage() {
                             settings.lowStockThresholdDefault,
                           ),
                         );
+
                         return (
                           <TableRow key={product.id}>
                             <TableCell>

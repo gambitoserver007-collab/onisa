@@ -23,9 +23,11 @@ const EMPTY_CATALOG: CompanyCatalog = {
 
 export function useCompanyCatalog() {
   const { isReady, session } = useDemoSession();
+
   const sessionKey = session
     ? `${session.userId ?? session.email}:${session.companyId ?? ""}`
     : "";
+
   // companyId/isDemo (primitivos) en vez de todo el objeto session en los deps
   // de reload -- session cambia de referencia varias veces mientras arranca la
   // sesión (aunque el contenido real no cambie), y eso volvía a disparar todo
@@ -33,6 +35,7 @@ export function useCompanyCatalog() {
   // veces seguidas en cada carga.
   const companyId = session?.companyId;
   const isDemo = isDemoSession(session);
+
   const [state, setState] = useState<CatalogState>({
     ...EMPTY_CATALOG,
     error: null,
@@ -43,6 +46,7 @@ export function useCompanyCatalog() {
   const reload = useCallback(async () => {
     if (!sessionKey) {
       setState((current) => ({ ...current, isLoading: false }));
+
       return;
     }
 

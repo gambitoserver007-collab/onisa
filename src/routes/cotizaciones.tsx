@@ -72,17 +72,22 @@ function statusBadge(quote: Quote) {
   const isExpired =
     quote.status === "pendiente" &&
     quote.validUntil < new Date().toISOString().slice(0, 10);
+
   if (isExpired) return <Badge variant="destructive">Vencida</Badge>;
+
   if (quote.status === "convertida")
     return <Badge variant="success">Convertida</Badge>;
+
   if (quote.status === "rechazada")
     return <Badge variant="secondary">Rechazada</Badge>;
+
   return <Badge variant="warm">Pendiente</Badge>;
 }
 
 function defaultValidUntil() {
   const d = new Date();
   d.setDate(d.getDate() + 15);
+
   return d.toISOString().slice(0, 10);
 }
 
@@ -108,10 +113,12 @@ function CotizacionesPage() {
     if (!session?.companyId) return;
     setIsLoading(true);
     setError(null);
+
     try {
       const data = await fetchQuotes(session.companyId, {
         status: statusFilter === "all" ? undefined : statusFilter,
       });
+
       setQuotes(data);
     } catch (err) {
       setError(getErrorMessage(err));
@@ -156,11 +163,13 @@ function CotizacionesPage() {
   const addToCart = (product: Product) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.productId === product.id);
+
       if (existing) {
         return prev.map((item) =>
           item.productId === product.id ? { ...item, qty: item.qty + 1 } : item,
         );
       }
+
       return [
         ...prev,
         {
@@ -182,17 +191,24 @@ function CotizacionesPage() {
   const handleSave = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (cart.length === 0) {
       toast.error("Agrega al menos un producto.");
+
       return;
     }
+
     if (!validUntil) {
       toast.error("Elige hasta cuándo es válida la cotización.");
+
       return;
     }
+
     setIsSaving(true);
+
     try {
       await createQuote({
         items: cart.map((item) => ({

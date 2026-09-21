@@ -90,6 +90,7 @@ function Kpi({
 
 function Inventario() {
   const { formatMoney, settings } = useBusinessSettings();
+
   const {
     products: allProducts,
     error,
@@ -97,6 +98,7 @@ function Inventario() {
     isLoading,
     reload,
   } = useCompanyCatalog();
+
   const { isDemo, session } = useDemoSession();
   const { locations, currentLocationId } = useCurrentLocation();
   const multiLocal = locations.length > 1;
@@ -121,22 +123,27 @@ function Inventario() {
       fetchLocationStock(loc),
       fetchLocationVariantStock(loc),
     ]);
+
     const merged = new Map(baseMap);
     variant.byProduct.forEach((qty, productId) =>
       merged.set(productId, (merged.get(productId) ?? 0) + qty),
     );
+
     return merged;
   }, []);
 
   useEffect(() => {
     if (location === ALL_LOCATIONS) {
       setLocStock(null);
+
       return;
     }
+
     let active = true;
     void loadLocationStock(location)
       .then((map) => active && setLocStock(map))
       .catch(() => active && setLocStock(null));
+
     return () => {
       active = false;
     };
@@ -145,18 +152,21 @@ function Inventario() {
   // Por local: solo los productos de ese local, con su stock. "Todos" = total.
   const products = useMemo(() => {
     if (location === ALL_LOCATIONS || !locStock) return baseProducts;
+
     return baseProducts
       .filter((p) => locStock.has(p.id))
       .map((p) => ({ ...p, stock: locStock.get(p.id) ?? 0 }));
   }, [baseProducts, location, locStock]);
 
   const valor = products.reduce((s, p) => s + p.cost * p.stock, 0);
+
   const bajo = products.filter(
     (p) =>
       p.stock > 0 &&
       p.stock <=
         effectiveLowStockThreshold(p, settings.lowStockThresholdDefault),
   );
+
   const sin = products.filter((p) => p.stock === 0);
 
   // Umbral efectivo más alto entre todos los productos: se usa como cota
@@ -175,6 +185,7 @@ function Inventario() {
       ),
     [baseProducts, settings.lowStockThresholdDefault],
   );
+
   const thresholdByProduct = useMemo(
     () =>
       new Map(
@@ -188,6 +199,7 @@ function Inventario() {
 
   // Reposición consolidada: qué falta en cada local (solo si hay varios locales).
   const [lowByLoc, setLowByLoc] = useState<LowStockRow[]>([]);
+
   // Obedece el selector: una sucursal concreta → solo la suya; "Todas" → todas.
   const lowByLocView = useMemo(
     () =>
@@ -199,11 +211,14 @@ function Inventario() {
       ),
     [lowByLoc, location, thresholdByProduct],
   );
+
   const reloadLowByLoc = useCallback(async () => {
     if (!multiLocal || !session?.companyId) {
       setLowByLoc([]);
+
       return;
     }
+
     try {
       setLowByLoc(
         await fetchLowStockByLocation(session.companyId, maxThreshold + 1),
@@ -228,10 +243,13 @@ function Inventario() {
   const handleTransfer = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session) return;
     setTSaving(true);
+
     try {
       await transferStock(session, {
         productId: tProduct,
@@ -247,6 +265,7 @@ function Inventario() {
       setTQty("");
       await reload();
       await reloadLowByLoc();
+
       if (location !== ALL_LOCATIONS) {
         try {
           setLocStock(await loadLocationStock(location));
@@ -406,6 +425,7 @@ function Inventario() {
                     sin.map((p) => {
                       const visual = getProductVisual(p);
                       const image = getProductImage(p);
+
                       return (
                         <TableRow key={p.id}>
                           <TableCell>
@@ -479,6 +499,7 @@ function Inventario() {
                     bajo.map((p) => {
                       const visual = getProductVisual(p);
                       const image = getProductImage(p);
+
                       return (
                         <TableRow key={p.id}>
                           <TableCell>

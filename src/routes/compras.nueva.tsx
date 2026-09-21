@@ -63,9 +63,11 @@ function NuevaCompra() {
   const [rows, setRows] = useState<Row[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const { currentLocationId } = useCurrentLocation();
+
   const [variantsByProduct, setVariantsByProduct] = useState<
     Record<string, ProductVariant[]>
   >({});
+
   const selectedSupplier = suppliers.find((s) => s.id === supplierId) ?? null;
 
   // Seed a first line once the catalog is available -- salvo que venga una
@@ -75,10 +77,13 @@ function NuevaCompra() {
   useEffect(() => {
     if (isLoading || rows.length > 0) return;
     const raw = sessionStorage.getItem(PURCHASE_PREFILL_STORAGE_KEY);
+
     if (raw) {
       sessionStorage.removeItem(PURCHASE_PREFILL_STORAGE_KEY);
+
       try {
         const payload = JSON.parse(raw) as PurchasePrefillPayload;
+
         if (payload.items?.length) {
           setSupplierId(payload.supplierId || NO_SUPPLIER);
           setRows(
@@ -92,6 +97,7 @@ function NuevaCompra() {
           toast.success(
             "Compra prellenada desde Resurtido. Revisa las cantidades antes de guardar.",
           );
+
           return;
         }
       } catch {
@@ -99,6 +105,7 @@ function NuevaCompra() {
         // renglón por defecto de abajo.
       }
     }
+
     if (products.length) {
       setRows([
         {
@@ -115,6 +122,7 @@ function NuevaCompra() {
   useEffect(() => {
     rows.forEach((row) => {
       const product = products.find((p) => p.id === row.productId);
+
       if (product?.hasVariants && !variantsByProduct[product.id]) {
         void fetchProductVariants(product.id)
           .then((vs) =>
@@ -143,29 +151,39 @@ function NuevaCompra() {
   const handleSave = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session) return;
+
     if (supplierId === NO_SUPPLIER) {
       toast.error("Selecciona un proveedor.");
+
       return;
     }
+
     const missingVariant = rows.some((row) => {
       const product = products.find((p) => p.id === row.productId);
+
       return product?.hasVariants && !row.variantId;
     });
+
     if (missingVariant) {
       toast.error(
         "Elige la variante (talla/color) en los productos que la usan.",
       );
+
       return;
     }
+
     const items = rows.map((row) => ({
       productId: row.productId,
       variantId: row.variantId,
       qty: Math.trunc(Number(row.qty)),
       unitCost: Number(row.cost),
     }));
+
     if (
       items.length === 0 ||
       items.some(
@@ -180,9 +198,12 @@ function NuevaCompra() {
       toast.error(
         "Revisa las líneas: la cantidad debe ser entero ≥ 1 y el costo un número ≥ 0.",
       );
+
       return;
     }
+
     setIsSaving(true);
+
     try {
       await createPurchase(session, {
         supplierId,
@@ -312,8 +333,10 @@ function NuevaCompra() {
                             const product = products.find(
                               (p) => p.id === row.productId,
                             );
+
                             if (!product?.hasVariants) return null;
                             const vs = variantsByProduct[product.id] ?? [];
+
                             return (
                               <Select
                                 value={row.variantId ?? ""}

@@ -29,6 +29,7 @@ export function normalizeStoreRole(role?: string | null): StoreRole {
     role === "operador"
   )
     return role;
+
   return "user"; // privilegio mínimo por defecto
 }
 
@@ -197,10 +198,13 @@ export function canAccessPath(
 
   // Sin lista propia → defaults por rol.
   if (storeRole === "admin") return true;
+
   const key = Object.keys(ROUTE_ACCESS)
     .filter((route) => pathname === route || pathname.startsWith(route + "/"))
     .sort((a, b) => b.length - a.length)[0];
+
   if (!key) return true; // ruta desconocida → no bloquear
+
   return ROUTE_ACCESS[key].includes(storeRole);
 }
 
@@ -225,6 +229,7 @@ export function resolveHomePath(
   for (const path of HOME_PATH_CANDIDATES) {
     if (canAccessPath(role, path, allowedSections)) return path;
   }
+
   return "/perfil";
 }
 

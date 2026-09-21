@@ -58,11 +58,14 @@ import {
 export const Route = createFileRoute("/dashboard")({ component: Dashboard });
 
 const COLORS = CHART_COLORS;
+
 const EMPTY_CHART = [{ name: "Sin datos", value: 0 }];
+
 const EMPTY_TIMELINE = [{ day: "Sin datos", total: 0 }];
 
 function clampPercent(value: number, total: number) {
   if (!total) return 0;
+
   return Math.min(100, Math.max(0, Math.round((value / total) * 100)));
 }
 
@@ -143,7 +146,9 @@ function ProgressRow({
 // que devolver temprano en medio de los hooks del dashboard completo.
 function Dashboard() {
   const { session } = useDemoSession();
+
   if (session?.role === "user") return <CashierDashboard />;
+
   return <AdminDashboard />;
 }
 
@@ -153,22 +158,27 @@ function AdminDashboard() {
   const { currentLocationId } = useCurrentLocation();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+
   const range = useMemo(
     () => ({ from: from || undefined, to: to || undefined }),
     [from, to],
   );
+
   const { data, error, isLoading, source } = useDashboardData(
     currentLocationId === ALL_LOCATIONS
       ? undefined
       : (currentLocationId ?? undefined),
     range,
   );
+
   const timeline = data.salesLast7Days.length
     ? data.salesLast7Days
     : EMPTY_TIMELINE;
+
   const byCategory = data.salesByCategory.length
     ? data.salesByCategory
     : EMPTY_CHART;
+
   const byMethod = data.salesByMethod.length ? data.salesByMethod : EMPTY_CHART;
   const totalByCategory = byCategory.reduce((sum, item) => sum + item.value, 0);
   const totalByMethod = byMethod.reduce((sum, item) => sum + item.value, 0);
@@ -519,6 +529,7 @@ function AdminDashboard() {
                 {data.lowStockProducts.length ? (
                   data.lowStockProducts.map((product) => {
                     const agotado = product.stock === 0;
+
                     return (
                       <div
                         key={product.id}
@@ -626,12 +637,15 @@ function CashierDashboard() {
   const { session, isReady } = useDemoSession();
   const [summary, setSummary] = useState<MySalesSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
   const [commissionPeriod, setCommissionPeriod] = useState<"month" | "quarter">(
     "month",
   );
+
   const [commission, setCommission] = useState<MyCommissionSummary | null>(
     null,
   );
+
   const [commissionLoading, setCommissionLoading] = useState(true);
 
   useEffect(() => {
@@ -648,6 +662,7 @@ function CashierDashboard() {
       .finally(() => {
         if (active) setIsLoading(false);
       });
+
     return () => {
       active = false;
     };
@@ -671,6 +686,7 @@ function CashierDashboard() {
       .finally(() => {
         if (active) setCommissionLoading(false);
       });
+
     return () => {
       active = false;
     };

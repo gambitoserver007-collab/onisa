@@ -25,6 +25,7 @@ const UNLIMITED = 1_000_000;
 
 const formatLimit = (limit: number) =>
   limit >= UNLIMITED ? "Ilimitado" : limit.toLocaleString();
+
 const pct = (value: number, limit: number) =>
   limit >= UNLIMITED || limit <= 0
     ? value > 0
@@ -44,6 +45,7 @@ function Suscripcion() {
         fetchPlans(),
         fetchPlanUsage(session?.companyId),
       ]);
+
       setPlans(plansData);
       setUsage(usageData);
     } catch (error) {
@@ -59,6 +61,7 @@ function Suscripcion() {
   // Current plan: the company's plan, or the cheapest (free) plan when on trial.
   const currentPlan = useMemo(() => {
     if (usage?.plan) return usage.plan;
+
     return plans.slice().sort((a, b) => a.price - b.price)[0] ?? null;
   }, [plans, usage]);
 
@@ -161,6 +164,7 @@ function Suscripcion() {
       <div className="mt-6 grid gap-4 md:grid-cols-3">
         {plans.map((plan) => {
           const isCurrent = plan.id === currentPlan?.id;
+
           return (
             <Card
               key={plan.id}

@@ -67,16 +67,21 @@ function ResetPasswordPage() {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+
     if (password.trim().length < 6) {
       toast.error("La contraseña debe tener al menos 6 caracteres.");
+
       return;
     }
+
     if (password !== confirmPassword) {
       toast.error("Las contraseñas no coinciden.");
+
       return;
     }
 
     setIsSubmitting(true);
+
     try {
       await updateAccountPassword(password);
       toast.success("Tu contraseña se actualizó. Inicia sesión de nuevo.");

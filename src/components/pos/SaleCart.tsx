@@ -57,6 +57,7 @@ import { getProductVisual } from "@/lib/productVisuals";
 import { cn } from "@/lib/utils";
 
 type SaleDocumentType = Sale["type"];
+
 type PaymentMethod = Sale["method"];
 
 export interface SaleCartProps {
@@ -160,11 +161,14 @@ function SaleCartContent({
   const { formatMoney, settings } = useBusinessSettings();
   const itemCount = cart.reduce((sum, item) => sum + item.qty, 0);
   const finalTotal = Math.max(0, total - loyaltyDiscount);
+
   const splitAssigned =
     Math.round(splitPayments.reduce((sum, p) => sum + p.amount, 0) * 100) / 100;
+
   const splitRemaining = Math.round((finalTotal - splitAssigned) * 100) / 100;
   const splitReady = splitPayments.length > 0 && splitRemaining === 0;
   const canCheckout = !splitMode || splitReady;
+
   const kindOf = (label: string) =>
     paymentMethods.find((item) => item.label === label)?.kind ?? "other";
 
@@ -185,11 +189,14 @@ function SaleCartContent({
   // ya que solo puede haber un input con foco.
   const [editingQtyId, setEditingQtyId] = useState<string | null>(null);
   const [editingQtyValue, setEditingQtyValue] = useState("");
+
   const commitQty = (lineId: string) => {
     const parsed = parseInt(editingQtyValue, 10);
+
     if (onSetQty && Number.isFinite(parsed) && parsed > 0) {
       onSetQty(lineId, parsed);
     }
+
     setEditingQtyId(null);
   };
 
@@ -197,10 +204,12 @@ function SaleCartContent({
   // Aparece solo cuando hay varios ítems (no estorba en ventas pequeñas).
   const [itemFilter, setItemFilter] = useState("");
   const showItemFilter = cart.length > 5;
+
   const visibleCart =
     showItemFilter && itemFilter.trim()
       ? cart.filter((item) => {
           const q = itemFilter.trim().toLowerCase();
+
           return (
             item.name.toLowerCase().includes(q) ||
             (item.barcode ?? "").toLowerCase().includes(q)
@@ -211,6 +220,7 @@ function SaleCartContent({
   const confirmVoidSale = async () => {
     if (!voidReason.trim()) return;
     setVoidSaving(true);
+
     try {
       await onVoidSale?.(voidReason.trim());
       setVoidOpen(false);
@@ -227,6 +237,7 @@ function SaleCartContent({
   const submitNewCustomer = async () => {
     if (!onCreateCustomer || !ncName.trim()) return;
     setNcSaving(true);
+
     try {
       await onCreateCustomer({
         name: ncName.trim(),
@@ -263,6 +274,7 @@ function SaleCartContent({
           {Array.from({ length: slotCount }, (_, index) => {
             const count = slotItemCounts[index] ?? 0;
             const isActive = index === activeSlot;
+
             return (
               <button
                 key={index}
@@ -348,12 +360,14 @@ function SaleCartContent({
                     placeholder="0"
                     onChange={(event) => {
                       const raw = Number(event.target.value);
+
                       const clamped = Number.isFinite(raw)
                         ? Math.max(
                             0,
                             Math.min(maxRedeemablePoints, Math.floor(raw)),
                           )
                         : 0;
+
                       onPointsToRedeemChange?.(clamped);
                     }}
                     className="h-8 rounded-lg text-sm"
@@ -537,9 +551,11 @@ function SaleCartContent({
         )}
         {visibleCart.map((item) => {
           const visual = getProductVisual({ name: item.name, category: "" });
+
           const lineId = item.variantId
             ? `${item.productId}::${item.variantId}`
             : item.productId;
+
           return (
             <div
               key={lineId}
@@ -599,6 +615,7 @@ function SaleCartContent({
                     onBlur={() => commitQty(lineId)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") commitQty(lineId);
+
                       if (e.key === "Escape") setEditingQtyId(null);
                     }}
                     className="w-10 rounded-md border border-input bg-background text-center text-sm font-bold tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
@@ -705,6 +722,7 @@ function SaleCartContent({
         open={voidOpen}
         onOpenChange={(open) => {
           setVoidOpen(open);
+
           if (!open) setVoidReason("");
         }}
       >

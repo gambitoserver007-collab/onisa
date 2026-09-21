@@ -18,6 +18,7 @@ export interface DemoAccount {
 
 function readDemoValue(envKey: string, fallbackValue: string) {
   const configuredValue = import.meta.env[envKey] as string | undefined;
+
   return configuredValue?.trim() || fallbackValue;
 }
 
@@ -43,6 +44,7 @@ export function normalizeEmail(email: string) {
 
 export function findDemoAccountByCredentials(email: string, password: string) {
   const normalizedEmail = normalizeEmail(email);
+
   return STANDARD_DEMO_CREDENTIALS.find(
     (account) =>
       account.email === normalizedEmail && account.password === password,
@@ -61,6 +63,7 @@ export function getDemoAccountByRole(_role?: Role) {
 export function isDemoEmail(email?: string | null) {
   if (!email) return false;
   const normalizedEmail = normalizeEmail(email);
+
   return STANDARD_DEMO_CREDENTIALS.some(
     (account) => account.email === normalizedEmail,
   );

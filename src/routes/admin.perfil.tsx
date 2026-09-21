@@ -42,8 +42,10 @@ function AdminPerfil() {
   const handleLogo = async (dataUrl: string | null) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     try {
       await updatePlatformLogo(dataUrl);
       setLogo(dataUrl);
@@ -63,9 +65,12 @@ function AdminPerfil() {
   const handleSaveName = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     setSavingName(true);
+
     try {
       await updatePlatformBrandName(name);
       toast.success("Nombre de la plataforma actualizado.");

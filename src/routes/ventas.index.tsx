@@ -53,6 +53,7 @@ function VentasPage() {
   const { session } = useDemoSession();
   const { activeMethods } = usePaymentMethods(settings.countryCode);
   const { currentLocationId, locations } = useCurrentLocation();
+
   const { sales, error, source, isLoading } = useSales(
     currentLocationId === ALL_LOCATIONS
       ? undefined
@@ -62,6 +63,7 @@ function VentasPage() {
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(
     null,
   );
+
   useEffect(() => {
     if (!session?.companyId) return;
     void fetchCompanyProfile(session.companyId)
@@ -99,10 +101,12 @@ function VentasPage() {
       .catch(() => {
         if (active) setTurnos([]);
       });
+
     return () => {
       active = false;
     };
   }, [session?.companyId, salesLocationId]);
+
   const formatTurno = (turno: CashSession) => {
     const openLabel = new Date(turno.openedAt).toLocaleString(settings.locale, {
       day: "2-digit",
@@ -110,19 +114,23 @@ function VentasPage() {
       hour: "2-digit",
       minute: "2-digit",
     });
+
     const closeLabel = turno.closedAt
       ? new Date(turno.closedAt).toLocaleTimeString(settings.locale, {
           hour: "2-digit",
           minute: "2-digit",
         })
       : "abierto";
+
     const opener = turno.openedBy ? profileNames[turno.openedBy] : undefined;
+
     return `${openLabel} – ${closeLabel}${opener ? ` · ${opener}` : ""}`;
   };
 
   // Qué mostrar/ocultar del ticket, por sucursal -- ver puntos-de-venta.tsx.
   const ticketByLocation = useMemo(() => {
     const map = new Map<string, TicketDisplaySettings>();
+
     for (const loc of locations) {
       map.set(loc.id, {
         showFiscalInfo: loc.ticketShowFiscalInfo,
@@ -131,13 +139,16 @@ function VentasPage() {
         footerText: loc.ticketFooterText,
       });
     }
+
     return map;
   }, [locations]);
+
   const [method, setMethod] = useState("all");
   const [vendor, setVendor] = useState("all");
   const [turno, setTurno] = useState("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+
   const methodOptions = useMemo(
     () =>
       Array.from(
@@ -148,25 +159,34 @@ function VentasPage() {
       ),
     [activeMethods, sales],
   );
+
   const vendorOptions = useMemo(() => {
     const ids = new Set(
       sales.map((sale) => sale.createdBy).filter((id): id is string => !!id),
     );
+
     return Array.from(ids)
       .map((id) => ({ id, name: profileNames[id] ?? "—" }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [sales, profileNames]);
+
   const filtered = useMemo(() => {
     const activeTurno =
       turno === "all" ? null : turnos.find((t) => t.id === turno);
+
     return filterSalesByDate(sales, from, to).filter((sale) => {
       if (method !== "all" && sale.method !== method) return false;
+
       if (vendor !== "all" && sale.createdBy !== vendor) return false;
+
       if (activeTurno) {
         const ts = sale.createdAt ?? sale.date;
+
         if (ts < activeTurno.openedAt) return false;
+
         if (activeTurno.closedAt && ts >= activeTurno.closedAt) return false;
       }
+
       return true;
     });
   }, [from, to, method, vendor, turno, turnos, sales]);

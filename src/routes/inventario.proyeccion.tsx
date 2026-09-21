@@ -53,7 +53,9 @@ const COVERAGE_OPTIONS = [
 
 function urgencyVariant(days: number): "destructive" | "warm" | "success" {
   if (days <= 3) return "destructive";
+
   if (days <= 14) return "warm";
+
   return "success";
 }
 
@@ -77,11 +79,13 @@ function Proyeccion() {
   const reload = useCallback(async () => {
     if (!isReady || !session?.companyId) return;
     setIsLoading(true);
+
     try {
       const result = await fetchPurchaseProjection(
         Number(windowDays),
         Number(coverageDays),
       );
+
       setItems(result.items);
     } catch (error) {
       toast.error(
@@ -102,10 +106,12 @@ function Proyeccion() {
   // confirmar (nunca se registra sola).
   const supplierGroups = useMemo<SupplierGroup[]>(() => {
     const map = new Map<string, SupplierGroup>();
+
     for (const item of items) {
       if (item.suggestedQty <= 0) continue;
       const key = item.supplierId ?? NO_SUPPLIER_KEY;
       let group = map.get(key);
+
       if (!group) {
         group = {
           supplierId: item.supplierId,
@@ -114,8 +120,10 @@ function Proyeccion() {
         };
         map.set(key, group);
       }
+
       group.items.push(item);
     }
+
     // Sin proveedor al final -- no se puede generar una orden para ese grupo.
     return Array.from(map.values()).sort((a, b) =>
       a.supplierId === null ? 1 : b.supplierId === null ? -1 : 0,
@@ -124,6 +132,7 @@ function Proyeccion() {
 
   const generateOrder = (group: SupplierGroup) => {
     if (!group.supplierId) return;
+
     const payload: PurchasePrefillPayload = {
       supplierId: group.supplierId,
       items: group.items.map((item) => ({
@@ -132,6 +141,7 @@ function Proyeccion() {
         cost: item.cost,
       })),
     };
+
     sessionStorage.setItem(
       PURCHASE_PREFILL_STORAGE_KEY,
       JSON.stringify(payload),
@@ -258,6 +268,7 @@ function Proyeccion() {
               (sum, item) => sum + item.suggestedQty * item.cost,
               0,
             );
+
             return (
               <Card key={group.supplierId ?? NO_SUPPLIER_KEY}>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

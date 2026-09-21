@@ -104,6 +104,7 @@ export function ProductCatalog({
             // maneja inventario. Nunca se muestran como agotados aquí.
             const tracksStock = product.productType === "standard";
             const outOfStock = tracksStock && product.stock === 0;
+
             const lowStock =
               tracksStock &&
               product.stock > 0 &&
@@ -112,6 +113,7 @@ export function ProductCatalog({
                   product,
                   settings.lowStockThresholdDefault,
                 );
+
             const image = getProductImage(product);
             const visual = getProductVisual(product);
 

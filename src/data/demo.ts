@@ -404,6 +404,7 @@ export const salesLast7Days = [
   { day: "Sáb", total: 780 },
   { day: "Dom", total: 450 },
 ];
+
 export const salesByCategory = [
   { name: "Abarrotes", value: 1200 },
   { name: "Bebidas", value: 850 },
@@ -411,6 +412,7 @@ export const salesByCategory = [
   { name: "Snacks", value: 410 },
   { name: "Limpieza", value: 320 },
 ];
+
 export const salesByMethod = [
   { name: "Efectivo", value: 1800 },
   { name: "Yape", value: 950 },

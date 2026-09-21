@@ -35,11 +35,13 @@ export function getLoyaltyTier(
   ) {
     return "oro";
   }
+
   if (
     settings.loyaltyTier2MinSpend > 0 &&
     yearSpend >= settings.loyaltyTier2MinSpend
   ) {
     return "plata";
   }
+
   return "bronce";
 }

@@ -14,6 +14,7 @@ export function useBusinessSettings() {
     getBusinessSettings,
     getDefaultBusinessSettings,
   );
+
   const market = getMarketByCountryCode(settings.countryCode);
 
   return {

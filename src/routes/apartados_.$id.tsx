@@ -74,6 +74,7 @@ function ApartadoDetail() {
   const load = async () => {
     setIsLoading(true);
     setError(null);
+
     try {
       const result = await fetchApartado(id);
       setApartado(result?.apartado ?? null);
@@ -109,20 +110,27 @@ function ApartadoDetail() {
   const handleAddPayment = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     const amount = Number(paymentAmount);
+
     if (!Number.isFinite(amount) || amount <= 0) {
       toast.error("Ingresa un monto válido.");
+
       return;
     }
+
     setIsPaying(true);
+
     try {
       const result = await addApartadoPayment({
         apartadoId: id,
         amount,
         paymentMethod,
       });
+
       toast.success(`Abono de ${formatMoney(result.applied)} registrado.`);
       setPaymentOpen(false);
       void load();
@@ -148,15 +156,19 @@ function ApartadoDetail() {
   const handleComplete = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     setIsCompleting(true);
+
     try {
       const result = await completeApartado({
         apartadoId: id,
         finalPaymentAmount: Number(finalAmount) || 0,
         paymentMethod: finalMethod,
       });
+
       toast.success(`Venta ${result.saleNumber} creada.`);
       setCompleteOpen(false);
       navigate({ to: "/ventas/$id", params: { id: result.saleId } });
@@ -175,9 +187,12 @@ function ApartadoDetail() {
   const handleCancel = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     setIsCancelling(true);
+
     try {
       await cancelApartado({ apartadoId: id, refundDeposit });
       toast.success(

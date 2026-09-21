@@ -47,7 +47,9 @@ export function ComboItemsEditor({
   const suggestedCost = items.reduce((sum, item) => {
     const qty = Number(item.qty);
     const component = componentById.get(item.componentProductId);
+
     if (!component || !Number.isFinite(qty)) return sum;
+
     return sum + component.cost * qty;
   }, 0);
 

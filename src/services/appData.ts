@@ -11,12 +11,19 @@ import type { Json, Tables } from "@/integrations/supabase/types";
 import { effectiveLowStockThreshold } from "@/lib/stockAlerts";
 
 type CategoryRow = Tables<"categories">;
+
 type CompanyRow = Tables<"companies">;
+
 type CustomerRow = Tables<"customers">;
+
 type ProductRow = Tables<"products">;
+
 type SaleItemRow = Tables<"sale_items">;
+
 type SaleRow = Tables<"sales">;
+
 type SupplierRow = Tables<"suppliers">;
+
 import type { BusinessSettings } from "@/lib/businessSettings";
 import type {
   CartItem,
@@ -172,7 +179,9 @@ export async function fetchPlatformBranding(): Promise<PlatformBranding> {
       .select("brand_name, logo_url")
       .limit(1)
       .maybeSingle();
+
     if (error) throw error;
+
     return {
       name: (data?.brand_name as string) || "Onisa",
       logoUrl: (data?.logo_url as string | null) ?? null,
@@ -187,16 +196,20 @@ export async function updatePlatformLogo(logoUrl: string | null) {
     .from("platform_settings")
     .update({ logo_url: logoUrl, updated_at: new Date().toISOString() })
     .eq("id", PLATFORM_SETTINGS_ID);
+
   if (error) throw error;
 }
 
 export async function updatePlatformBrandName(name: string) {
   const cleanName = name.trim();
+
   if (!cleanName) throw new Error("Ingresa el nombre de la plataforma.");
+
   const { error } = await (supabase as any)
     .from("platform_settings")
     .update({ brand_name: cleanName, updated_at: new Date().toISOString() })
     .eq("id", PLATFORM_SETTINGS_ID);
+
   if (error) throw error;
 }
 
@@ -209,6 +222,7 @@ export const demoCatalog: CompanyCatalog = {
 
 function toNumber(value: unknown, fallback = 0) {
   const numeric = typeof value === "number" ? value : Number(value);
+
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
@@ -229,6 +243,7 @@ function localDateKey(value: string | number | Date) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
+
   return `${y}-${m}-${day}`;
 }
 
@@ -358,6 +373,7 @@ function groupSaleItemsBySale(items: SaleItemRow[]) {
     const saleItems = map.get(item.sale_id) ?? [];
     saleItems.push(item);
     map.set(item.sale_id, saleItems);
+
     return map;
   }, new Map<string, SaleItemRow[]>());
 }
@@ -369,20 +385,25 @@ const SAFE_USER_MESSAGE_RE = /^[A-ZÁÉÍÓÚÑa-záéíóúñ]/; // starts with
 
 function isSafeUserMessage(message: string): boolean {
   if (!message) return false;
+
   if (message.length > 240) return false;
+
   // Hide anything that looks like a Postgres/PostgREST error.
   if (
     /\b(relation|column|schema|constraint|operator|policy|rls)\b/i.test(message)
   ) {
     return false;
   }
+
   // Raw Postgres "function name(args) ..." leaks (e.g. "function does not exist").
   // Narrower than banning the word "function" outright, porque el propio código
   // usa "Edge Function" en mensajes legítimos (ver createCompany) y ese texto no
   // debe tratarse como si fuera un error crudo de Postgres.
   if (/\bfunction\s+\S+\([^)]*\)/i.test(message)) return false;
+
   if (/(SQLSTATE|pg_|duplicate key value|violates)/i.test(message))
     return false;
+
   return SAFE_USER_MESSAGE_RE.test(message);
 }
 
@@ -391,6 +412,7 @@ export function getErrorMessage(
   fallback = "No se pudo completar la operación.",
 ) {
   let raw = "";
+
   if (error instanceof Error) raw = error.message;
   else if (typeof error === "object" && error && "message" in error) {
     raw = String((error as { message: unknown }).message ?? "");
@@ -403,21 +425,26 @@ export function getErrorMessage(
   if (/permission denied|row-level security|policy/i.test(raw)) {
     return "No tienes permisos para realizar esta acción.";
   }
+
   if (/duplicate key value|unique constraint/i.test(raw)) {
     return "Ya existe un registro con esos datos.";
   }
+
   if (/foreign key/i.test(raw)) {
     return "No se puede completar: hay datos relacionados que dependen de este registro.";
   }
+
   if (/network|fetch failed|failed to fetch/i.test(raw)) {
     return "Sin conexión con el servidor. Intenta de nuevo.";
   }
+
   return isSafeUserMessage(raw) ? raw : fallback;
 }
 
 function requireCompanyId(session: DemoSession) {
   if (!session.companyId)
     throw new Error("La sesión no tiene empresa asociada.");
+
   return session.companyId;
 }
 
@@ -428,6 +455,7 @@ export async function fetchCompanyCatalog(
     .from("categories")
     .select("id, name, active")
     .is("deleted_at", null);
+
   const productsQuery = supabase
     .from("products")
     .select(
@@ -435,12 +463,14 @@ export async function fetchCompanyCatalog(
     )
     .is("deleted_at", null)
     .eq("active", true);
+
   const customersQuery = supabase
     .from("customers")
     .select(
       "id, company_id, name, document_number, phone, email, loyalty_points, loyalty_year_spend, credit_limit, credit_balance, is_demo_data, created_at, updated_at, deleted_at",
     )
     .is("deleted_at", null);
+
   const suppliersQuery = supabase
     .from("suppliers")
     .select(
@@ -473,9 +503,11 @@ export async function fetchCompanyCatalog(
     productsResult.error ||
     customersResult.error ||
     suppliersResult.error;
+
   if (error) throw error;
 
   const categories = (categoriesResult.data ?? []).map(mapCategory);
+
   const categoryById = new Map(
     categories.map((category) => [category.id, category.name]),
   );
@@ -501,6 +533,7 @@ export async function fetchCompanyCounts(
     .select("id", { count: "exact", head: true })
     .is("deleted_at", null)
     .eq("active", true);
+
   const customersQuery = supabase
     .from("customers")
     .select("id", { count: "exact", head: true })
@@ -542,11 +575,14 @@ export async function fetchLowStockSummary(
     p_location_id: locationId || undefined,
     p_limit: limit,
   });
+
   if (error) throw error;
+
   const payload = (data ?? { count: 0, items: [] }) as {
     count?: number;
     items?: { id: string; name: string; stock: number; unit: string }[];
   };
+
   return {
     count: payload.count ?? 0,
     items: (payload.items ?? []).map((item) => ({
@@ -611,7 +647,9 @@ export async function fetchPurchaseProjection(
     p_coverage_days: coverageDays,
     p_limit: limit,
   });
+
   if (error) throw error;
+
   const payload = (data ?? { windowDays, coverageDays, items: [] }) as {
     windowDays?: number;
     coverageDays?: number;
@@ -628,6 +666,7 @@ export async function fetchPurchaseProjection(
       suggestedQty: number;
     }[];
   };
+
   return {
     windowDays: payload.windowDays ?? windowDays,
     coverageDays: payload.coverageDays ?? coverageDays,
@@ -660,6 +699,7 @@ export interface AlertLowStockItem {
   stock: number;
   threshold: number;
 }
+
 export interface AlertApartadoVencido {
   id: string;
   apartadoNumber: string;
@@ -667,6 +707,7 @@ export interface AlertApartadoVencido {
   dueDate: string;
   balance: number;
 }
+
 export interface AlertCotizacionVencida {
   id: string;
   quoteNumber: string;
@@ -674,18 +715,21 @@ export interface AlertCotizacionVencida {
   validUntil: string;
   total: number;
 }
+
 export interface AlertCajaAbierta {
   id: string;
   locationName: string | null;
   openedAt: string;
   openedByName: string | null;
 }
+
 export interface AlertClienteCredito {
   id: string;
   name: string;
   creditLimit: number;
   creditBalance: number;
 }
+
 export interface AlertVentaCancelada {
   id: string;
   total: number;
@@ -694,6 +738,7 @@ export interface AlertVentaCancelada {
   cashierName: string | null;
   createdAt: string;
 }
+
 export interface CompanyAlerts {
   stockBajo: AlertLowStockItem[];
   apartadosVencidos: AlertApartadoVencido[];
@@ -706,7 +751,9 @@ export interface CompanyAlerts {
 
 export async function fetchCompanyAlerts(): Promise<CompanyAlerts> {
   const { data, error } = await supabase.rpc("get_company_alerts");
+
   if (error) throw error;
+
   const payload = (data ?? {}) as {
     stock_bajo?: {
       id: string;
@@ -750,6 +797,7 @@ export async function fetchCompanyAlerts(): Promise<CompanyAlerts> {
       created_at: string;
     }[];
   };
+
   const stockBajo = (payload.stock_bajo ?? []).map((i) => ({
     id: i.id,
     name: i.name,
@@ -757,6 +805,7 @@ export async function fetchCompanyAlerts(): Promise<CompanyAlerts> {
     stock: toNumber(i.stock),
     threshold: toNumber(i.threshold),
   }));
+
   const apartadosVencidos = (payload.apartados_vencidos ?? []).map((i) => ({
     id: i.id,
     apartadoNumber: i.apartado_number,
@@ -764,6 +813,7 @@ export async function fetchCompanyAlerts(): Promise<CompanyAlerts> {
     dueDate: i.due_date,
     balance: toNumber(i.balance),
   }));
+
   const cotizacionesVencidas = (payload.cotizaciones_vencidas ?? []).map(
     (i) => ({
       id: i.id,
@@ -773,18 +823,21 @@ export async function fetchCompanyAlerts(): Promise<CompanyAlerts> {
       total: toNumber(i.total),
     }),
   );
+
   const cajasAbiertas = (payload.cajas_abiertas ?? []).map((i) => ({
     id: i.id,
     locationName: i.location_name,
     openedAt: i.opened_at,
     openedByName: i.opened_by_name,
   }));
+
   const clientesCredito = (payload.clientes_credito ?? []).map((i) => ({
     id: i.id,
     name: i.name,
     creditLimit: toNumber(i.credit_limit),
     creditBalance: toNumber(i.credit_balance),
   }));
+
   const ventasCanceladas = (payload.ventas_canceladas ?? []).map((i) => ({
     id: i.id,
     total: toNumber(i.total),
@@ -793,6 +846,7 @@ export async function fetchCompanyAlerts(): Promise<CompanyAlerts> {
     cashierName: i.cashier_name,
     createdAt: i.created_at,
   }));
+
   return {
     stockBajo,
     apartadosVencidos,
@@ -820,8 +874,11 @@ export async function fetchSales(
       "id, company_id, location_id, customer_id, sale_number, document_type, payment_method, customer_name, sale_date, subtotal, tax, total, status, created_by, commission_rate, commission_amount, is_demo_data, created_at, updated_at, deleted_at",
     )
     .is("deleted_at", null);
+
   if (companyId) salesQuery = salesQuery.eq("company_id", companyId);
+
   if (locationId) salesQuery = salesQuery.eq("location_id", locationId);
+
   const { data: salesRows, error: salesError } = await salesQuery.order(
     "sale_date",
     {
@@ -830,9 +887,11 @@ export async function fetchSales(
   );
 
   if (salesError) throw salesError;
+
   if (!salesRows?.length) return [];
 
   const saleIds = salesRows.map((sale) => sale.id);
+
   const { data: itemRows, error: itemsError } = await supabase
     .from("sale_items")
     .select(
@@ -843,6 +902,7 @@ export async function fetchSales(
   if (itemsError) throw itemsError;
 
   const itemsBySale = groupSaleItemsBySale((itemRows ?? []) as SaleItemRow[]);
+
   return (salesRows as SaleRow[]).map((sale) =>
     mapSale(sale, itemsBySale.get(sale.id) ?? []),
   );
@@ -869,12 +929,17 @@ export async function fetchRecentSales(
     .from("sales")
     .select("id, customer_name, payment_method, sale_date, total")
     .is("deleted_at", null);
+
   if (companyId) q = q.eq("company_id", companyId);
+
   if (locationId) q = q.eq("location_id", locationId);
+
   const { data, error } = await q
     .order("sale_date", { ascending: false })
     .limit(limit);
+
   if (error) throw error;
+
   return (data ?? []).map((row) => ({
     id: row.id as string,
     date: localDateKey(new Date(row.sale_date as string)),
@@ -893,14 +958,18 @@ export async function fetchSaleLoyaltySummary(
     .from("loyalty_ledger")
     .select("points, type")
     .eq("sale_id", saleId);
+
   if (error) throw error;
   let earned = 0;
   let redeemed = 0;
+
   for (const row of data ?? []) {
     const points = Number(row.points) || 0;
+
     if (row.type === "earned") earned += points;
     else if (row.type === "redeemed") redeemed += Math.abs(points);
   }
+
   return { earned, redeemed };
 }
 
@@ -937,8 +1006,10 @@ export async function fetchMySalesSummary(
     .is("deleted_at", null)
     .gte("sale_date", monthStart.toISOString())
     .order("sale_date", { ascending: false });
+
   if (companyId) q = q.eq("company_id", companyId);
   const { data, error } = await q;
+
   if (error) throw error;
 
   const rows = (data ?? []).map((row) => ({
@@ -948,6 +1019,7 @@ export async function fetchMySalesSummary(
     method: (row.payment_method as string) ?? "Efectivo",
     total: Number(row.total) || 0,
   }));
+
   const todayRows = rows.filter((row) => row.date === todayKey);
 
   return {
@@ -969,8 +1041,10 @@ export interface MyCommissionSummary {
 function periodStartDate(period: "month" | "quarter", now: Date): Date {
   if (period === "quarter") {
     const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+
     return new Date(now.getFullYear(), quarterStartMonth, 1);
   }
+
   return new Date(now.getFullYear(), now.getMonth(), 1);
 }
 
@@ -993,6 +1067,7 @@ export async function fetchMyCommissionSummary(
     .is("deleted_at", null)
     .gte("sale_date", start.toISOString())
     .gt("commission_amount", 0);
+
   if (companyId) salesQuery = salesQuery.eq("company_id", companyId);
 
   const [
@@ -1006,10 +1081,13 @@ export async function fetchMyCommissionSummary(
       .eq("id", userId)
       .maybeSingle(),
   ]);
+
   if (salesError) throw salesError;
+
   if (profileError) throw profileError;
 
   const rows = salesRows ?? [];
+
   return {
     commissionRate:
       (profileRow as { commission_rate?: number | string | null } | null)
@@ -1076,8 +1154,11 @@ export async function fetchSalesAggregates(
   ]);
 
   if (totalsRes.error) throw totalsRes.error;
+
   if (byDayRes.error) throw byDayRes.error;
+
   if (byCatRes.error) throw byCatRes.error;
+
   if (byMethodRes.error) throw byMethodRes.error;
 
   const totals = (totalsRes.data?.[0] ?? {
@@ -1125,6 +1206,7 @@ export async function fetchSaleById(
   companyId?: string,
 ): Promise<Sale | null> {
   const sales = await fetchSales(companyId);
+
   return (
     sales.find(
       (sale) => sale.id === publicId || sale.databaseId === publicId,
@@ -1198,6 +1280,7 @@ export async function createSaleFromCart({
   });
 
   if (error) throw error;
+
   if (!data) throw new Error("Supabase no devolvió la venta.");
 
   const payload = (typeof data === "object" && data !== null ? data : {}) as {
@@ -1210,11 +1293,15 @@ export async function createSaleFromCart({
     points_earned?: number;
     points_redeemed?: number;
   };
+
   const saleId = payload.sale_id ?? (typeof data === "string" ? data : null);
+
   if (!saleId) throw new Error("Supabase no devolvió el ID de la venta.");
 
   const sale = await fetchSaleById(saleId, companyId);
+
   if (!sale) return null;
+
   return {
     ...sale,
     subtotal: payload.subtotal ?? sale.subtotal,
@@ -1242,17 +1329,21 @@ export async function logVoidedSale(input: {
   const items = input.items
     .filter((item) => item.productId && item.qty > 0)
     .map((item) => ({ product_id: item.productId, qty: item.qty }));
+
   if (items.length === 0) return;
+
   const { error } = await supabase.rpc("log_voided_sale", {
     p_items: items as unknown as Json,
     p_location_id: input.locationId || undefined,
     p_reason: input.reason,
   });
+
   if (error) throw error;
 }
 
 export async function createCategory(session: DemoSession, name: string) {
   const cleanName = name.trim();
+
   if (!cleanName) throw new Error("Ingresa el nombre de la categoría.");
 
   const { data, error } = await supabase
@@ -1260,17 +1351,22 @@ export async function createCategory(session: DemoSession, name: string) {
     .insert({ company_id: requireCompanyId(session), name: cleanName })
     .select("id")
     .single();
+
   if (error) throw error;
+
   return data.id as string;
 }
 
 export async function updateCategory(categoryId: string, name: string) {
   const cleanName = name.trim();
+
   if (!cleanName) throw new Error("Ingresa el nombre de la categoría.");
+
   const { error } = await supabase
     .from("categories")
     .update({ name: cleanName })
     .eq("id", categoryId);
+
   if (error) throw error;
 }
 
@@ -1279,6 +1375,7 @@ export async function deleteCategory(categoryId: string) {
     .from("categories")
     .update({ deleted_at: new Date().toISOString(), active: false })
     .eq("id", categoryId);
+
   if (error) throw error;
 }
 
@@ -1296,10 +1393,13 @@ export async function fetchUnits(companyId?: string): Promise<Unit[]> {
     .select("id, name, active")
     .is("deleted_at", null)
     .order("name");
+
   const { data, error } = await (companyId
     ? query.eq("company_id", companyId)
     : query);
+
   if (error) throw error;
+
   return (data ?? []).map((row) => ({
     id: row.id,
     name: row.name,
@@ -1309,13 +1409,17 @@ export async function fetchUnits(companyId?: string): Promise<Unit[]> {
 
 export async function createUnit(session: DemoSession, name: string) {
   const cleanName = name.trim();
+
   if (!cleanName) throw new Error("Ingresa el nombre de la etiqueta.");
+
   const { data, error } = await supabase
     .from("units")
     .insert({ company_id: requireCompanyId(session), name: cleanName })
     .select("id")
     .single();
+
   if (error) throw error;
+
   return data.id as string;
 }
 
@@ -1326,13 +1430,17 @@ export async function updateUnit(
   previousName: string,
 ) {
   const cleanName = name.trim();
+
   if (!cleanName) throw new Error("Ingresa el nombre de la etiqueta.");
   const companyId = requireCompanyId(session);
+
   const { error } = await supabase
     .from("units")
     .update({ name: cleanName })
     .eq("id", unitId);
+
   if (error) throw error;
+
   // Cascada: renombra la unidad en los productos que la usaban (no hay FK por nombre).
   if (previousName && previousName !== cleanName) {
     await supabase
@@ -1348,6 +1456,7 @@ export async function deleteUnit(unitId: string) {
     .from("units")
     .update({ deleted_at: new Date().toISOString(), active: false })
     .eq("id", unitId);
+
   if (error) throw error;
 }
 
@@ -1357,6 +1466,7 @@ function isMissingColumnError(
   error: { code?: string; message?: string } | null,
 ): boolean {
   if (!error) return false;
+
   return (
     error.code === "PGRST204" ||
     /could not find the .* column|column .* does not exist/i.test(
@@ -1370,6 +1480,7 @@ export async function createCustomer(
   input: CreateCustomerInput,
 ) {
   const name = input.name.trim();
+
   if (!name) throw new Error("Ingresa el nombre del cliente.");
 
   const base = {
@@ -1382,6 +1493,7 @@ export async function createCustomer(
       ? { credit_limit: input.creditLimit }
       : {}),
   };
+
   const address = input.address?.trim() || null;
 
   let res = await supabase
@@ -1389,10 +1501,13 @@ export async function createCustomer(
     .insert({ ...base, address } as never)
     .select("id")
     .single();
+
   if (res.error && isMissingColumnError(res.error)) {
     res = await supabase.from("customers").insert(base).select("id").single();
   }
+
   if (res.error) throw res.error;
+
   return res.data!.id as string;
 }
 
@@ -1403,7 +1518,9 @@ export async function getCustomerAddress(customerId: string): Promise<string> {
     .select("address")
     .eq("id", customerId)
     .maybeSingle();
+
   if (error || !data) return "";
+
   return (data as { address?: string | null }).address ?? "";
 }
 
@@ -1412,6 +1529,7 @@ export async function createSupplier(
   input: CreateSupplierInput,
 ) {
   const name = input.name.trim();
+
   if (!name) throw new Error("Ingresa la razón social.");
 
   const { error } = await supabase.from("suppliers").insert({
@@ -1421,6 +1539,7 @@ export async function createSupplier(
     phone: input.phone?.trim() || null,
     email: input.email?.trim() || null,
   });
+
   if (error) throw error;
 }
 
@@ -1429,19 +1548,24 @@ export async function updateSupplier(
   input: CreateSupplierInput,
 ) {
   const name = input.name.trim();
+
   if (!name) throw new Error("Ingresa la razón social.");
+
   const payload: Record<string, unknown> = {
     name,
     document_number: input.documentNumber?.trim() || null,
     phone: input.phone?.trim() || null,
     updated_at: new Date().toISOString(),
   };
+
   // No pisar el email si el formulario no lo gestiona (input.email === undefined).
   if (input.email !== undefined) payload.email = input.email.trim() || null;
+
   const { error } = await supabase
     .from("suppliers")
     .update(payload as never)
     .eq("id", supplierId);
+
   if (error) throw error;
 }
 
@@ -1450,6 +1574,7 @@ export async function deleteSupplier(supplierId: string) {
     .from("suppliers")
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", supplierId);
+
   if (error) throw error;
 }
 
@@ -1458,6 +1583,7 @@ function totalStock(input: CreateProductInput) {
   if (input.locations && input.locations.length > 0) {
     return input.locations.reduce((sum, loc) => sum + (loc.stock || 0), 0);
   }
+
   return input.stock;
 }
 
@@ -1471,7 +1597,9 @@ export async function fetchLocationStock(
     .select("product_id, stock")
     .eq("location_id", locationId)
     .eq("is_active", true);
+
   if (error) throw error;
+
   return new Map(
     (data ?? []).map((row) => [row.product_id, toNumber(row.stock)]),
   );
@@ -1510,9 +1638,12 @@ export async function fetchProductVariants(
     .eq("is_active", true)
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
+
   if (error) throw error;
+
   return (data ?? []).map((row) => {
     const attributes = (row.attributes ?? {}) as Record<string, string>;
+
     return {
       id: row.id,
       productId: row.product_id,
@@ -1540,9 +1671,11 @@ export async function fetchLocationVariantStock(locationId: string): Promise<{
     .select("stock, product_variant_id, product_variants!inner(product_id)")
     .eq("location_id", locationId)
     .eq("is_active", true);
+
   if (error) throw error;
   const byVariant = new Map<string, number>();
   const byProduct = new Map<string, number>();
+
   for (const row of (data ?? []) as Array<{
     stock: number;
     product_variant_id: string;
@@ -1551,9 +1684,11 @@ export async function fetchLocationVariantStock(locationId: string): Promise<{
     const stock = toNumber(row.stock);
     byVariant.set(row.product_variant_id, stock);
     const productId = row.product_variants?.product_id;
+
     if (productId)
       byProduct.set(productId, (byProduct.get(productId) ?? 0) + stock);
   }
+
   return { byVariant, byProduct };
 }
 
@@ -1566,7 +1701,9 @@ export async function fetchVariantLocations(
     .select("location_id, stock")
     .eq("product_variant_id", variantId)
     .eq("is_active", true);
+
   if (error) throw error;
+
   return (data ?? []).map((row) => ({
     locationId: row.location_id,
     stock: toNumber(row.stock),
@@ -1587,6 +1724,7 @@ export async function syncProductVariants(
   variants: ProductVariantInput[],
 ) {
   requireCompanyId(session);
+
   const payload = variants.map((v) => ({
     id: v.id ?? null,
     attributes: v.attributes ?? {},
@@ -1599,11 +1737,13 @@ export async function syncProductVariants(
       stock: loc.stock || 0,
     })),
   }));
+
   const { error } = await supabase.rpc("sync_product_variants", {
     p_product_id: productId,
     p_attribute_names: attributeNames,
     p_variants: payload as never,
   });
+
   if (error) throw error;
 }
 
@@ -1629,9 +1769,12 @@ export async function fetchLowStockByLocation(
     .eq("is_active", true)
     .lt("stock", threshold)
     .order("stock", { ascending: true });
+
   if (companyId) query = query.eq("company_id", companyId);
   const { data, error } = await query;
+
   if (error) throw error;
+
   return (data ?? [])
     .filter(
       (row: { products?: { deleted_at?: string | null } }) =>
@@ -1668,11 +1811,15 @@ export async function transferStock(
   },
 ) {
   requireCompanyId(session);
+
   if (!input.productId) throw new Error("Elige un producto.");
+
   if (!input.fromLocationId || !input.toLocationId)
     throw new Error("Elige la sucursal de origen y la de destino.");
+
   if (input.fromLocationId === input.toLocationId)
     throw new Error("El origen y el destino deben ser distintos.");
+
   if (!(input.qty > 0)) throw new Error("Ingresa una cantidad mayor a cero.");
 
   const { data, error } = await supabase.rpc("transfer_stock", {
@@ -1682,7 +1829,9 @@ export async function transferStock(
     p_qty: input.qty,
     p_notes: undefined,
   });
+
   if (error) throw error;
+
   return data as {
     product_id: string;
     from_stock: number;
@@ -1700,7 +1849,9 @@ export async function fetchProductLocations(
     .select("location_id, stock")
     .eq("product_id", productId)
     .eq("is_active", true);
+
   if (error) throw error;
+
   return (data ?? []).map((row) => ({
     locationId: row.location_id,
     stock: toNumber(row.stock),
@@ -1736,10 +1887,14 @@ export async function fetchStockMovements(
     )
     .order("created_at", { ascending: false })
     .limit(200);
+
   if (companyId) query = query.eq("company_id", companyId);
+
   if (locationId) query = query.eq("location_id", locationId);
   const { data, error } = await query;
+
   if (error) throw error;
+
   return (data ?? []).map(
     (row: {
       id: string;
@@ -1777,8 +1932,11 @@ export async function createStockAdjustment(
   input: { productId: string; locationId: string; qty: number; notes?: string },
 ) {
   requireCompanyId(session);
+
   if (!input.productId) throw new Error("Elige un producto.");
+
   if (!input.locationId) throw new Error("Elige una sucursal.");
+
   if (!input.qty)
     throw new Error(
       "Ingresa una cantidad distinta de cero (usa - para descontar).",
@@ -1790,7 +1948,9 @@ export async function createStockAdjustment(
     p_qty: input.qty,
     p_notes: input.notes?.trim() || undefined,
   });
+
   if (error) throw error;
+
   return data as {
     product_id: string;
     location_id: string;
@@ -1814,20 +1974,26 @@ async function syncProductLocations(
       stock: loc.stock || 0,
       is_active: true,
     }));
+
     const { error } = await supabase
       .from("product_locations")
       .upsert(rows, { onConflict: "product_id,location_id" });
+
     if (error) throw error;
   }
+
   const keep = locations.map((loc) => loc.locationId);
+
   let deactivate = supabase
     .from("product_locations")
     .update({ is_active: false, updated_at: new Date().toISOString() })
     .eq("product_id", productId)
     .eq("is_active", true);
+
   if (keep.length > 0)
     deactivate = deactivate.not("location_id", "in", `(${keep.join(",")})`);
   const { error } = await deactivate;
+
   if (error) throw error;
 }
 
@@ -1842,7 +2008,9 @@ export async function fetchComboItems(
       "component_product_id, qty, products!product_combo_items_component_product_id_fkey(name)",
     )
     .eq("combo_product_id", comboProductId);
+
   if (error) throw error;
+
   return (data ?? []).map(
     (row: {
       component_product_id: string;
@@ -1871,9 +2039,12 @@ export async function fetchAllComboItems(
   let query = supabase
     .from("product_combo_items")
     .select("combo_product_id, component_product_id, qty");
+
   if (companyId) query = query.eq("company_id", companyId);
   const { data, error } = await query;
+
   if (error) throw error;
+
   return (data ?? []).map((row) => ({
     comboProductId: row.combo_product_id,
     componentProductId: row.component_product_id,
@@ -1893,17 +2064,22 @@ async function syncComboItems(
     .from("product_combo_items")
     .delete()
     .eq("combo_product_id", comboProductId);
+
   if (delError) throw delError;
+
   if (items.length === 0) return;
+
   const rows = items.map((item) => ({
     company_id: companyId,
     combo_product_id: comboProductId,
     component_product_id: item.componentProductId,
     qty: item.qty,
   }));
+
   const { error: insError } = await supabase
     .from("product_combo_items")
     .insert(rows);
+
   if (insError) throw insError;
 }
 
@@ -1912,13 +2088,16 @@ export async function createProduct(
   input: CreateProductInput,
 ) {
   const name = input.name.trim();
+
   if (!name) throw new Error("Ingresa el nombre del producto.");
   const stock = totalStock(input);
+
   if (input.price < 0 || input.cost < 0 || stock < 0) {
     throw new Error("Costo, precio y stock deben ser valores positivos.");
   }
 
   const companyId = requireCompanyId(session);
+
   const { data, error } = await supabase
     .from("products")
     .insert({
@@ -1945,13 +2124,16 @@ export async function createProduct(
     } as never)
     .select("id")
     .single();
+
   if (error) throw error;
   const productId = (data as { id: string }).id;
+
   if (input.productType === "combo") {
     await syncComboItems(companyId, productId, input.comboItems ?? []);
   } else if (input.locations) {
     await syncProductLocations(companyId, productId, input.locations);
   }
+
   return productId;
 }
 
@@ -1961,8 +2143,10 @@ export async function updateProduct(
   companyId?: string,
 ) {
   const name = input.name.trim();
+
   if (!name) throw new Error("Ingresa el nombre del producto.");
   const stock = totalStock(input);
+
   if (input.price < 0 || input.cost < 0 || stock < 0) {
     throw new Error("Costo, precio y stock deben ser valores positivos.");
   }
@@ -1979,30 +2163,39 @@ export async function updateProduct(
     unit: input.unit.trim() || "und",
     updated_at: new Date().toISOString(),
   };
+
   if (input.imageUrl !== undefined) updates.image_url = input.imageUrl || null;
+
   if (input.priceIncludesTax !== undefined)
     updates.price_includes_tax = input.priceIncludesTax;
+
   if (input.lowStockThreshold !== undefined)
     updates.low_stock_threshold = input.lowStockThreshold;
+
   const { error } = await supabase
     .from("products")
     .update(updates as never)
     .eq("id", productId);
+
   if (error) throw error;
 
   if (input.locations || input.comboItems !== undefined) {
     let cid = companyId;
+
     if (!cid) {
       const { data } = await supabase
         .from("products")
         .select("company_id")
         .eq("id", productId)
         .maybeSingle();
+
       cid = (data as { company_id?: string } | null)?.company_id;
     }
+
     if (cid) {
       if (input.locations)
         await syncProductLocations(cid, productId, input.locations);
+
       if (input.comboItems !== undefined)
         await syncComboItems(cid, productId, input.comboItems);
     }
@@ -2015,6 +2208,7 @@ export async function deleteProduct(productId: string) {
   const { error } = await supabase.rpc("soft_delete_product", {
     p_product_id: productId,
   });
+
   if (error) throw error;
 }
 
@@ -2044,7 +2238,9 @@ export async function fetchPlans(): Promise<SubscriptionPlan[]> {
     )
     .eq("is_active", true)
     .order("price", { ascending: true });
+
   if (error) throw error;
+
   return (data ?? []).map((row) => ({
     id: row.id,
     name: row.name,
@@ -2058,7 +2254,9 @@ export async function fetchPlans(): Promise<SubscriptionPlan[]> {
 
 function planPayload(input: PlanInput) {
   const name = input.name.trim();
+
   if (!name) throw new Error("Ingresa el nombre del plan.");
+
   return {
     name,
     price: Math.max(0, input.price),
@@ -2072,6 +2270,7 @@ export async function createPlan(input: PlanInput) {
   const { error } = await supabase
     .from("subscription_plans")
     .insert(planPayload(input));
+
   if (error) throw error;
 }
 
@@ -2080,6 +2279,7 @@ export async function updatePlan(planId: string, input: PlanInput) {
     .from("subscription_plans")
     .update({ ...planPayload(input), updated_at: new Date().toISOString() })
     .eq("id", planId);
+
   if (error) throw error;
 }
 
@@ -2088,6 +2288,7 @@ export async function deletePlan(planId: string) {
     .from("subscription_plans")
     .update({ is_active: false, updated_at: new Date().toISOString() })
     .eq("id", planId);
+
   if (error) throw error;
 }
 
@@ -2125,6 +2326,7 @@ export interface CashMovement {
 // resto de los controles por rol en este proyecto (ver src/lib/permissions.ts).
 const CASH_SESSION_COLS_SAFE =
   "id, status, opening_amount, opened_at, closed_at, opened_by, closed_by, till_id, review_status";
+
 const CASH_SESSION_COLS_FULL = `${CASH_SESSION_COLS_SAFE}, real_amount, expected_amount, difference, classification`;
 
 function mapCashSession(row: {
@@ -2179,11 +2381,15 @@ export async function fetchProfileNames(
   companyId?: string,
 ): Promise<Record<string, string>> {
   if (!companyId) return {};
+
   try {
     const { data, error } = await supabase.rpc("list_company_profile_names");
+
     if (error) throw error;
     const map: Record<string, string> = {};
+
     for (const row of data ?? []) map[row.id] = row.full_name;
+
     return map;
   } catch {
     return {};
@@ -2208,12 +2414,17 @@ export async function fetchOpenCashSession(
     .is("closed_at", null)
     .order("opened_at", { ascending: false })
     .limit(1);
+
   if (companyId) query = query.eq("company_id", companyId);
+
   if (locationId) query = query.eq("location_id", locationId);
+
   if (openedBy) query = query.eq("opened_by", openedBy);
   const { data, error } = await query;
+
   if (error) throw error;
   const row = data?.[0];
+
   return row ? mapCashSession(row as never) : null;
 }
 
@@ -2229,11 +2440,16 @@ export async function fetchCashClosings(
     .eq("status", "closed")
     .order("closed_at", { ascending: false })
     .limit(20);
+
   if (companyId) query = query.eq("company_id", companyId);
+
   if (locationId) query = query.eq("location_id", locationId);
+
   if (openedBy) query = query.eq("opened_by", openedBy);
   const { data, error } = await query;
+
   if (error) throw error;
+
   return (data ?? []).map((row) => mapCashSession(row as never));
 }
 
@@ -2245,7 +2461,9 @@ export async function fetchCashMovements(
     .select("id, movement_type, concept, amount, movement_at")
     .eq("cash_session_id", sessionId)
     .order("movement_at", { ascending: true });
+
   if (error) throw error;
+
   return (data ?? []).map((row) => ({
     id: row.id,
     type: row.movement_type,
@@ -2266,7 +2484,9 @@ export async function openCashSession(
     p_location_id: locationId ?? undefined,
     p_till_id: tillId ?? undefined,
   });
+
   if (error) throw error;
+
   return data as string;
 }
 
@@ -2278,7 +2498,9 @@ export async function createCashMovement(
   amount: number,
 ) {
   const magnitude = Math.abs(amount);
+
   if (!magnitude) throw new Error("Ingresa un monto válido.");
+
   const { error } = await supabase.from("cash_movements").insert({
     company_id: requireCompanyId(session),
     cash_session_id: sessionId,
@@ -2286,6 +2508,7 @@ export async function createCashMovement(
     concept: concept.trim() || (type === "ingreso" ? "Ingreso" : "Egreso"),
     amount: type === "egreso" ? -magnitude : magnitude,
   });
+
   if (error) throw error;
 }
 
@@ -2337,7 +2560,9 @@ export async function submitTillCount(
     p_denominations: denominations,
     p_manual_adjustment: manualAdjustment,
   });
+
   if (error) throw error;
+
   const row = data as {
     count_id: string;
     count_number: number;
@@ -2347,6 +2572,7 @@ export async function submitTillCount(
     other_total: number;
     manual_adjustment: number;
   };
+
   return {
     countId: row.count_id,
     countNumber: row.count_number === 2 ? 2 : 1,
@@ -2364,8 +2590,10 @@ export async function finishTillCount(
   const { data, error } = await supabase.rpc("finish_till_count", {
     p_session_id: sessionId,
   });
+
   if (error) throw error;
   const row = data as { status: string; second_count_required: boolean };
+
   return { status: row.status, secondCountRequired: row.second_count_required };
 }
 
@@ -2384,13 +2612,16 @@ export async function authorizeCashSession(
     p_session_id: sessionId,
     p_notes: notes ?? undefined,
   });
+
   if (error) throw error;
+
   const row = data as {
     expected_amount: number;
     real_amount: number;
     difference: number;
     classification: string;
   };
+
   return {
     expectedAmount: toNumber(row.expected_amount),
     realAmount: toNumber(row.real_amount),
@@ -2407,16 +2638,20 @@ export async function fetchTillCounts(sessionId: string): Promise<TillCount[]> {
     )
     .eq("cash_session_id", sessionId)
     .order("count_number", { ascending: true });
+
   if (error) throw error;
   const countIds = (counts ?? []).map((c) => c.id);
   let linesByCount: Record<string, TillCountLine[]> = {};
+
   if (countIds.length) {
     const { data: lines, error: linesError } = await supabase
       .from("till_count_lines")
       .select("till_count_id, denomination, quantity, subtotal")
       .in("till_count_id", countIds);
+
     if (linesError) throw linesError;
     linesByCount = {};
+
     for (const line of lines ?? []) {
       const arr = (linesByCount[line.till_count_id] ??= []);
       arr.push({
@@ -2426,6 +2661,7 @@ export async function fetchTillCounts(sessionId: string): Promise<TillCount[]> {
       });
     }
   }
+
   return (counts ?? []).map((c) => ({
     id: c.id,
     countNumber: c.count_number === 2 ? 2 : 1,
@@ -2461,17 +2697,21 @@ export async function fetchSessionsNeedingSecondCount(
     .eq("location_id", locationId)
     .eq("status", "open")
     .order("opened_at", { ascending: true });
+
   if (error) throw error;
   const sessions = (data ?? []).map((row) => mapCashSession(row as never));
   const matches: CashSession[] = [];
+
   for (const s of sessions) {
     const counts = await fetchTillCounts(s.id);
     const count1 = counts.find((c) => c.countNumber === 1);
     const count2 = counts.find((c) => c.countNumber === 2);
+
     if (count1 && !count2 && count1.countedBy !== excludeCountedBy) {
       matches.push(s);
     }
   }
+
   return matches;
 }
 
@@ -2492,15 +2732,20 @@ export async function fetchPendingReviewSessions(
     .eq("status", "closed")
     .eq("review_status", "pending")
     .order("closed_at", { ascending: true });
+
   if (companyId) query = query.eq("company_id", companyId);
+
   if (locationId) query = query.eq("location_id", locationId);
   const { data, error } = await query;
+
   if (error) throw error;
+
   return (data ?? []).map((row) => {
     const r = row as unknown as {
       locations: { name: string } | null;
       tills: { name: string } | null;
     };
+
     return {
       ...mapCashSession(row as never),
       locationName: r.locations?.name ?? "—",
@@ -2538,9 +2783,13 @@ export async function fetchCashReport(
     .eq("status", "closed")
     .eq("review_status", "authorized")
     .order("closed_at", { ascending: false });
+
   if (filters.locationId) query = query.eq("location_id", filters.locationId);
+
   if (filters.tillId) query = query.eq("till_id", filters.tillId);
+
   if (filters.openedBy) query = query.eq("opened_by", filters.openedBy);
+
   // closed_at es timestamptz; dateFrom/dateTo vienen como "YYYY-MM-DD" del
   // selector de periodo -- se compara por el día completo en hora local del
   // negocio no hace falta aquí (a diferencia de ventas): un corte casi
@@ -2548,9 +2797,11 @@ export async function fetchCashReport(
   // diferencia de husos horarios de a lo más unas horas no cambia qué
   // corte del día aparece en el reporte.
   if (filters.dateFrom) query = query.gte("closed_at", filters.dateFrom);
+
   if (filters.dateTo)
     query = query.lte("closed_at", `${filters.dateTo}T23:59:59`);
   const { data, error } = await query;
+
   if (error) throw error;
   const sessions = data ?? [];
   const sessionIds = sessions.map((s) => s.id);
@@ -2563,6 +2814,7 @@ export async function fetchCashReport(
     string,
     { cardTotal: number; transferTotal: number; otherTotal: number }
   > = {};
+
   if (sessionIds.length) {
     const { data: counts, error: countsError } = await supabase
       .from("till_counts")
@@ -2571,7 +2823,9 @@ export async function fetchCashReport(
       )
       .in("cash_session_id", sessionIds)
       .order("count_number", { ascending: true });
+
     if (countsError) throw countsError;
+
     for (const c of counts ?? []) {
       latestCountBySession[c.cash_session_id] = {
         cardTotal: toNumber(c.card_total),
@@ -2586,11 +2840,13 @@ export async function fetchCashReport(
       locations: { name: string } | null;
       tills: { name: string } | null;
     };
+
     const totals = latestCountBySession[row.id] ?? {
       cardTotal: 0,
       transferTotal: 0,
       otherTotal: 0,
     };
+
     return {
       ...mapCashSession(row as never),
       locationName: r.locations?.name ?? "—",
@@ -2656,7 +2912,9 @@ export async function fetchAuditLog(
     .eq("entity_type", entityType)
     .eq("entity_id", entityId)
     .order("created_at", { ascending: true });
+
   if (error) throw error;
+
   return (data ?? []).map((row) => ({
     id: row.id,
     actorId: row.actor_id,
@@ -2684,11 +2942,15 @@ export async function fetchCompanyAuditLog(options?: {
     .select("id, actor_id, entity_type, entity_id, action, detail, created_at")
     .order("created_at", { ascending: false })
     .limit(options?.limit ?? 200);
+
   if (options?.entityType) {
     query = query.eq("entity_type", options.entityType);
   }
+
   const { data, error } = await query;
+
   if (error) throw error;
+
   return (data ?? []).map((row) => ({
     id: row.id,
     actorId: row.actor_id,
@@ -2716,7 +2978,9 @@ export async function fetchCompanyProfile(
     .select("name, country_code, fiscal_id, address, phone")
     .eq("id", companyId)
     .single();
+
   if (error) throw error;
+
   return {
     name: data.name ?? "",
     countryCode: data.country_code ?? "",
@@ -2742,33 +3006,48 @@ export async function updateCompanySettings(
     phone: input.phone?.trim() || null,
     updated_at: new Date().toISOString(),
   };
+
   if (input.logoUrl !== undefined) updates.logo_url = input.logoUrl || null;
+
   if (input.businessType !== undefined)
     updates.business_type = input.businessType;
+
   if (input.cardCommissionRate !== undefined)
     updates.card_commission_rate = input.cardCommissionRate;
+
   if (input.loyaltyEnabled !== undefined)
     updates.loyalty_enabled = input.loyaltyEnabled;
+
   if (input.loyaltyPointValue !== undefined)
     updates.loyalty_point_value = input.loyaltyPointValue;
+
   if (input.loyaltyEarnRate !== undefined)
     updates.loyalty_earn_rate = input.loyaltyEarnRate;
+
   if (input.loyaltyTiersEnabled !== undefined)
     updates.loyalty_tiers_enabled = input.loyaltyTiersEnabled;
+
   if (input.loyaltyTier2MinSpend !== undefined)
     updates.loyalty_tier2_min_spend = input.loyaltyTier2MinSpend;
+
   if (input.loyaltyTier3MinSpend !== undefined)
     updates.loyalty_tier3_min_spend = input.loyaltyTier3MinSpend;
+
   if (input.loyaltyTier1EarnRate !== undefined)
     updates.loyalty_tier1_earn_rate = input.loyaltyTier1EarnRate;
+
   if (input.loyaltyTier2EarnRate !== undefined)
     updates.loyalty_tier2_earn_rate = input.loyaltyTier2EarnRate;
+
   if (input.loyaltyTier3EarnRate !== undefined)
     updates.loyalty_tier3_earn_rate = input.loyaltyTier3EarnRate;
+
   if (input.apartadoMinDepositPct !== undefined)
     updates.apartado_min_deposit_pct = input.apartadoMinDepositPct;
+
   if (input.lowStockThresholdDefault !== undefined)
     updates.low_stock_threshold_default = input.lowStockThresholdDefault;
+
   const { data, error } = await supabase
     .from("companies")
     .update(updates as never)
@@ -2777,6 +3056,7 @@ export async function updateCompanySettings(
     .single();
 
   if (error) throw error;
+
   return data as CompanyRow;
 }
 
@@ -2800,6 +3080,7 @@ export interface UpdateCountrySettingInput {
 
 function parseDocTypesJson(raw: unknown): DocumentType[] {
   if (!Array.isArray(raw)) return [];
+
   return raw
     .filter(
       (entry): entry is Record<string, unknown> =>
@@ -2814,14 +3095,17 @@ function parseDocTypesJson(raw: unknown): DocumentType[] {
 
 export async function fetchCountrySettings(): Promise<CountrySetting[]> {
   const client = supabase as any;
+
   const { data, error } = await client
     .from("country_settings")
     .select(
       "country_code, tax_rate, tax_name, fiscal_id_label, currency_code, document_types",
     )
     .order("country_code");
+
   if (error) throw error;
   const rows = (data ?? []) as Array<Record<string, unknown>>;
+
   return rows.map((row) => ({
     countryCode: String(row.country_code),
     taxRate: toNumber(row.tax_rate),
@@ -2841,6 +3125,7 @@ export async function updateCountrySetting(
     .filter((doc) => doc.name.length > 0);
 
   const client = supabase as any;
+
   const { error } = await client
     .from("country_settings")
     .update({
@@ -2851,6 +3136,7 @@ export async function updateCountrySetting(
       updated_at: new Date().toISOString(),
     })
     .eq("country_code", countryCode);
+
   if (error) throw error;
 }
 
@@ -2859,6 +3145,7 @@ export async function updateCompanyLogo(
   logoUrl: string | null,
 ) {
   const companyId = requireCompanyId(session);
+
   const { data, error } = await supabase
     .from("companies")
     .update({
@@ -2868,7 +3155,9 @@ export async function updateCompanyLogo(
     .eq("id", companyId)
     .select("*")
     .single();
+
   if (error) throw error;
+
   return data as CompanyRow;
 }
 
@@ -2876,6 +3165,7 @@ export function mapCompanyToBusinessSettings(
   row: CompanyRow,
 ): Partial<BusinessSettings> {
   const market = getMarketByCountryCode(row.country_code);
+
   return {
     businessName: row.name,
     countryCode: market.countryCode,
@@ -2973,11 +3263,13 @@ export async function fetchProfitReport(
   const fromTs = fromDate
     ? new Date(`${fromDate}T00:00:00`).toISOString()
     : null;
+
   const toTs = toDate
     ? new Date(
         new Date(`${toDate}T00:00:00`).getTime() + 24 * 60 * 60 * 1000,
       ).toISOString()
     : null;
+
   const { data, error } = await supabase.rpc("profit_report", {
     p_from: fromTs as unknown as string,
     p_to: toTs as unknown as string,
@@ -2988,12 +3280,14 @@ export async function fetchProfitReport(
 
   let totalRevenue = 0;
   let totalCost = 0;
+
   const rows: ProfitRow[] = (data ?? []).map((row: Record<string, unknown>) => {
     const revenue = toNumber(row.revenue, 0);
     const cost = toNumber(row.cost, 0);
     const profit = toNumber(row.profit, revenue - cost);
     totalRevenue += revenue;
     totalCost += cost;
+
     return {
       productName: (row.product_name as string) ?? "—",
       qty: toNumber(row.qty, 0),
@@ -3004,6 +3298,7 @@ export async function fetchProfitReport(
   });
 
   const totalProfit = totalRevenue - totalCost;
+
   return {
     totalRevenue,
     totalCost,
@@ -3090,10 +3385,14 @@ export async function fetchLocations(
   onlyActive = false,
 ): Promise<Location[]> {
   let query = supabase.from("locations").select("*").order("name");
+
   if (companyId) query = query.eq("company_id", companyId);
+
   if (onlyActive) query = query.eq("is_active", true);
   const { data, error } = await query;
+
   if (error) throw error;
+
   return (data ?? []).map((row) => ({
     id: row.id,
     name: row.name,
@@ -3150,6 +3449,7 @@ export async function updateLocationTicketSettings(
       updated_at: new Date().toISOString(),
     } as never)
     .eq("id", locationId);
+
   if (error) throw error;
 }
 
@@ -3158,12 +3458,15 @@ export async function createLocation(
   input: LocationInput,
 ): Promise<string> {
   const name = input.name.trim();
+
   if (!name) throw new Error("Ingresa el nombre de la sucursal.");
+
   const base = {
     company_id: requireCompanyId(session),
     name,
     address: input.address?.trim() || null,
   };
+
   const full = {
     ...base,
     short_code: input.shortCode?.trim() || null,
@@ -3172,27 +3475,34 @@ export async function createLocation(
     manager_name: input.managerName?.trim() || null,
     opening_hours: input.openingHours?.trim() || null,
   };
+
   let res = await supabase
     .from("locations")
     .insert(full as never)
     .select("id")
     .single();
+
   if (res.error && isMissingColumnError(res.error)) {
     res = await supabase.from("locations").insert(base).select("id").single();
   }
+
   if (res.error) throw res.error;
+
   return (res.data as { id: string }).id;
 }
 
 export async function updateLocation(locationId: string, input: LocationInput) {
   const name = input.name.trim();
+
   if (!name) throw new Error("Ingresa el nombre de la sucursal.");
+
   const base = {
     name,
     address: input.address?.trim() || null,
     is_active: input.isActive ?? true,
     updated_at: new Date().toISOString(),
   };
+
   const full = {
     ...base,
     short_code: input.shortCode?.trim() || null,
@@ -3201,16 +3511,19 @@ export async function updateLocation(locationId: string, input: LocationInput) {
     manager_name: input.managerName?.trim() || null,
     opening_hours: input.openingHours?.trim() || null,
   };
+
   let res = await supabase
     .from("locations")
     .update(full as never)
     .eq("id", locationId);
+
   if (res.error && isMissingColumnError(res.error)) {
     res = await supabase
       .from("locations")
       .update(base as never)
       .eq("id", locationId);
   }
+
   if (res.error) throw res.error;
 }
 
@@ -3225,6 +3538,7 @@ export async function updateLocationWeeklyHours(
     p_location_id: locationId,
     p_weekly_hours: weeklyHours as unknown as Json,
   });
+
   if (error) throw error;
 }
 
@@ -3233,6 +3547,7 @@ export async function setLocationActive(locationId: string, isActive: boolean) {
     .from("locations")
     .update({ is_active: isActive, updated_at: new Date().toISOString() })
     .eq("id", locationId);
+
   if (error) throw error;
 }
 
@@ -3261,7 +3576,9 @@ export async function fetchTills(locationId: string): Promise<Till[]> {
     .select("id, location_id, name, code, is_active")
     .eq("location_id", locationId)
     .order("name");
+
   if (error) throw error;
+
   return (data ?? []).map((row) => ({
     id: row.id,
     locationId: row.location_id,
@@ -3277,19 +3594,24 @@ export async function createTill(
   input: TillInput,
 ) {
   const name = input.name.trim();
+
   if (!name) throw new Error("Ingresa el nombre de la caja.");
+
   const { error } = await supabase.from("tills").insert({
     company_id: requireCompanyId(session),
     location_id: locationId,
     name,
     code: input.code?.trim() || null,
   });
+
   if (error) throw error;
 }
 
 export async function updateTill(tillId: string, input: TillInput) {
   const name = input.name.trim();
+
   if (!name) throw new Error("Ingresa el nombre de la caja.");
+
   const { error } = await supabase
     .from("tills")
     .update({
@@ -3298,6 +3620,7 @@ export async function updateTill(tillId: string, input: TillInput) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", tillId);
+
   if (error) throw error;
 }
 
@@ -3306,6 +3629,7 @@ export async function setTillActive(tillId: string, isActive: boolean) {
     .from("tills")
     .update({ is_active: isActive, updated_at: new Date().toISOString() })
     .eq("id", tillId);
+
   if (error) throw error;
 }
 
@@ -3315,9 +3639,11 @@ export function buildDashboardData(
 ): DashboardData {
   const today = localDateKey(new Date());
   const month = today.slice(0, 7);
+
   const lowStock = catalog.products.filter(
     (product) => product.stock <= effectiveLowStockThreshold(product, 10),
   );
+
   const productById = new Map(
     catalog.products.map((product) => [product.id, product]),
   );
@@ -3325,6 +3651,7 @@ export function buildDashboardData(
   const totalToday = sales
     .filter((sale) => sale.date === today)
     .reduce((total, sale) => total + sale.total, 0);
+
   const totalMonth = sales
     .filter((sale) => sale.date.startsWith(month))
     .reduce((total, sale) => total + sale.total, 0);
@@ -3332,6 +3659,7 @@ export function buildDashboardData(
   const dates = Array.from(new Set(sales.map((sale) => sale.date)))
     .sort()
     .slice(-7);
+
   const salesLast7Days = dates.map((date) => ({
     day: new Date(`${date}T00:00:00`).toLocaleDateString("es", {
       weekday: "short",
@@ -3343,14 +3671,17 @@ export function buildDashboardData(
   }));
 
   const methodMap = new Map<string, number>();
+
   for (const sale of sales)
     methodMap.set(sale.method, (methodMap.get(sale.method) ?? 0) + sale.total);
 
   const categoryMap = new Map<string, number>();
+
   for (const sale of sales) {
     for (const item of sale.items) {
       const category =
         productById.get(item.productId)?.category ?? "Sin categoría";
+
       categoryMap.set(
         category,
         (categoryMap.get(category) ?? 0) + item.qty * item.price,
@@ -3422,15 +3753,19 @@ export async function updateCustomer(
   input: CreateCustomerInput,
 ) {
   const name = input.name.trim();
+
   if (!name) throw new Error("Ingresa el nombre del cliente.");
+
   const base: Record<string, unknown> = {
     name,
     document_number: input.documentNumber?.trim() || null,
     phone: input.phone?.trim() || null,
     updated_at: new Date().toISOString(),
   };
+
   // No pisar el email si el formulario no lo gestiona (input.email === undefined).
   if (input.email !== undefined) base.email = input.email.trim() || null;
+
   if (input.creditLimit !== undefined) base.credit_limit = input.creditLimit;
   const address = input.address?.trim() || null;
 
@@ -3438,12 +3773,14 @@ export async function updateCustomer(
     .from("customers")
     .update({ ...base, address } as never)
     .eq("id", customerId);
+
   if (res.error && isMissingColumnError(res.error)) {
     res = await supabase
       .from("customers")
       .update(base as never)
       .eq("id", customerId);
   }
+
   if (res.error) throw res.error;
 }
 
@@ -3452,6 +3789,7 @@ export async function deleteCustomer(customerId: string) {
     .from("customers")
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", customerId);
+
   if (error) throw error;
 }
 
@@ -3473,11 +3811,14 @@ export async function collectCustomerCredit(
     p_kind: kind,
     p_notes: notes || undefined,
   });
+
   if (error) throw error;
+
   const payload = (data ?? {}) as {
     applied?: number;
     remaining_balance?: number;
   };
+
   return {
     applied: toNumber(payload.applied),
     remainingBalance: toNumber(payload.remaining_balance),
@@ -3486,19 +3827,23 @@ export async function collectCustomerCredit(
 
 function documentNumber(prefix: string) {
   const now = new Date();
+
   const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
     now.getDate(),
   ).padStart(2, "0")}`;
+
   const rand = Math.floor(Math.random() * 0x10000)
     .toString(16)
     .toUpperCase()
     .padStart(4, "0");
+
   return `${prefix}-${stamp}-${rand}`;
 }
 
 // ---- Promociones ----
 
 export type PromotionType = "discount" | "2x1" | "combo";
+
 export type PromotionScopeType = "none" | "product" | "category";
 
 export interface Promotion {
@@ -3541,10 +3886,13 @@ export async function fetchPromotions(
     )
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
+
   const { data, error } = await (companyId
     ? query.eq("company_id", companyId)
     : query);
+
   if (error) throw error;
+
   return (data ?? []).map((row) => ({
     id: row.id,
     name: row.name,
@@ -3569,6 +3917,7 @@ export async function fetchPromotions(
 function promotionScopeFields(input: PromotionInput) {
   const scopeType: PromotionScopeType =
     input.type === "discount" ? (input.scopeType ?? "none") : "none";
+
   return {
     scope_type: scopeType,
     product_id: scopeType === "product" ? (input.productId ?? null) : null,
@@ -3582,7 +3931,9 @@ export async function createPromotion(
   input: PromotionInput,
 ) {
   const name = input.name.trim();
+
   if (!name) throw new Error("Ingresa el nombre de la promoción.");
+
   const { error } = await supabase.from("promotions").insert({
     company_id: requireCompanyId(session),
     name,
@@ -3594,6 +3945,7 @@ export async function createPromotion(
     active: true,
     ...promotionScopeFields(input),
   });
+
   if (error) throw error;
 }
 
@@ -3602,7 +3954,9 @@ export async function updatePromotion(
   input: PromotionInput,
 ) {
   const name = input.name.trim();
+
   if (!name) throw new Error("Ingresa el nombre de la promoción.");
+
   const { error } = await supabase
     .from("promotions")
     .update({
@@ -3616,6 +3970,7 @@ export async function updatePromotion(
       ...promotionScopeFields(input),
     })
     .eq("id", promotionId);
+
   if (error) throw error;
 }
 
@@ -3624,6 +3979,7 @@ export async function setPromotionActive(promotionId: string, active: boolean) {
     .from("promotions")
     .update({ active, updated_at: new Date().toISOString() })
     .eq("id", promotionId);
+
   if (error) throw error;
 }
 
@@ -3632,6 +3988,7 @@ export async function deletePromotion(promotionId: string) {
     .from("promotions")
     .update({ deleted_at: new Date().toISOString(), active: false })
     .eq("id", promotionId);
+
   if (error) throw error;
 }
 
@@ -3670,9 +4027,11 @@ export async function fetchPurchases(companyId?: string): Promise<Purchase[]> {
     )
     .is("deleted_at", null)
     .order("purchase_date", { ascending: false });
+
   const { data, error } = await (companyId
     ? query.eq("company_id", companyId)
     : query);
+
   if (error) throw error;
   const rows = data ?? [];
 
@@ -3683,12 +4042,15 @@ export async function fetchPurchases(companyId?: string): Promise<Purchase[]> {
         .filter((id): id is string => Boolean(id)),
     ),
   );
+
   const supplierName = new Map<string, string>();
+
   if (supplierIds.length) {
     const { data: suppliers } = await supabase
       .from("suppliers")
       .select("id, name")
       .in("id", supplierIds);
+
     (suppliers ?? []).forEach((supplier) =>
       supplierName.set(supplier.id, supplier.name),
     );
@@ -3713,6 +4075,7 @@ export async function createPurchase(
 ) {
   requireCompanyId(session);
   const items = input.items.filter((item) => item.productId && item.qty > 0);
+
   if (!items.length)
     throw new Error("Agrega al menos un producto a la compra.");
 
@@ -3731,7 +4094,9 @@ export async function createPurchase(
       unit_cost: item.unitCost,
     })),
   });
+
   if (error) throw error;
+
   return data as string;
 }
 
@@ -3773,9 +4138,11 @@ export async function fetchReturns(companyId?: string): Promise<ReturnDoc[]> {
     .select("id, return_number, created_at, reason, total, status, sale_id")
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
+
   const { data, error } = await (companyId
     ? query.eq("company_id", companyId)
     : query);
+
   if (error) throw error;
   const rows = data ?? [];
 
@@ -3784,26 +4151,32 @@ export async function fetchReturns(companyId?: string): Promise<ReturnDoc[]> {
       rows.map((row) => row.sale_id).filter((id): id is string => Boolean(id)),
     ),
   );
+
   const saleNumber = new Map<string, string>();
+
   if (saleIds.length) {
     const { data: sales } = await supabase
       .from("sales")
       .select("id, sale_number")
       .in("id", saleIds);
+
     (sales ?? []).forEach((sale) => saleNumber.set(sale.id, sale.sale_number));
   }
 
   // Productos/unidades devueltos por cada nota (las que vuelven al stock).
   const returnIds = rows.map((row) => row.id);
+
   const itemsByReturn = new Map<
     string,
     { productName: string; variantLabel: string | null; qty: number }[]
   >();
+
   if (returnIds.length) {
     const { data: ritems } = await supabase
       .from("return_items")
       .select("return_id, product_name, variant_label, qty")
       .in("return_id", returnIds);
+
     (ritems ?? []).forEach((it) => {
       const list = itemsByReturn.get(it.return_id) ?? [];
       list.push({
@@ -3818,12 +4191,14 @@ export async function fetchReturns(companyId?: string): Promise<ReturnDoc[]> {
   return rows.map((row) => {
     const its = itemsByReturn.get(row.id) ?? [];
     const units = its.reduce((sum, i) => sum + i.qty, 0);
+
     const itemsLabel = its
       .map(
         (i) =>
           `${i.qty} × ${i.productName}${i.variantLabel ? ` (${i.variantLabel})` : ""}`,
       )
       .join(", ");
+
     return {
       id: row.id,
       number: row.return_number,
@@ -3858,9 +4233,12 @@ export async function fetchSaleItemsForReturn(
       "id, product_id, product_name, product_variant_id, variant_label, qty, unit_price",
     )
     .eq("sale_id", saleId);
+
   if (error) throw error;
   const items = data ?? [];
+
   if (!items.length) return [];
+
   const { data: prev } = await supabase
     .from("return_items")
     .select("sale_item_id, qty")
@@ -3868,6 +4246,7 @@ export async function fetchSaleItemsForReturn(
       "sale_item_id",
       items.map((i) => i.id),
     );
+
   const returned = new Map<string, number>();
   (prev ?? []).forEach((r) => {
     if (!r.sale_item_id) return;
@@ -3876,6 +4255,7 @@ export async function fetchSaleItemsForReturn(
       (returned.get(r.sale_item_id) ?? 0) + toNumber(r.qty),
     );
   });
+
   return items.map((i) => ({
     id: i.id,
     productId: i.product_id,
@@ -3893,10 +4273,13 @@ export async function createReturn(
   input: CreateReturnInput,
 ) {
   const reason = input.reason.trim();
+
   if (!reason) throw new Error("Describe el motivo de la devolución.");
+
   if (!input.items || input.items.length === 0) {
     throw new Error("Agrega al menos un producto a la devolución.");
   }
+
   const { data, error } = await supabase.rpc("create_return", {
     p_sale_id: input.saleId as string,
     p_reason: reason,
@@ -3910,7 +4293,9 @@ export async function createReturn(
       unit_price: it.unitPrice,
     })) as unknown as Json,
   });
+
   if (error) throw error;
+
   return data as string;
 }
 
@@ -3974,6 +4359,7 @@ export async function createQuote(
   if (!input.items || input.items.length === 0) {
     throw new Error("Agrega al menos un producto a la cotización.");
   }
+
   const { data, error } = await supabase.rpc("create_quote", {
     p_items: input.items.map((item) => ({
       product_id: item.productId,
@@ -3986,12 +4372,15 @@ export async function createQuote(
     p_valid_until: input.validUntil ?? undefined,
     p_notes: input.notes ?? undefined,
   });
+
   if (error) throw error;
+
   const result = data as {
     quote_id: string;
     quote_number: string;
     total: number;
   };
+
   return {
     quoteId: result.quote_id,
     quoteNumber: result.quote_number,
@@ -4010,26 +4399,35 @@ export async function fetchQuotes(
     )
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
+
   if (companyId) q = q.eq("company_id", companyId);
+
   if (opts.status) q = q.eq("status", opts.status);
+
   if (opts.from) q = q.gte("created_at", `${opts.from}T00:00:00`);
+
   if (opts.to) {
     const toExclusive = new Date(
       new Date(`${opts.to}T00:00:00`).getTime() + 24 * 60 * 60 * 1000,
     ).toISOString();
+
     q = q.lt("created_at", toExclusive);
   }
+
   const { data, error } = await q;
+
   if (error) throw error;
   const rows = data ?? [];
 
   const quoteIds = rows.map((row) => row.id);
   const itemsByQuote = new Map<string, string[]>();
+
   if (quoteIds.length) {
     const { data: qitems } = await supabase
       .from("quote_items")
       .select("quote_id, product_name, qty")
       .in("quote_id", quoteIds);
+
     (qitems ?? []).forEach((it) => {
       const list = itemsByQuote.get(it.quote_id) ?? [];
       list.push(`${toNumber(it.qty)} × ${it.product_name}`);
@@ -4066,7 +4464,9 @@ export async function fetchQuote(
     .eq("id", quoteId)
     .is("deleted_at", null)
     .maybeSingle();
+
   if (error) throw error;
+
   if (!row) return null;
 
   const { data: itemRows, error: itemsError } = await supabase
@@ -4075,6 +4475,7 @@ export async function fetchQuote(
       "id, product_id, product_name, variant_label, qty, unit_price, total, tax_amount",
     )
     .eq("quote_id", quoteId);
+
   if (itemsError) throw itemsError;
 
   const items: QuoteItem[] = (itemRows ?? []).map((it) => ({
@@ -4113,6 +4514,7 @@ export async function fetchQuote(
  * crear una cotización nunca tocó stock ni dinero. */
 export async function rejectQuote(quoteId: string): Promise<void> {
   const { error } = await supabase.rpc("reject_quote", { p_quote_id: quoteId });
+
   if (error) throw error;
 }
 
@@ -4143,7 +4545,9 @@ export async function convertQuoteToSale(input: {
     p_till_id: input.tillId ?? undefined,
     p_points_redeemed: input.pointsRedeemed ?? 0,
   });
+
   if (error) throw error;
+
   const result = data as {
     sale_id: string;
     sale_number: string;
@@ -4151,6 +4555,7 @@ export async function convertQuoteToSale(input: {
     points_earned: number;
     points_redeemed: number;
   };
+
   return {
     saleId: result.sale_id,
     saleNumber: result.sale_number,
@@ -4237,6 +4642,7 @@ export async function createApartado(input: CreateApartadoInput): Promise<{
   if (!input.items || input.items.length === 0) {
     throw new Error("Agrega al menos un producto al apartado.");
   }
+
   const { data, error } = await supabase.rpc("create_apartado", {
     p_customer_id: input.customerId,
     p_items: input.items.map((item) => ({
@@ -4249,7 +4655,9 @@ export async function createApartado(input: CreateApartadoInput): Promise<{
     p_payment_method: input.paymentMethod ?? undefined,
     p_notes: input.notes ?? undefined,
   });
+
   if (error) throw error;
+
   const result = data as {
     apartado_id: string;
     apartado_number: string;
@@ -4257,6 +4665,7 @@ export async function createApartado(input: CreateApartadoInput): Promise<{
     paid_total: number;
     due_date: string;
   };
+
   return {
     apartadoId: result.apartado_id,
     apartadoNumber: result.apartado_number,
@@ -4277,19 +4686,24 @@ export async function fetchApartados(
     )
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
+
   if (companyId) q = q.eq("company_id", companyId);
+
   if (opts.status) q = q.eq("status", opts.status);
   const { data, error } = await q;
+
   if (error) throw error;
   const rows = data ?? [];
 
   const apartadoIds = rows.map((row) => row.id);
   const itemsByApartado = new Map<string, string[]>();
+
   if (apartadoIds.length) {
     const { data: aItems } = await supabase
       .from("apartado_items")
       .select("apartado_id, product_name, qty")
       .in("apartado_id", apartadoIds);
+
     (aItems ?? []).forEach((it) => {
       const list = itemsByApartado.get(it.apartado_id) ?? [];
       list.push(`${toNumber(it.qty)} × ${it.product_name}`);
@@ -4330,7 +4744,9 @@ export async function fetchApartado(apartadoId: string): Promise<{
     .eq("id", apartadoId)
     .is("deleted_at", null)
     .maybeSingle();
+
   if (error) throw error;
+
   if (!row) return null;
 
   const [
@@ -4349,7 +4765,9 @@ export async function fetchApartado(apartadoId: string): Promise<{
       .eq("apartado_id", apartadoId)
       .order("created_at", { ascending: true }),
   ]);
+
   if (itemsError) throw itemsError;
+
   if (paymentsError) throw paymentsError;
 
   const items: ApartadoItem[] = (itemRows ?? []).map((it) => ({
@@ -4361,6 +4779,7 @@ export async function fetchApartado(apartadoId: string): Promise<{
     total: toNumber(it.total),
     taxAmount: toNumber(it.tax_amount),
   }));
+
   const payments: ApartadoPayment[] = (paymentRows ?? []).map((p) => ({
     id: p.id,
     amount: toNumber(p.amount),
@@ -4410,12 +4829,15 @@ export async function addApartadoPayment(input: {
     p_payment_method: input.paymentMethod ?? undefined,
     p_notes: input.notes ?? undefined,
   });
+
   if (error) throw error;
+
   const result = data as {
     applied: number;
     paid_total: number;
     remaining: number;
   };
+
   return {
     applied: toNumber(result.applied),
     paidTotal: toNumber(result.paid_total),
@@ -4441,13 +4863,16 @@ export async function completeApartado(input: {
     p_final_payment_amount: input.finalPaymentAmount ?? undefined,
     p_payment_method: input.paymentMethod ?? undefined,
   });
+
   if (error) throw error;
+
   const result = data as {
     sale_id: string;
     sale_number: string;
     total: number;
     points_earned: number;
   };
+
   return {
     saleId: result.sale_id,
     saleNumber: result.sale_number,
@@ -4467,8 +4892,10 @@ export async function cancelApartado(input: {
     p_apartado_id: input.apartadoId,
     p_refund_deposit: input.refundDeposit,
   });
+
   if (error) throw error;
   const result = data as { refunded: boolean; refunded_amount: number };
+
   return {
     refunded: result.refunded,
     refundedAmount: toNumber(result.refunded_amount),
@@ -4497,8 +4924,10 @@ export async function fetchPlanUsage(companyId?: string): Promise<PlanUsage> {
       .select("plan_id, subscription_status, expires_at")
       .eq("id", companyId)
       .maybeSingle();
+
     status = company?.subscription_status ?? "trial";
     expiresAt = company?.expires_at ?? null;
+
     if (company?.plan_id) {
       const { data: planRow } = await supabase
         .from("subscription_plans")
@@ -4507,6 +4936,7 @@ export async function fetchPlanUsage(companyId?: string): Promise<PlanUsage> {
         )
         .eq("id", company.plan_id)
         .maybeSingle();
+
       if (planRow) {
         plan = {
           id: planRow.id,
@@ -4526,16 +4956,19 @@ export async function fetchPlanUsage(companyId?: string): Promise<PlanUsage> {
     .select("id", { count: "exact", head: true })
     .is("deleted_at", null)
     .eq("active", true);
+
   const { count: productsCount } = await (companyId
     ? productsQuery.eq("company_id", companyId)
     : productsQuery);
 
   const month = localDateKey(new Date()).slice(0, 7);
+
   const salesQuery = supabase
     .from("sales")
     .select("id", { count: "exact", head: true })
     .is("deleted_at", null)
     .gte("sale_date", `${month}-01`);
+
   const { count: salesThisMonth } = await (companyId
     ? salesQuery.eq("company_id", companyId)
     : salesQuery);
@@ -4544,6 +4977,7 @@ export async function fetchPlanUsage(companyId?: string): Promise<PlanUsage> {
     .from("profiles")
     .select("id", { count: "exact", head: true })
     .eq("is_active", true);
+
   const { count: usersCount } = await (companyId
     ? usersQuery.eq("company_id", companyId)
     : usersQuery);
@@ -4605,14 +5039,17 @@ async function invokeFunctionError(
   const context = (
     error as { context?: { json?: () => Promise<{ error?: string }> } }
   )?.context;
+
   if (context && typeof context.json === "function") {
     try {
       const body = await context.json();
+
       if (body?.error) return body.error;
     } catch {
       // ignore parse errors and use the fallback
     }
   }
+
   return fallback;
 }
 
@@ -4623,7 +5060,9 @@ export async function createTeamUser(
   const companyId = requireCompanyId(session);
   const fullName = input.fullName.trim();
   const email = input.email.trim();
+
   if (!fullName || !email) throw new Error("Ingresa nombre y correo.");
+
   if (input.password.length < 6)
     throw new Error("La contraseña debe tener al menos 6 caracteres.");
 
@@ -4639,6 +5078,7 @@ export async function createTeamUser(
       saas_panel: input.role === "admin" ? !!input.saasPanel : false,
     },
   });
+
   if (error) {
     throw new Error(
       await invokeFunctionError(
@@ -4647,6 +5087,7 @@ export async function createTeamUser(
       ),
     );
   }
+
   return data;
 }
 
@@ -4669,8 +5110,10 @@ export async function updateTeamUser(
   input: UpdateTeamUserInput,
 ) {
   requireCompanyId(session);
+
   const password =
     input.password && input.password.length > 0 ? input.password : undefined;
+
   const { data, error } = await supabase.functions.invoke("team-manage-user", {
     body: {
       action: "update",
@@ -4684,6 +5127,7 @@ export async function updateTeamUser(
       saas_panel: input.saasPanel,
     },
   });
+
   if (error) {
     throw new Error(
       await invokeFunctionError(
@@ -4692,14 +5136,17 @@ export async function updateTeamUser(
       ),
     );
   }
+
   return data;
 }
 
 export async function deleteTeamUser(session: DemoSession, userId: string) {
   requireCompanyId(session);
+
   const { data, error } = await supabase.functions.invoke("team-manage-user", {
     body: { action: "delete", target_user_id: userId },
   });
+
   if (error) {
     throw new Error(
       await invokeFunctionError(
@@ -4708,6 +5155,7 @@ export async function deleteTeamUser(session: DemoSession, userId: string) {
       ),
     );
   }
+
   return data;
 }
 
@@ -4721,6 +5169,7 @@ export async function resetCompanyData(confirmName: string): Promise<void> {
   const { error } = await supabase.rpc("reset_company_data", {
     p_confirm_name: confirmName,
   });
+
   if (error) throw error;
 }
 
@@ -4731,10 +5180,13 @@ export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
       "id, full_name, email, role, is_active, location_id, is_platform_admin, pin_hash, shift_start, shift_end, commission_rate, created_at",
     )
     .order("created_at", { ascending: true });
+
   const { data, error } = await (companyId
     ? query.eq("company_id", companyId)
     : query);
+
   if (error) throw error;
+
   const members = (data ?? []).map((row) => ({
     id: row.id,
     name: row.full_name,
@@ -4764,10 +5216,13 @@ export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
   // en null (= usar defaults del rol) para no romper.
   try {
     let secQuery = supabase.from("profiles").select("id, allowed_sections");
+
     if (companyId) secQuery = secQuery.eq("company_id", companyId);
     const { data: secs, error: secErr } = await secQuery;
+
     if (secErr) throw secErr;
     const byId = new Map<string, string[] | null>();
+
     for (const row of secs ?? []) {
       byId.set(
         (row as { id: string }).id,
@@ -4775,6 +5230,7 @@ export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
           null,
       );
     }
+
     for (const member of members) {
       member.allowedSections = byId.get(member.id) ?? null;
     }
@@ -4788,15 +5244,19 @@ export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
     let plQuery = supabase
       .from("profile_locations")
       .select("profile_id, location_id");
+
     if (companyId) plQuery = plQuery.eq("company_id", companyId);
     const { data: pl, error: plErr } = await plQuery;
+
     if (plErr) throw plErr;
     const byProfile = new Map<string, string[]>();
+
     for (const row of pl ?? []) {
       const list = byProfile.get(row.profile_id) ?? [];
       list.push(row.location_id);
       byProfile.set(row.profile_id, list);
     }
+
     for (const member of members) {
       member.locationIds = byProfile.get(member.id) ?? [];
     }
@@ -4805,6 +5265,7 @@ export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
       member.locationIds = member.locationId ? [member.locationId] : [];
     }
   }
+
   return members;
 }
 
@@ -4814,12 +5275,15 @@ export async function fetchAssignedLocationIds(
   userId?: string,
 ): Promise<string[]> {
   if (!userId) return [];
+
   try {
     const { data, error } = await supabase
       .from("profile_locations")
       .select("location_id")
       .eq("profile_id", userId);
+
     if (error) throw error;
+
     return (data ?? []).map((row) => row.location_id as string);
   } catch {
     return [];
@@ -4832,15 +5296,19 @@ export async function fetchAllowedSections(
   userId?: string,
 ): Promise<string[] | null> {
   if (!userId) return null;
+
   try {
     const { data, error } = await supabase
       .from("profiles")
       .select("allowed_sections")
       .eq("id", userId)
       .maybeSingle();
+
     if (error) throw error;
+
     const sections = (data as { allowed_sections?: string[] | null } | null)
       ?.allowed_sections;
+
     return sections && sections.length > 0 ? sections : null;
   } catch {
     return null;
@@ -4870,9 +5338,12 @@ export async function fetchAttendance(
     )
     .order("check_in_at", { ascending: false })
     .limit(200);
+
   if (companyId) query = query.eq("company_id", companyId);
   const { data, error } = await query;
+
   if (error) throw error;
+
   return (data ?? []).map((row) => ({
     id: row.id,
     profileId: row.profile_id,
@@ -4900,17 +5371,21 @@ export async function punchEmployee(
   at: string;
 }> {
   let tz = "UTC";
+
   try {
     tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   } catch {
     /* usa UTC por defecto */
   }
+
   const { data, error } = await supabase.rpc("punch_employee", {
     p_pin: pin,
     p_location_id: locationId ?? undefined,
     p_tz: tz,
   });
+
   if (error) throw error;
+
   const payload = (data ?? {}) as {
     action: "check_in" | "check_out";
     profile_id: string;
@@ -4919,6 +5394,7 @@ export async function punchEmployee(
     is_early_leave?: boolean;
     at: string;
   };
+
   return {
     action: payload.action,
     profileId: payload.profile_id,
@@ -4934,6 +5410,7 @@ export async function setEmployeePin(profileId: string, pin: string) {
     p_profile_id: profileId,
     p_pin: pin,
   });
+
   if (error) throw error;
 }
 
@@ -4941,6 +5418,7 @@ export async function clearEmployeePin(profileId: string) {
   const { error } = await supabase.rpc("clear_employee_pin", {
     p_profile_id: profileId,
   });
+
   if (error) throw error;
 }
 
@@ -4961,6 +5439,7 @@ export async function updateEmployeeSchedule(
       updated_at: new Date().toISOString(),
     } as never)
     .eq("id", profileId);
+
   if (error) throw error;
 }
 
@@ -4977,6 +5456,7 @@ export async function setEmployeeCommission(
     p_profile_id: profileId,
     p_commission_rate: rate,
   });
+
   if (error) throw error;
 }
 
@@ -5000,26 +5480,33 @@ export async function fetchEmployeeCommissions(
     .select("created_by, total, commission_amount")
     .is("deleted_at", null)
     .not("created_by", "is", null);
+
   if (companyId) q = q.eq("company_id", companyId);
+
   // sale_date es timestamptz -- comparar contra un "yyyy-mm-dd" crudo lo
   // trunca a la medianoche UTC de ese día, así que un rango from===to (p.ej.
   // el preset "Hoy") nunca hace match con nada. Se convierte a un rango de
   // timestamps [from 00:00, to+1 00:00) igual que useDashboardData.
   if (opts.from) q = q.gte("sale_date", `${opts.from}T00:00:00`);
+
   if (opts.to) {
     const toExclusive = new Date(
       new Date(`${opts.to}T00:00:00`).getTime() + 24 * 60 * 60 * 1000,
     ).toISOString();
+
     q = q.lt("sale_date", toExclusive);
   }
+
   if (opts.locationId) q = q.eq("location_id", opts.locationId);
   const { data, error } = await q;
+
   if (error) throw error;
 
   const byEmployee = new Map<
     string,
     { count: number; total: number; commission: number }
   >();
+
   for (const row of data ?? []) {
     const id = row.created_by as string;
     const entry = byEmployee.get(id) ?? { count: 0, total: 0, commission: 0 };
@@ -5028,6 +5515,7 @@ export async function fetchEmployeeCommissions(
     entry.commission += Number(row.commission_amount) || 0;
     byEmployee.set(id, entry);
   }
+
   return Array.from(byEmployee.entries()).map(([profileId, v]) => ({
     profileId,
     salesCount: v.count,
@@ -5076,6 +5564,7 @@ function mapMerma(row: {
   const productRow = Array.isArray(row.products)
     ? row.products[0]
     : row.products;
+
   return {
     id: row.id,
     locationId: row.location_id,
@@ -5114,7 +5603,9 @@ export async function registerMerma(params: {
     p_estimated_loss: params.estimatedLoss ?? undefined,
     p_notes: params.notes ?? undefined,
   });
+
   if (error) throw error;
+
   return data as string;
 }
 
@@ -5124,6 +5615,7 @@ export async function deleteMerma(mermaId: string): Promise<void> {
   const { error } = await supabase.rpc("delete_merma", {
     p_merma_id: mermaId,
   });
+
   if (error) throw error;
 }
 
@@ -5148,19 +5640,29 @@ export async function fetchMermas(
     )
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
+
   if (companyId) q = q.eq("company_id", companyId);
+
   if (opts.locationId) q = q.eq("location_id", opts.locationId);
+
   if (opts.employeeId) q = q.eq("employee_id", opts.employeeId);
+
   if (opts.reasonCategory) q = q.eq("reason_category", opts.reasonCategory);
+
   if (opts.from) q = q.gte("created_at", `${opts.from}T00:00:00`);
+
   if (opts.to) {
     const toExclusive = new Date(
       new Date(`${opts.to}T00:00:00`).getTime() + 24 * 60 * 60 * 1000,
     ).toISOString();
+
     q = q.lt("created_at", toExclusive);
   }
+
   const { data, error } = await q;
+
   if (error) throw error;
+
   return (data ?? []).map((row) => mapMerma(row as never));
 }
 
@@ -5195,11 +5697,14 @@ export async function fetchMermaSummary(
   opts: { from?: string; to?: string; locationId?: string } = {},
 ): Promise<MermaSummary> {
   const mermas = await fetchMermas(companyId, opts);
+
   const [profileNames, locations] = await Promise.all([
     fetchProfileNames(companyId),
     fetchLocations(companyId),
   ]);
+
   const locationNames: Record<string, string> = {};
+
   for (const loc of locations) locationNames[loc.id] = loc.name;
 
   const byEmployee = new Map<string, { count: number; total: number }>();
@@ -5224,6 +5729,7 @@ export async function fetchMermaSummary(
       count: 0,
       total: 0,
     };
+
     reason.count += 1;
     reason.total += merma.estimatedLoss;
     byReason.set(merma.reasonCategory, reason);
@@ -5274,9 +5780,12 @@ export async function fetchTimeEvents(
     .select("id, profile_id, type, event_date, end_date, note, created_at")
     .order("event_date", { ascending: false })
     .limit(200);
+
   if (companyId) query = query.eq("company_id", companyId);
   const { data, error } = await query;
+
   if (error) throw error;
+
   return (data ?? []).map((row) => ({
     id: row.id,
     profileId: row.profile_id,
@@ -5300,6 +5809,7 @@ export async function createTimeEvent(
   },
 ) {
   const companyId = requireCompanyId(session);
+
   const { error } = await supabase.from("employee_time_events").insert({
     company_id: companyId,
     profile_id: input.profileId,
@@ -5309,6 +5819,7 @@ export async function createTimeEvent(
     note: input.note?.trim() || null,
     created_by: session.userId ?? null,
   } as never);
+
   if (error) throw error;
 }
 
@@ -5317,6 +5828,7 @@ export async function deleteTimeEvent(id: string) {
     .from("employee_time_events")
     .delete()
     .eq("id", id);
+
   if (error) throw error;
 }
 
@@ -5384,11 +5896,16 @@ export async function fetchCalendarEvents(
       "id, event_type, event_date, end_date, profile_id, title, notes, created_by",
     )
     .order("event_date");
+
   if (companyId) query = query.eq("company_id", companyId);
+
   if (opts.from) query = query.gte("event_date", opts.from);
+
   if (opts.to) query = query.lte("event_date", opts.to);
   const { data, error } = await query;
+
   if (error) throw error;
+
   return (data ?? []).map(mapCalendarEvent);
 }
 
@@ -5397,8 +5914,10 @@ export async function createCalendarEvent(
   input: CalendarEventInput,
 ): Promise<void> {
   const title = input.title.trim();
+
   if (!title) throw new Error("Ingresa un título para el evento.");
   const companyId = requireCompanyId(session);
+
   const { error } = await supabase.from("company_calendar_events").insert({
     company_id: companyId,
     event_type: input.eventType,
@@ -5409,6 +5928,7 @@ export async function createCalendarEvent(
     notes: input.notes?.trim() || null,
     created_by: session.userId ?? null,
   } as never);
+
   if (error) throw error;
 }
 
@@ -5417,7 +5937,9 @@ export async function updateCalendarEvent(
   input: CalendarEventInput,
 ): Promise<void> {
   const title = input.title.trim();
+
   if (!title) throw new Error("Ingresa un título para el evento.");
+
   const { error } = await supabase
     .from("company_calendar_events")
     .update({
@@ -5429,6 +5951,7 @@ export async function updateCalendarEvent(
       notes: input.notes?.trim() || null,
     } as never)
     .eq("id", eventId);
+
   if (error) throw error;
 }
 
@@ -5437,6 +5960,7 @@ export async function deleteCalendarEvent(eventId: string): Promise<void> {
     .from("company_calendar_events")
     .delete()
     .eq("id", eventId);
+
   if (error) throw error;
 }
 
@@ -5447,6 +5971,7 @@ export async function buildBackupExport(companyId?: string) {
     fetchCompanyCatalog(companyId),
     fetchSales(companyId),
   ]);
+
   return {
     exportedAt: new Date().toISOString(),
     companyId: companyId ?? null,
@@ -5519,16 +6044,19 @@ export async function fetchAdminCompanies(): Promise<AdminCompany[]> {
     )
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
+
   if (error) throw error;
 
   const { data: plans } = await supabase
     .from("subscription_plans")
     .select("id, name");
+
   const planName = new Map((plans ?? []).map((plan) => [plan.id, plan.name]));
 
   const { data: profiles } = await supabase
     .from("profiles")
     .select("company_id");
+
   const usersByCompany = new Map<string, number>();
   (profiles ?? []).forEach((profile) => {
     if (profile.company_id) {
@@ -5602,6 +6130,7 @@ export async function adminUpdateCompany(
       updated_at: new Date().toISOString(),
     })
     .eq("id", companyId);
+
   if (error) throw error;
 }
 
@@ -5628,9 +6157,12 @@ export async function fetchCountryPaymentMethods(
     )
     .order("country_code", { ascending: true })
     .order("sort_order", { ascending: true });
+
   if (countryCode) query = query.eq("country_code", countryCode);
   const { data, error } = await query;
+
   if (error) throw error;
+
   return (data ?? []).map((row) => ({
     id: row.id,
     countryCode: row.country_code,
@@ -5669,20 +6201,26 @@ export async function upsertCountryPaymentMethod(
     sort_order: input.sortOrder ?? 0,
     is_active: input.isActive ?? true,
   };
+
   if (input.id) {
     const { error } = await supabase
       .from("country_payment_methods")
       .update(payload)
       .eq("id", input.id);
+
     if (error) throw error;
+
     return input.id;
   }
+
   const { data, error } = await supabase
     .from("country_payment_methods")
     .insert(payload)
     .select("id")
     .single();
+
   if (error) throw error;
+
   return data.id as string;
 }
 
@@ -5691,16 +6229,19 @@ export async function deleteCountryPaymentMethod(id: string) {
     .from("country_payment_methods")
     .delete()
     .eq("id", id);
+
   if (error) throw error;
 }
 
 // Soft-deletes a store and deactivates its users so it can no longer be accessed.
 export async function adminDeleteCompany(companyId: string) {
   const now = new Date().toISOString();
+
   const { error } = await supabase
     .from("companies")
     .update({ deleted_at: now, updated_at: now })
     .eq("id", companyId);
+
   if (error) throw error;
   await supabase
     .from("profiles")
@@ -5711,13 +6252,16 @@ export async function adminDeleteCompany(companyId: string) {
 // Platform super admin creates a new store (and optionally its first admin login).
 export async function createCompany(input: CreateCompanyInput) {
   const name = input.name.trim();
+
   if (!name) throw new Error("Ingresa el nombre de la tienda.");
   const ownerEmail = input.ownerEmail?.trim();
+
   if (ownerEmail && (!input.ownerPassword || input.ownerPassword.length < 6)) {
     throw new Error(
       "Si creas un administrador, la contraseña debe tener al menos 6 caracteres.",
     );
   }
+
   const { data, error } = await supabase.functions.invoke(
     "admin-create-company",
     {
@@ -5732,6 +6276,7 @@ export async function createCompany(input: CreateCompanyInput) {
       },
     },
   );
+
   if (error) {
     throw new Error(
       await invokeFunctionError(
@@ -5740,8 +6285,10 @@ export async function createCompany(input: CreateCompanyInput) {
       ),
     );
   }
+
   // The Edge Function does not set address; persist it now if provided.
   const companyId = (data as { company?: { id?: string } } | null)?.company?.id;
+
   if (companyId && input.address?.trim()) {
     try {
       await adminUpdateCompany(companyId, { address: input.address });
@@ -5749,6 +6296,7 @@ export async function createCompany(input: CreateCompanyInput) {
       /* non-fatal: store was created; address can be set later from the edit dialog */
     }
   }
+
   return data;
 }
 
@@ -5757,18 +6305,23 @@ export async function fetchAdminStats(): Promise<AdminStats> {
     fetchAdminCompanies(),
     fetchPlans(),
   ]);
+
   const planPriceById = new Map(plans.map((plan) => [plan.id, plan.price]));
 
   const active = companies.filter(
     (company) => company.status === "active",
   ).length;
+
   const trial = companies.filter(
     (company) => company.status === "trial",
   ).length;
+
   const expired = companies.filter(
     (company) => company.status === "expired" || company.status === "suspended",
   ).length;
+
   const users = companies.reduce((sum, company) => sum + company.usersCount, 0);
+
   const mrr = companies.reduce(
     (sum, company) =>
       company.status === "active" && company.planId
@@ -5778,16 +6331,20 @@ export async function fetchAdminStats(): Promise<AdminStats> {
   );
 
   const planMap = new Map<string, number>();
+
   for (const company of companies) {
     planMap.set(company.planName, (planMap.get(company.planName) ?? 0) + 1);
   }
+
   const statusLabels: Record<string, string> = {
     active: "Activa",
     trial: "Prueba",
     expired: "Vencida",
     suspended: "Suspendida",
   };
+
   const statusMap = new Map<string, number>();
+
   for (const company of companies) {
     const label = statusLabels[company.status] ?? company.status;
     statusMap.set(label, (statusMap.get(label) ?? 0) + 1);
@@ -5807,13 +6364,17 @@ export async function fetchAdminStats(): Promise<AdminStats> {
     "Nov",
     "Dic",
   ];
+
   const now = new Date();
+
   const growth = Array.from({ length: 6 }, (_, index) => {
     const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
     const prefix = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+
     const value = companies.filter((company) =>
       company.createdAt.startsWith(prefix),
     ).length;
+
     return { m: monthsLabels[date.getMonth()], v: value };
   });
 

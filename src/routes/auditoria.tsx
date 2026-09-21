@@ -63,15 +63,20 @@ function fmtDateTime(iso: string) {
 
 function renderDetailValue(value: unknown): string {
   if (value === null || value === undefined) return "—";
+
   if (typeof value === "boolean") return value ? "Sí" : "No";
+
   if (Array.isArray(value)) return value.length ? value.join(", ") : "—";
+
   return String(value);
 }
 
 function DetailSummary({ detail }: { detail: Record<string, unknown> }) {
   const entries = Object.entries(detail).filter(([key]) => key !== "full_name");
+
   if (entries.length === 0)
     return <span className="text-muted-foreground">—</span>;
+
   return (
     <div className="space-y-0.5 text-xs">
       {entries.map(([key, value]) => {
@@ -86,6 +91,7 @@ function DetailSummary({ detail }: { detail: Record<string, unknown> }) {
             antes?: unknown;
             despues?: unknown;
           };
+
           return (
             <div key={key}>
               <span className="text-muted-foreground">{key}:</span>{" "}
@@ -93,6 +99,7 @@ function DetailSummary({ detail }: { detail: Record<string, unknown> }) {
             </div>
           );
         }
+
         return (
           <div key={key}>
             <span className="text-muted-foreground">{key}:</span>{" "}
@@ -134,6 +141,7 @@ function AuditoriaPage() {
       .finally(() => {
         if (!cancelled) setIsLoading(false);
       });
+
     return () => {
       cancelled = true;
     };

@@ -80,16 +80,19 @@ function Devoluciones() {
   const { customers } = useCompanyCatalog();
   // Documento/cédula por id de cliente, para buscar la venta por cédula.
   const docByCustomerId = new Map(customers.map((c) => [c.id, c.doc]));
+
   const selectedSale =
     sales.find((s) => (s.databaseId ?? s.id) === saleId) ?? null;
 
   const reload = useCallback(async () => {
     setIsLoading(true);
+
     try {
       const [returnsData, salesData] = await Promise.all([
         fetchReturns(session?.companyId),
         fetchSales(session?.companyId),
       ]);
+
       setReturns(returnsData);
       setSales(salesData);
     } catch (error) {
@@ -110,8 +113,10 @@ function Devoluciones() {
     if (saleId === NO_SALE) {
       setSaleItems([]);
       setItemQtys({});
+
       return;
     }
+
     setLoadingItems(true);
     fetchSaleItemsForReturn(saleId)
       .then((items) => {
@@ -128,34 +133,48 @@ function Devoluciones() {
 
   const computedTotal = saleItems.reduce((sum, item) => {
     const qty = Number(itemQtys[item.id] ?? 0);
+
     if (!qty || qty <= 0) return sum;
+
     return sum + qty * item.unitPrice;
   }, 0);
+
   const computedUnits = saleItems.reduce((sum, item) => {
     const qty = Number(itemQtys[item.id] ?? 0);
+
     return sum + (qty > 0 ? qty : 0);
   }, 0);
 
   const handleCreate = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session) return;
+
     if (saleId === NO_SALE) {
       toast.error("Selecciona la venta asociada a la nota de crédito.");
+
       return;
     }
+
     let overError: string | null = null;
+
     const items = saleItems
       .map((item) => {
         const qty = Number(itemQtys[item.id] ?? 0);
+
         if (!qty || qty <= 0) return null;
         const max = item.qty - item.alreadyReturned;
+
         if (qty > max + 0.0005) {
           overError = `No puedes devolver más de ${max} unidades de ${item.productName}.`;
+
           return null;
         }
+
         return {
           saleItemId: item.id,
           productId: item.productId ?? "",
@@ -168,15 +187,21 @@ function Devoluciones() {
         (it): it is NonNullable<typeof it> =>
           it !== null && Boolean(it.productId),
       );
+
     if (overError) {
       toast.error(overError);
+
       return;
     }
+
     if (items.length === 0) {
       toast.error("Indica la cantidad a devolver en al menos un renglón.");
+
       return;
     }
+
     setIsSaving(true);
+
     try {
       await createReturn(session, {
         saleId,
@@ -253,6 +278,7 @@ function Devoluciones() {
                               const doc = sale.customerId
                                 ? (docByCustomerId.get(sale.customerId) ?? "")
                                 : "";
+
                               return (
                                 <CommandItem
                                   key={sale.databaseId ?? sale.id}
@@ -310,6 +336,7 @@ function Devoluciones() {
                           {!loadingItems &&
                             saleItems.map((item) => {
                               const max = item.qty - item.alreadyReturned;
+
                               return (
                                 <TableRow key={item.id}>
                                   <TableCell>
@@ -342,6 +369,7 @@ function Devoluciones() {
                                       onChange={(e) => {
                                         const v = e.target.value;
                                         const n = Number(v);
+
                                         // Limita a [0, disponible]: no se puede devolver/reembolsar
                                         // más unidades de las que se vendieron.
                                         const clamped =
@@ -352,6 +380,7 @@ function Devoluciones() {
                                               : n > max
                                                 ? String(max)
                                                 : v;
+
                                         setItemQtys((prev) => ({
                                           ...prev,
                                           [item.id]: clamped,

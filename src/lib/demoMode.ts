@@ -12,12 +12,15 @@ export function isDemoSession(session?: DemoSession | null) {
 
 export function isDemoUser(sessionOrEmail?: DemoSession | string | null) {
   if (!sessionOrEmail) return false;
+
   if (typeof sessionOrEmail === "string") return isDemoEmail(sessionOrEmail);
+
   return isDemoSession(sessionOrEmail);
 }
 
 export function getDemoMode() {
   const session = getSession();
+
   return {
     session,
     isDemo: isDemoSession(session),
@@ -33,6 +36,7 @@ export function canRunSensitiveAction(
 
 export function blockDemoAction() {
   toast.error(DEMO_BLOCKED_MESSAGE);
+
   return false;
 }
 
@@ -42,6 +46,7 @@ export function guardSensitiveAction(
 ) {
   if (!canRunSensitiveAction(session)) return blockDemoAction();
   onAllowed?.();
+
   return true;
 }
 
@@ -51,5 +56,6 @@ export function simulateDemoAction(_message?: string) {
   toast.info(_message ?? "Acción pendiente de conexión.", {
     description: "No se guardaron cambios reales todavía.",
   });
+
   return true;
 }

@@ -101,17 +101,21 @@ function buildRows(
       .filter((p) => p.barcode)
       .map((p) => [p.barcode.trim().toLowerCase(), p]),
   );
+
   const existingByName = new Map(
     existingProducts.map((p) => [p.name.trim().toLowerCase(), p]),
   );
+
   const seenBarcodes = new Set<string>();
   const seenNames = new Set<string>();
 
   return raw.map((row, index) => {
     const rowNumber = index + 2; // fila 1 = encabezados
     const fields: Partial<Record<RawField, string>> = {};
+
     for (const [key, value] of Object.entries(row)) {
       const field = HEADER_MAP[normalizeHeader(key)];
+
       if (field) fields[field] = String(value ?? "").trim();
     }
 
@@ -145,6 +149,7 @@ function buildRows(
     if (status === "ok") {
       const barcodeKey = barcode.toLowerCase();
       const nameKey = name.toLowerCase();
+
       if (
         (barcode && existingByBarcode.has(barcodeKey)) ||
         existingByName.has(nameKey)
@@ -189,6 +194,7 @@ function buildRows(
 export function ImportProductsTab({ onImported }: { onImported: () => void }) {
   const { products, categories, suppliers, session, reload } =
     useCompanyCatalog();
+
   const { locations, hasMultiple } = useCurrentLocation();
   const { isDemo } = useDemoSession();
 
@@ -217,16 +223,20 @@ export function ImportProductsTab({ onImported }: { onImported: () => void }) {
     setFileName(file.name);
     setIsParsing(true);
     setRows([]);
+
     try {
       const XLSX = await import("xlsx");
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: "array" });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
+
       const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
         defval: "",
       });
+
       const parsed = buildRows(raw, products);
       setRows(parsed);
+
       if (parsed.length === 0) {
         toast.error("El archivo no tiene filas de datos.");
       }
@@ -241,6 +251,7 @@ export function ImportProductsTab({ onImported }: { onImported: () => void }) {
 
   const handleDownloadTemplate = async () => {
     const XLSX = await import("xlsx");
+
     const ws = XLSX.utils.aoa_to_sheet([
       [
         "Nombre",
@@ -265,6 +276,7 @@ export function ImportProductsTab({ onImported }: { onImported: () => void }) {
         "pza",
       ],
     ]);
+
     ws["!cols"] = [
       { wch: 24 },
       { wch: 18 },
@@ -286,17 +298,24 @@ export function ImportProductsTab({ onImported }: { onImported: () => void }) {
   const handleImport = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session) return;
+
     if (validRows.length === 0) {
       toast.error("No hay productos válidos para importar.");
+
       return;
     }
+
     if (hasMultiple && !targetLocationId) {
       toast.error("Selecciona la sucursal para el stock inicial.");
+
       return;
     }
+
     if (
       !window.confirm(
         `¿Importar ${validRows.length} producto(s) nuevo(s) al catálogo?`,
@@ -306,12 +325,15 @@ export function ImportProductsTab({ onImported }: { onImported: () => void }) {
     }
 
     setIsImporting(true);
+
     const categoryMap = new Map(
       categories.map((c) => [c.name.trim().toLowerCase(), c.id]),
     );
+
     const unitMap = new Map(
       units.map((u) => [u.name.trim().toLowerCase(), u.name]),
     );
+
     const supplierMap = new Map(
       suppliers.map((s) => [s.name.trim().toLowerCase(), s.id]),
     );
@@ -322,21 +344,26 @@ export function ImportProductsTab({ onImported }: { onImported: () => void }) {
     for (const row of validRows) {
       try {
         let categoryId: string | undefined;
+
         if (row.categoryName) {
           const key = row.categoryName.toLowerCase();
           categoryId = categoryMap.get(key);
+
           if (!categoryId) {
             categoryId = await createCategory(session, row.categoryName);
             categoryMap.set(key, categoryId);
           }
         }
+
         const unitKey = row.unitName.toLowerCase();
         let unitName = unitMap.get(unitKey);
+
         if (!unitName) {
           await createUnit(session, row.unitName);
           unitName = row.unitName;
           unitMap.set(unitKey, unitName);
         }
+
         const supplierId = row.supplierName
           ? (supplierMap.get(row.supplierName.toLowerCase()) ?? null)
           : null;
@@ -364,6 +391,7 @@ export function ImportProductsTab({ onImported }: { onImported: () => void }) {
     }
 
     setIsImporting(false);
+
     if (created > 0) {
       toast.success(`Se importaron ${created} producto(s).`);
       setRows([]);
@@ -371,6 +399,7 @@ export function ImportProductsTab({ onImported }: { onImported: () => void }) {
       await reload();
       onImported();
     }
+
     if (failures.length > 0) {
       toast.error(
         `${failures.length} fila(s) fallaron: ${failures.slice(0, 3).join(" · ")}${failures.length > 3 ? "…" : ""}`,
@@ -398,6 +427,7 @@ export function ImportProductsTab({ onImported }: { onImported: () => void }) {
               className="hidden"
               onChange={(event) => {
                 const file = event.target.files?.[0];
+
                 if (file) void handleFile(file);
                 event.target.value = "";
               }}

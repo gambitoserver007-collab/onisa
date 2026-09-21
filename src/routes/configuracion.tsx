@@ -63,52 +63,68 @@ function Configuracion() {
   const [fiscalId, setFiscalId] = useState("");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState(session?.phone ?? "");
+
   const [businessType, setBusinessType] = useState(
     settings.businessType ?? DEFAULT_BUSINESS_TYPE,
   );
+
   // Se guarda como fracción (0.03) pero se captura/muestra como porcentaje
   // (3), igual que taxRatePct en admin.paises.tsx.
   const [cardCommissionPct, setCardCommissionPct] = useState(
     String(Math.round(settings.cardCommissionRate * 10000) / 100),
   );
+
   const [lowStockThresholdDefault, setLowStockThresholdDefault] = useState(
     String(settings.lowStockThresholdDefault),
   );
+
   const [loyaltyEnabled, setLoyaltyEnabled] = useState(settings.loyaltyEnabled);
+
   const [loyaltyPointValue, setLoyaltyPointValue] = useState(
     String(settings.loyaltyPointValue || ""),
   );
+
   const [loyaltyEarnRate, setLoyaltyEarnRate] = useState(
     String(settings.loyaltyEarnRate || ""),
   );
+
   const [loyaltyTiersEnabled, setLoyaltyTiersEnabled] = useState(
     settings.loyaltyTiersEnabled,
   );
+
   const [loyaltyTier2MinSpend, setLoyaltyTier2MinSpend] = useState(
     String(settings.loyaltyTier2MinSpend || ""),
   );
+
   const [loyaltyTier3MinSpend, setLoyaltyTier3MinSpend] = useState(
     String(settings.loyaltyTier3MinSpend || ""),
   );
+
   const [loyaltyTier1EarnRate, setLoyaltyTier1EarnRate] = useState(
     String(settings.loyaltyTier1EarnRate || ""),
   );
+
   const [loyaltyTier2EarnRate, setLoyaltyTier2EarnRate] = useState(
     String(settings.loyaltyTier2EarnRate || ""),
   );
+
   const [loyaltyTier3EarnRate, setLoyaltyTier3EarnRate] = useState(
     String(settings.loyaltyTier3EarnRate || ""),
   );
+
   // Se guarda como fracción (0.2) pero se captura/muestra como porcentaje
   // (20), igual que cardCommissionPct.
   const [apartadoMinDepositPct, setApartadoMinDepositPct] = useState(
     String(Math.round(settings.apartadoMinDepositPct * 10000) / 100),
   );
+
   const [customPaymentMethod, setCustomPaymentMethod] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const selectedMarket = getMarketByCountryCode(countryCode);
+
   const { activeMethods, addCustom, catalog, setStoreActive } =
     usePaymentMethods(countryCode);
+
   const activePaymentMethodIds = useMemo(
     () => new Set(activeMethods.map((method) => method.id)),
     [activeMethods],
@@ -123,6 +139,7 @@ function Configuracion() {
       .then((profile) => {
         if (!active) return;
         setBusinessName(profile.name || settings.businessName);
+
         if (profile.countryCode) setCountryCode(profile.countryCode);
         setFiscalId(profile.fiscalId);
         setAddress(profile.address);
@@ -131,6 +148,7 @@ function Configuracion() {
       .catch(() => {
         /* keep defaults on error */
       });
+
     return () => {
       active = false;
     };
@@ -185,12 +203,14 @@ function Configuracion() {
   const handleSave = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
 
     if (!session) return;
 
     const cardCommissionRate = Number(cardCommissionPct) / 100;
+
     if (
       !Number.isFinite(cardCommissionRate) ||
       cardCommissionRate < 0 ||
@@ -199,15 +219,18 @@ function Configuracion() {
       toast.error(
         "La comisión de tarjeta debe ser un porcentaje entre 0 y 100.",
       );
+
       return;
     }
 
     const loyaltyPointValueNum = loyaltyPointValue.trim()
       ? Number(loyaltyPointValue)
       : 0;
+
     const loyaltyEarnRateNum = loyaltyEarnRate.trim()
       ? Number(loyaltyEarnRate)
       : 0;
+
     if (
       !Number.isFinite(loyaltyPointValueNum) ||
       loyaltyPointValueNum < 0 ||
@@ -217,8 +240,10 @@ function Configuracion() {
       toast.error(
         "Los valores de puntos de lealtad deben ser números positivos.",
       );
+
       return;
     }
+
     if (
       loyaltyEnabled &&
       (loyaltyPointValueNum <= 0 || loyaltyEarnRateNum <= 0)
@@ -226,24 +251,30 @@ function Configuracion() {
       toast.error(
         "Para activar los puntos de lealtad, define cuánto vale un punto y cuánto gasto equivale a 1 punto.",
       );
+
       return;
     }
 
     const loyaltyTier2MinSpendNum = loyaltyTier2MinSpend.trim()
       ? Number(loyaltyTier2MinSpend)
       : 0;
+
     const loyaltyTier3MinSpendNum = loyaltyTier3MinSpend.trim()
       ? Number(loyaltyTier3MinSpend)
       : 0;
+
     const loyaltyTier1EarnRateNum = loyaltyTier1EarnRate.trim()
       ? Number(loyaltyTier1EarnRate)
       : 0;
+
     const loyaltyTier2EarnRateNum = loyaltyTier2EarnRate.trim()
       ? Number(loyaltyTier2EarnRate)
       : 0;
+
     const loyaltyTier3EarnRateNum = loyaltyTier3EarnRate.trim()
       ? Number(loyaltyTier3EarnRate)
       : 0;
+
     const tierNumbers = [
       loyaltyTier2MinSpendNum,
       loyaltyTier3MinSpendNum,
@@ -251,12 +282,15 @@ function Configuracion() {
       loyaltyTier2EarnRateNum,
       loyaltyTier3EarnRateNum,
     ];
+
     if (tierNumbers.some((n) => !Number.isFinite(n) || n < 0)) {
       toast.error(
         "Los valores de niveles de fidelidad deben ser números positivos.",
       );
+
       return;
     }
+
     if (loyaltyTiersEnabled) {
       if (
         loyaltyTier2MinSpendNum <= 0 ||
@@ -268,15 +302,19 @@ function Configuracion() {
         toast.error(
           "Para activar los niveles de fidelidad, completa los umbrales y las 3 tasas de acumulación.",
         );
+
         return;
       }
+
       if (loyaltyTier3MinSpendNum <= loyaltyTier2MinSpendNum) {
         toast.error("El umbral de Oro debe ser mayor que el umbral de Plata.");
+
         return;
       }
     }
 
     const apartadoMinDepositPctNum = Number(apartadoMinDepositPct) / 100;
+
     if (
       !Number.isFinite(apartadoMinDepositPctNum) ||
       apartadoMinDepositPctNum < 0 ||
@@ -285,15 +323,18 @@ function Configuracion() {
       toast.error(
         "El anticipo mínimo de apartados debe ser un porcentaje entre 0 y 100.",
       );
+
       return;
     }
 
     const lowStockThresholdDefaultNum = Number(lowStockThresholdDefault);
+
     if (
       !Number.isFinite(lowStockThresholdDefaultNum) ||
       lowStockThresholdDefaultNum < 0
     ) {
       toast.error("El umbral de stock bajo debe ser un número positivo.");
+
       return;
     }
 
@@ -319,6 +360,7 @@ function Configuracion() {
         apartadoMinDepositPct: apartadoMinDepositPctNum,
         lowStockThresholdDefault: lowStockThresholdDefaultNum,
       });
+
       saveBusinessSettings(mapCompanyToBusinessSettings(company));
       // Refresh the session so the "complete your data" reminder updates immediately.
       await initializeSession();
@@ -335,16 +377,19 @@ function Configuracion() {
   const handlePaymentMethodToggle = (methodId: string, active: boolean) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
 
     const updated = setStoreActive(methodId, active);
+
     if (!updated) toast.error("Mantén al menos un método de cobro activo.");
   };
 
   const handleAddCustomPaymentMethod = () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
 
@@ -360,6 +405,7 @@ function Configuracion() {
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState("");
   const [isResetting, setIsResetting] = useState(false);
+
   const resetConfirmMatches =
     resetConfirmText.trim() === settings.businessName.trim() &&
     settings.businessName.trim().length > 0;
@@ -367,17 +413,22 @@ function Configuracion() {
   const handleResetSystem = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session || !resetConfirmMatches) return;
 
     setIsResetting(true);
+
     try {
       const team = await fetchTeam(session.companyId ?? undefined);
+
       for (const member of team) {
         if (member.id === session.userId) continue;
         await deleteTeamUser(session, member.id);
       }
+
       await resetCompanyData(settings.businessName.trim());
       toast.success("Sistema restablecido. Reiniciando sesión...");
       window.location.href = "/";

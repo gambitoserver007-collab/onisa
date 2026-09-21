@@ -88,12 +88,14 @@ function RegisterPage() {
           toast.error(
             "Completa la empresa, el correo y una contraseña de al menos 6 caracteres.",
           );
+
           return;
         }
 
         // El resto (correo existente, contraseña débil, etc.) viene de Supabase:
         // lo traducimos a español con una recomendación de qué hacer.
         toast.error(translateAuthError(result.message));
+
         return;
       }
 
@@ -102,6 +104,7 @@ function RegisterPage() {
           "Cuenta creada. Revisa tu correo para confirmar el acceso (mira también la carpeta de spam).",
         );
         navigate({ to: "/login" });
+
         return;
       }
 

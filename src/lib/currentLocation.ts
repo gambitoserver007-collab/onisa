@@ -9,12 +9,16 @@ import { fetchLocations, type Location } from "@/services/appData";
 export const ALL_LOCATIONS = "all";
 
 let locations: Location[] = [];
+
 let currentId: string | null = null;
+
 let snapshotKey = "";
+
 let stateSnapshot: { locations: Location[]; currentId: string | null } = {
   locations,
   currentId,
 };
+
 const listeners = new Set<() => void>();
 
 function commit() {
@@ -24,9 +28,11 @@ function commit() {
     c: currentId,
     locs: locations.map((loc) => [loc.id, loc.name, loc.isActive]),
   });
+
   if (key === snapshotKey) return;
   snapshotKey = key;
   stateSnapshot = { locations, currentId };
+
   for (const listener of listeners) listener();
 }
 
@@ -36,6 +42,7 @@ export function getLocationState() {
 
 export function subscribeLocation(listener: () => void) {
   listeners.add(listener);
+
   return () => {
     listeners.delete(listener);
   };
@@ -63,6 +70,7 @@ let lastLoadArgs: {
 
 export async function refreshLocations() {
   if (!lastLoadArgs) return;
+
   return loadLocationsForCompany(lastLoadArgs.companyId, lastLoadArgs.options);
 }
 
@@ -79,18 +87,23 @@ export async function loadLocationsForCompany(
   const allowAll = options?.allowAll ?? false;
   const allowedIds = options?.allowedIds ?? [];
   const all = await fetchLocations(companyId, true);
+
   // Restringe a las sucursales asignadas (vacío = todas). Si el filtro dejara la
   // lista vacía (p. ej. asignado a una sucursal inactiva), se cae a todas para
   // no bloquear al usuario.
   const filtered = allowedIds.length
     ? all.filter((loc) => allowedIds.includes(loc.id))
     : all;
+
   const list = filtered.length ? filtered : all;
   locations = list;
+
   const existsConcrete = (id: string | null | undefined): id is string =>
     !!id && list.some((loc) => loc.id === id);
+
   const isValid = (id: string | null | undefined): boolean =>
     (allowAll && id === ALL_LOCATIONS) || existsConcrete(id);
+
   // Con una sola sucursal en la lista no hay ambigüedad posible -- se usa esa
   // siempre, incluso si la selección previa (guardada de cuando había más de
   // una) era "Todas las tiendas". Es necesario forzarlo aquí: para admin/
@@ -110,6 +123,7 @@ export async function loadLocationsForCompany(
             ? preferredId
             : (list[0]?.id ?? null);
   commit();
+
   return list;
 }
 

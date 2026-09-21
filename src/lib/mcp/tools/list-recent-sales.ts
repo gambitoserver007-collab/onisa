@@ -38,16 +38,19 @@ export default defineTool({
         isError: true,
       };
     const client = supabaseForUser(ctx);
+
     const { data, error } = await client
       .from("sales")
       .select("id,created_at,total,payment_method,customer_id,status")
       .order("created_at", { ascending: false })
       .limit(limit ?? 20);
+
     if (error)
       return {
         content: [{ type: "text", text: error.message }],
         isError: true,
       };
+
     return {
       content: [{ type: "text", text: JSON.stringify(data ?? []) }],
       structuredContent: { sales: data ?? [] },

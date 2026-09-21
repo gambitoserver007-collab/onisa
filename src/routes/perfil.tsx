@@ -24,6 +24,7 @@ function Perfil() {
   const { session, isDemo } = useDemoSession();
   // Only the store owner (admin de tienda) manages the store photo.
   const isStoreAdmin = session?.role === "admin";
+
   const roleLabel = session?.isSuperAdmin
     ? "Super administrador"
     : STORE_ROLE_LABELS[normalizeStoreRole(session?.role)];
@@ -31,9 +32,12 @@ function Perfil() {
   const handleLogo = async (dataUrl: string | null) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session) return;
+
     try {
       const company = await updateCompanyLogo(session, dataUrl);
       saveBusinessSettings(mapCompanyToBusinessSettings(company));

@@ -39,6 +39,7 @@ function VentaDetail() {
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(
     null,
   );
+
   const [cashierName, setCashierName] = useState<string | null>(null);
   const [loyalty, setLoyalty] = useState({ earned: 0, redeemed: 0 });
 
@@ -52,8 +53,10 @@ function VentaDetail() {
   useEffect(() => {
     if (!sale?.createdBy || !session?.companyId) {
       setCashierName(null);
+
       return;
     }
+
     void fetchProfileNames(session.companyId)
       .then((names) => setCashierName(names[sale.createdBy!] ?? null))
       .catch(() => setCashierName(null));
@@ -69,6 +72,7 @@ function VentaDetail() {
   const ticketLocation = sale?.locationId
     ? (locations.find((loc) => loc.id === sale.locationId) ?? null)
     : null;
+
   const showLogo = ticketLocation?.ticketShowLogo ?? true;
   const showFiscalInfo = ticketLocation?.ticketShowFiscalInfo ?? true;
   const showCashierName = ticketLocation?.ticketShowCashierName ?? false;
@@ -282,6 +286,7 @@ function VentaDetail() {
                 className="flex-1"
                 onAllowedClick={() => {
                   window.print();
+
                   if (from === "pos") navigate({ to: "/pos" });
                 }}
               >

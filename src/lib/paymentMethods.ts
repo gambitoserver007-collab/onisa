@@ -6,12 +6,14 @@ import {
 import { getSession } from "@/lib/demoAuth";
 
 const PAYMENT_METHOD_SETTINGS_KEY = "onisa_payment_methods";
+
 const PAYMENT_METHOD_SETTINGS_CHANGED_EVENT = "onisa:payment-methods-changed";
 
 // Clave por EMPRESA (no global): así los métodos de cobro de una empresa no se filtran
 // a otra que use el mismo navegador/dispositivo. Sin sesión, usa la clave base.
 function storageKey() {
   const companyId = getSession()?.companyId;
+
   return companyId
     ? `${PAYMENT_METHOD_SETTINGS_KEY}:${companyId}`
     : PAYMENT_METHOD_SETTINGS_KEY;
@@ -55,6 +57,7 @@ function normalizeSettings(
           new Set(countrySettings?.activeMethodIds ?? []),
         ),
       };
+
       return countries;
     }, {}),
   };
@@ -62,6 +65,7 @@ function normalizeSettings(
 
 function getRawPaymentMethodSettings() {
   if (typeof window === "undefined") return "";
+
   return localStorage.getItem(storageKey()) ?? "";
 }
 
@@ -70,6 +74,7 @@ function readSettings(): PaymentMethodSettings {
 
   try {
     const raw = getRawPaymentMethodSettings();
+
     return raw
       ? normalizeSettings(JSON.parse(raw) as Partial<PaymentMethodSettings>)
       : emptySettings;
@@ -89,6 +94,7 @@ function writeSettings(settings: PaymentMethodSettings) {
   const normalized = normalizeSettings(settings);
   localStorage.setItem(storageKey(), JSON.stringify(normalized));
   emitPaymentMethodsChange();
+
   return normalized;
 }
 
@@ -98,6 +104,7 @@ function updateCountrySettings(
 ) {
   const code = normalizeCountryCode(countryCode);
   const settings = readSettings();
+
   const countrySettings: CountryPaymentMethodSettings = {
     ...settings.countries[code],
     disabledMethodIds: [...(settings.countries[code]?.disabledMethodIds ?? [])],
@@ -117,12 +124,15 @@ function getCountrySettings(countryCode: string) {
 function uniqueMethods(methods: PaymentMethodDefinition[]) {
   const seen = new Set<string>();
   const seenLabels = new Set<string>();
+
   return methods.filter((method) => {
     const labelKey = method.label.trim().toLowerCase();
+
     if (!method.id || seen.has(method.id) || seenLabels.has(labelKey))
       return false;
     seen.add(method.id);
     seenLabels.add(labelKey);
+
     return Boolean(method.label?.trim());
   });
 }
@@ -176,12 +186,14 @@ export function getCountryPaymentMethodCatalog(
   const code = normalizeCountryCode(countryCode);
   const countrySettings = getCountrySettings(code);
   const disabledMethodIds = new Set(countrySettings.disabledMethodIds ?? []);
+
   const catalog = uniqueMethods([
     ...getDefaultCountryPaymentMethods(code),
     ...(countrySettings.customMethods ?? []),
   ]);
 
   if (options.includeDisabled) return catalog;
+
   return catalog.filter((method) => !disabledMethodIds.has(method.id));
 }
 
@@ -191,6 +203,7 @@ export function getPaymentMethodAdminCatalog(
   const code = normalizeCountryCode(countryCode);
   const countrySettings = getCountrySettings(code);
   const disabledMethodIds = new Set(countrySettings.disabledMethodIds ?? []);
+
   const defaultMethodIds = new Set(
     getDefaultCountryPaymentMethods(code).map((method) => method.id),
   );
@@ -209,20 +222,25 @@ export function getActivePaymentMethods(countryCode: string) {
   const code = normalizeCountryCode(countryCode);
   const catalog = getCountryPaymentMethodCatalog(code);
   const catalogById = new Map(catalog.map((method) => [method.id, method]));
+
   const savedActiveIds = (
     getCountrySettings(code).activeMethodIds ?? []
   ).filter((id) => catalogById.has(id));
+
   const activeIds = savedActiveIds.length
     ? savedActiveIds
     : catalog.filter((method) => method.recommended).map((method) => method.id);
+
   const activeMethods = uniqueMethods(
     activeIds.flatMap((id) => {
       const method = catalogById.get(id);
+
       return method ? [method] : [];
     }),
   );
 
   if (activeMethods.length) return activeMethods;
+
   return catalog.slice(0, 1);
 }
 
@@ -238,6 +256,7 @@ export function setPaymentMethodAvailability(
     else disabledMethodIds.add(methodId);
 
     countrySettings.disabledMethodIds = Array.from(disabledMethodIds);
+
     if (!available) {
       countrySettings.activeMethodIds = (
         countrySettings.activeMethodIds ?? []
@@ -254,11 +273,13 @@ export function setStorePaymentMethodActive(
   const code = normalizeCountryCode(countryCode);
   const availableCatalog = getCountryPaymentMethodCatalog(code);
   const availableIds = new Set(availableCatalog.map((method) => method.id));
+
   if (!availableIds.has(methodId)) return false;
 
   const nextActiveIds = new Set(
     getActivePaymentMethods(code).map((method) => method.id),
   );
+
   if (active) nextActiveIds.add(methodId);
   else nextActiveIds.delete(methodId);
 
@@ -280,14 +301,17 @@ export function addCustomPaymentMethod(
 ) {
   const code = normalizeCountryCode(countryCode);
   const cleanLabel = label.trim();
+
   if (!cleanLabel) throw new Error("Ingresa el nombre del método de pago.");
 
   const existingMethod = getCountryPaymentMethodCatalog(code, {
     includeDisabled: true,
   }).find((method) => method.label.toLowerCase() === cleanLabel.toLowerCase());
+
   if (existingMethod) {
     setPaymentMethodAvailability(code, existingMethod.id, true);
     setStorePaymentMethodActive(code, existingMethod.id, true);
+
     return existingMethod;
   }
 
@@ -301,6 +325,7 @@ export function addCustomPaymentMethod(
   const activeMethodIds = new Set(
     getActivePaymentMethods(code).map((item) => item.id),
   );
+
   activeMethodIds.add(method.id);
 
   updateCountrySettings(code, (countrySettings) => {

@@ -96,10 +96,12 @@ function MermasMonitor() {
     let active = true;
     setIsLoading(true);
     setError(null);
+
     const locationId =
       currentLocationId === ALL_LOCATIONS
         ? undefined
         : (currentLocationId ?? undefined);
+
     void fetchMermaSummary(session.companyId, {
       from: from || undefined,
       to: to || undefined,
@@ -116,6 +118,7 @@ function MermasMonitor() {
       .finally(() => {
         if (active) setIsLoading(false);
       });
+
     return () => {
       active = false;
     };
@@ -130,6 +133,7 @@ function MermasMonitor() {
         : [{ name: "Sin datos", value: 0 }],
     [summary.byEmployee],
   );
+
   const reasonChart = useMemo(
     () =>
       summary.byReason.length
@@ -140,6 +144,7 @@ function MermasMonitor() {
         : [{ name: "Sin datos", value: 0 }],
     [summary.byReason],
   );
+
   const topEmployee = summary.byEmployee[0];
   const topLocation = summary.byLocation[0];
 

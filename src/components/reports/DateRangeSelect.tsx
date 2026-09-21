@@ -19,6 +19,7 @@ function dateKey(d: Date) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
+
   return `${y}-${m}-${day}`;
 }
 
@@ -35,11 +36,14 @@ const PRESETS = [
 
 function rangeForPreset(id: string): DateRange {
   const now = new Date();
+
   const back = (days: number) => {
     const d = new Date(now);
     d.setDate(d.getDate() - days);
+
     return dateKey(d);
   };
+
   switch (id) {
     case "hoy":
       return { from: dateKey(now), to: dateKey(now) };
@@ -91,6 +95,7 @@ export function DateRangeSelect({
 
   const applyPreset = (id: string) => {
     setPreset(id);
+
     if (id === "custom") return; // conserva las fechas actuales
     const r = rangeForPreset(id);
     setFrom(r.from ?? "");
@@ -102,6 +107,7 @@ export function DateRangeSelect({
     setPreset("custom");
     const nextFrom = which === "from" ? value : from;
     const nextTo = which === "to" ? value : to;
+
     if (which === "from") setFrom(value);
     else setTo(value);
     onChange({ from: nextFrom || undefined, to: nextTo || undefined });

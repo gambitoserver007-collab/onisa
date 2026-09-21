@@ -44,9 +44,11 @@ export function PhysicalCountTab({ onChanged }: { onChanged: () => void }) {
   const { isDemo } = useDemoSession();
 
   const [locationId, setLocationId] = useState("");
+
   const [systemStock, setSystemStock] = useState<Map<string, number>>(
     new Map(),
   );
+
   const [isLoadingStock, setIsLoadingStock] = useState(false);
   const [query, setQuery] = useState("");
   const [counts, setCounts] = useState<Record<string, string>>({});
@@ -54,6 +56,7 @@ export function PhysicalCountTab({ onChanged }: { onChanged: () => void }) {
 
   useEffect(() => {
     if (locationId) return;
+
     if (currentLocationId && currentLocationId !== ALL_LOCATIONS) {
       setLocationId(currentLocationId);
     } else if (locations[0]) {
@@ -76,6 +79,7 @@ export function PhysicalCountTab({ onChanged }: { onChanged: () => void }) {
       .finally(() => {
         if (active) setIsLoadingStock(false);
       });
+
     return () => {
       active = false;
     };
@@ -105,11 +109,15 @@ export function PhysicalCountTab({ onChanged }: { onChanged: () => void }) {
       .map((product) => {
         const sys = systemStock.get(product.id) ?? 0;
         const raw = counts[product.id];
+
         if (raw === undefined || raw.trim() === "") return null;
         const counted = Number(raw);
+
         if (!Number.isFinite(counted) || counted < 0) return null;
         const diff = counted - sys;
+
         if (diff === 0) return null;
+
         return { product, sys, counted, diff };
       })
       .filter((row): row is NonNullable<typeof row> => row !== null);
@@ -118,13 +126,18 @@ export function PhysicalCountTab({ onChanged }: { onChanged: () => void }) {
   const handleSave = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session) return;
+
     if (pendingChanges.length === 0) {
       toast.error("No hay diferencias que guardar todavía.");
+
       return;
     }
+
     if (
       !window.confirm(
         `¿Aplicar el conteo? Se ajustará el stock de ${pendingChanges.length} producto(s) según lo capturado.`,
@@ -132,9 +145,11 @@ export function PhysicalCountTab({ onChanged }: { onChanged: () => void }) {
     ) {
       return;
     }
+
     setIsSaving(true);
     let okCount = 0;
     const failed: string[] = [];
+
     for (const change of pendingChanges) {
       try {
         await createStockAdjustment(session, {
@@ -148,17 +163,22 @@ export function PhysicalCountTab({ onChanged }: { onChanged: () => void }) {
         failed.push(`${change.product.name}: ${getErrorMessage(error)}`);
       }
     }
+
     setIsSaving(false);
+
     if (okCount > 0) {
       toast.success(`Conteo aplicado a ${okCount} producto(s).`);
       setCounts({});
+
       try {
         setSystemStock(await fetchLocationStock(locationId));
       } catch {
         /* la tabla se refresca sola en el próximo cambio de filtro */
       }
+
       onChanged();
     }
+
     if (failed.length > 0) {
       toast.error(`No se pudo ajustar: ${failed.join(" · ")}`);
     }
@@ -248,10 +268,12 @@ export function PhysicalCountTab({ onChanged }: { onChanged: () => void }) {
                   const sys = systemStock.get(product.id) ?? 0;
                   const raw = counts[product.id] ?? "";
                   const counted = raw.trim() === "" ? null : Number(raw);
+
                   const diff =
                     counted !== null && Number.isFinite(counted)
                       ? counted - sys
                       : null;
+
                   return (
                     <TableRow key={product.id}>
                       <TableCell>

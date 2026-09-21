@@ -49,6 +49,7 @@ function CajaRevision() {
   const { formatMoney, settings } = useBusinessSettings();
   const { session, role, isReady } = useDemoSession();
   const { currentLocationId } = useCurrentLocation();
+
   const locationId =
     currentLocationId === ALL_LOCATIONS
       ? undefined
@@ -69,11 +70,13 @@ function CajaRevision() {
 
   const load = async () => {
     setIsLoading(true);
+
     try {
       const [pending, names] = await Promise.all([
         fetchPendingReviewSessions(session?.companyId, locationId),
         fetchProfileNames(session?.companyId),
       ]);
+
       setSessions(pending);
       setProfileNames(names);
     } catch (error) {
@@ -94,11 +97,13 @@ function CajaRevision() {
     setDetail(item);
     setNotes("");
     setCountsLoading(true);
+
     try {
       const [tc, log] = await Promise.all([
         fetchTillCounts(item.id),
         fetchAuditLog("cash_session", item.id),
       ]);
+
       setCounts(tc);
       setAuditEntries(log);
     } catch (error) {
@@ -111,6 +116,7 @@ function CajaRevision() {
   const handleAuthorize = async () => {
     if (!detail) return;
     setAuthorizing(true);
+
     try {
       await authorizeCashSession(detail.id, notes.trim() || undefined);
       toast.success("Corte autorizado.");
@@ -125,6 +131,7 @@ function CajaRevision() {
 
   const fmtDateTime = (iso: string | null) => {
     if (!iso) return "—";
+
     try {
       return new Date(iso).toLocaleString(settings.locale, {
         day: "2-digit",

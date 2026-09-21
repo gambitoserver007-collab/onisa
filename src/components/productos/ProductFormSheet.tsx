@@ -69,11 +69,15 @@ export function generateBarcode(): string {
   )
     .slice(0, 12)
     .padEnd(12, "0");
+
   let sum = 0;
+
   for (let i = 0; i < 12; i++) {
     sum += Number(base[i]) * (i % 2 === 0 ? 1 : 3);
   }
+
   const check = (10 - (sum % 10)) % 10;
+
   return base + String(check);
 }
 
@@ -106,6 +110,7 @@ export function ProductFormSheet({
     isLoading: catalogLoading,
     reload: reloadCatalog,
   } = useCompanyCatalog();
+
   const { isDemo } = useDemoSession();
   const { usesVariants, profile } = useBusinessProfile();
   const { settings } = useBusinessSettings();
@@ -137,9 +142,11 @@ export function ProductFormSheet({
   const barcodeRef = useRef<HTMLInputElement>(null);
   // Stock por punto de venta (multi-local).
   const [locations, setLocations] = useState<Location[]>([]);
+
   const [locStock, setLocStock] = useState<
     Record<string, { checked: boolean; stock: string }>
   >({});
+
   const [locStockLoading, setLocStockLoading] = useState(false);
   // Variantes (talla, color…): solo para perfiles que las usan (ej. Ropa).
   const [hasVariants, setHasVariants] = useState(false);
@@ -163,12 +170,14 @@ export function ProductFormSheet({
   const initLocStock = useCallback(
     (stockByLoc: Map<string, number> | null) => {
       const next: Record<string, { checked: boolean; stock: string }> = {};
+
       for (const loc of locations) {
         const has = stockByLoc?.has(loc.id) ?? false;
         next[loc.id] = stockByLoc
           ? { checked: has, stock: has ? String(stockByLoc.get(loc.id)) : "" }
           : { checked: true, stock: "" };
       }
+
       setLocStock(next);
     },
     [locations],
@@ -182,6 +191,7 @@ export function ProductFormSheet({
   // Generate a barcode that does not collide with any product already loaded.
   const generateUniqueBarcode = () => {
     let code = generateBarcode();
+
     for (
       let attempt = 0;
       attempt < 25 && existingBarcodes.has(code);
@@ -189,6 +199,7 @@ export function ProductFormSheet({
     ) {
       code = generateBarcode();
     }
+
     setBarcode(code);
   };
 
@@ -200,7 +211,9 @@ export function ProductFormSheet({
     if (!marginPct.trim()) return;
     const costNum = Number(cost);
     const marginFrac = Number(marginPct) / 100;
+
     if (!Number.isFinite(costNum) || costNum < 0) return;
+
     if (!Number.isFinite(marginFrac) || marginFrac < 0 || marginFrac >= 1)
       return;
     const base = costNum / (1 - marginFrac);
@@ -239,6 +252,7 @@ export function ProductFormSheet({
       setEditingId(product.id);
       setProductType(product.productType);
       setComboItems([]);
+
       if (product.productType === "combo") {
         setComboItemsLoading(true);
         void fetchComboItems(product.id)
@@ -255,6 +269,7 @@ export function ProductFormSheet({
           )
           .finally(() => setComboItemsLoading(false));
       }
+
       setName(product.name);
       setBarcode(product.barcode ?? "");
       setSku(product.sku ?? "");
@@ -288,13 +303,16 @@ export function ProductFormSheet({
       setHasVariants(product.hasVariants ?? false);
       setAttrDefs([]);
       setVariants([]);
+
       if (product.hasVariants) {
         void fetchProductVariants(product.id)
           .then(async (vs) => {
             const rows: VariantRow[] = [];
+
             for (const v of vs) {
               const locs = await fetchVariantLocations(v.id);
               const locStockMap: Record<string, string> = {};
+
               for (const l of locs) locStockMap[l.locationId] = String(l.stock);
               rows.push({
                 id: v.id,
@@ -306,8 +324,10 @@ export function ProductFormSheet({
                 locStock: locStockMap,
               });
             }
+
             const names =
               product.variantAttributes ?? Object.keys(vs[0]?.attributes ?? {});
+
             setAttrDefs(
               names.map((nm) => ({
                 name: nm,
@@ -332,6 +352,7 @@ export function ProductFormSheet({
   // disponible para armar un combo hasta refrescar la página entera.
   useEffect(() => {
     if (!open) return;
+
     if (editingProduct) loadProduct(editingProduct);
     else resetForm();
     void reloadCatalog();
@@ -341,6 +362,7 @@ export function ProductFormSheet({
   // Activa/desactiva variantes; al activar precarga los atributos sugeridos del rubro.
   const toggleVariants = (value: boolean) => {
     setHasVariants(value);
+
     if (value && attrDefs.length === 0) {
       setAttrDefs(
         profile.suggestedAttributes.map((nameAttr) => ({
@@ -354,8 +376,10 @@ export function ProductFormSheet({
   const handleSave = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session) return;
 
     const locationsInput = locations
@@ -364,6 +388,7 @@ export function ProductFormSheet({
         locationId: loc.id,
         stock: Number(locStock[loc.id]?.stock) || 0,
       }));
+
     if (
       productType === "standard" &&
       !hasVariants &&
@@ -371,11 +396,14 @@ export function ProductFormSheet({
       locationsInput.length === 0
     ) {
       toast.error("Asigna el producto a al menos una sucursal.");
+
       return;
     }
+
     const validVariants = variants.filter(
       (v) => Object.keys(v.attributes).length > 0,
     );
+
     if (
       productType === "standard" &&
       hasVariants &&
@@ -384,10 +412,12 @@ export function ProductFormSheet({
       toast.error(
         "Genera al menos una variante (define atributos y pulsa “Generar combinaciones”).",
       );
+
       return;
     }
 
     let comboItemsInput: ComboComponentInput[] = [];
+
     if (productType === "combo") {
       comboItemsInput = comboItems
         .filter((item) => item.componentProductId)
@@ -395,16 +425,20 @@ export function ProductFormSheet({
           componentProductId: item.componentProductId,
           qty: Number(item.qty),
         }));
+
       if (comboItemsInput.length === 0) {
         toast.error("Agrega al menos una pieza al combo.");
+
         return;
       }
+
       if (
         comboItemsInput.some(
           (item) => !Number.isFinite(item.qty) || item.qty <= 0,
         )
       ) {
         toast.error("La cantidad de cada pieza debe ser un número mayor a 0.");
+
         return;
       }
     }
@@ -412,6 +446,7 @@ export function ProductFormSheet({
     // Precio y costo no pueden ser negativos (producto base ni variantes).
     const numPrice = Number(price);
     const numCost = Number(cost);
+
     if (
       !Number.isFinite(numPrice) ||
       numPrice < 0 ||
@@ -419,29 +454,36 @@ export function ProductFormSheet({
       numCost < 0
     ) {
       toast.error("El precio y el costo no pueden ser negativos.");
+
       return;
     }
+
     if (
       hasVariants &&
       validVariants.some((v) => {
         const p = v.price.trim() ? Number(v.price) : 0;
         const c = v.cost.trim() ? Number(v.cost) : 0;
+
         return !Number.isFinite(p) || p < 0 || !Number.isFinite(c) || c < 0;
       })
     ) {
       toast.error(
         "El precio y el costo de las variantes no pueden ser negativos.",
       );
+
       return;
     }
+
     const numLowStockThreshold = lowStockThreshold.trim()
       ? Number(lowStockThreshold)
       : null;
+
     if (
       numLowStockThreshold !== null &&
       (!Number.isFinite(numLowStockThreshold) || numLowStockThreshold < 0)
     ) {
       toast.error("La alerta de stock bajo debe ser un número positivo.");
+
       return;
     }
 
@@ -453,8 +495,10 @@ export function ProductFormSheet({
         categoryId === "none" || categoryId === NEW_CATEGORY
           ? undefined
           : categoryId || undefined;
+
       if (categoryId === NEW_CATEGORY) {
         const cleanCategory = newCategory.trim();
+
         if (!cleanCategory)
           throw new Error("Escribe el nombre de la nueva categoría.");
         resolvedCategoryId = await createCategory(session, cleanCategory);
@@ -462,6 +506,7 @@ export function ProductFormSheet({
 
       // "+ Crear nueva etiqueta": si la unidad escrita no existe, la guarda para reutilizarla.
       const cleanUnit = unit.trim();
+
       if (
         unitMode === "custom" &&
         cleanUnit &&
@@ -498,6 +543,7 @@ export function ProductFormSheet({
       };
 
       let productId = editingId;
+
       if (editingId) {
         await updateProduct(editingId, input, session.companyId);
       } else {
@@ -513,6 +559,7 @@ export function ProductFormSheet({
         const attributeNames = attrDefs
           .map((def) => def.name.trim())
           .filter(Boolean);
+
         const variantInputs = validVariants.map((v) => ({
           id: v.id,
           attributes: v.attributes,
@@ -529,6 +576,7 @@ export function ProductFormSheet({
               stock: Number(v.locStock[loc.id]) || 0,
             })),
         }));
+
         await syncProductVariants(
           session,
           productId,
@@ -545,6 +593,7 @@ export function ProductFormSheet({
       const savedId = productId;
       resetForm();
       onOpenChange(false);
+
       if (savedId) await onSaved?.(savedId);
     } catch (error) {
       toast.error(getErrorMessage(error, "No se pudo guardar el producto."));
@@ -558,6 +607,7 @@ export function ProductFormSheet({
       open={open}
       onOpenChange={(value) => {
         onOpenChange(value);
+
         if (!value) resetForm();
       }}
     >
@@ -884,6 +934,7 @@ export function ProductFormSheet({
               ) : (
                 locations.map((loc) => {
                   const row = locStock[loc.id] ?? { checked: false, stock: "" };
+
                   return (
                     <div key={loc.id} className="flex items-center gap-3">
                       <Switch

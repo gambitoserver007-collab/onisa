@@ -32,6 +32,7 @@ function resolveTicketDisplay(
   byLocation?: Map<string, TicketDisplaySettings>,
 ): TicketDisplaySettings {
   if (!byLocation || !sale.locationId) return DEFAULT_TICKET_DISPLAY;
+
   return byLocation.get(sale.locationId) ?? DEFAULT_TICKET_DISPLAY;
 }
 
@@ -53,8 +54,11 @@ function round2(value: number): number {
 
 function rangeStamp(from: string, to: string): string {
   if (from && to) return `${from}_a_${to}`;
+
   if (from) return `desde_${from}`;
+
   if (to) return `hasta_${to}`;
+
   return "todas";
 }
 
@@ -67,6 +71,7 @@ export async function exportSalesToExcel(
 ): Promise<void> {
   const XLSX = await import("xlsx");
   const taxLabel = settings.taxName || "IVA";
+
   const rows = sales.map((sale) => ({
     "N°": sale.id,
     Fecha: sale.date,
@@ -120,38 +125,47 @@ function receiptHtml(
   ticketByLocation?: Map<string, TicketDisplaySettings>,
 ): string {
   const display = resolveTicketDisplay(sale, ticketByLocation);
+
   const items = sale.items
     .map((item) => {
       const variant = item.variantLabel
         ? ` <span style="color:#777">(${escapeHtml(item.variantLabel)})</span>`
         : "";
+
       return `<tr><td>${item.qty}× ${escapeHtml(item.name)}${variant}</td><td class="r">${money(item.qty * item.price)}</td></tr>`;
     })
     .join("");
+
   const fiscal =
     display.showFiscalInfo &&
     (settings.fiscalIdLabel || settings.sampleFiscalId)
       ? `<p>${escapeHtml(settings.fiscalIdLabel || "")} ${escapeHtml(settings.sampleFiscalId || "")}</p>`
       : "";
+
   const addressLine =
     display.showFiscalInfo && settings.address
       ? `<p>${escapeHtml(settings.address)}</p>`
       : "";
+
   const phoneLine =
     display.showFiscalInfo && settings.phone
       ? `<p>${escapeHtml(settings.phone)}</p>`
       : "";
+
   const tags = display.showPaymentMethod
     ? `${escapeHtml(sale.type)} · ${escapeHtml(sale.method)}`
     : escapeHtml(sale.type);
+
   const totalsRows = display.showTaxBreakdown
     ? `<tr><td>Subtotal</td><td class="r">${money(sale.subtotal)}</td></tr>
        <tr><td>${escapeHtml(settings.taxName || "IVA")}</td><td class="r">${money(sale.igv)}</td></tr>
        <tr class="grand"><td>Total</td><td class="r">${money(sale.total)}</td></tr>`
     : `<tr class="grand"><td>Total</td><td class="r">${money(sale.total)}</td></tr>`;
+
   const footer = display.footerText
     ? `<p class="footer">${escapeHtml(display.footerText)}</p>`
     : "";
+
   return `<section class="receipt">
     <div class="head">
       <h1>${escapeHtml(settings.businessName)}</h1>
@@ -178,13 +192,16 @@ export function printReceipts(
   ticketByLocation?: Map<string, TicketDisplaySettings>,
 ): void {
   if (!sales.length) return;
+
   const body = sales
     .map((sale) => receiptHtml(sale, settings, money, ticketByLocation))
     .join("");
+
   const title =
     sales.length === 1
       ? `Recibo ${sales[0].id}`
       : `Recibos ${settings.businessName}`;
+
   const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
 <style>
   *{font-family:ui-sans-serif,system-ui,Arial,sans-serif;box-sizing:border-box;}
@@ -217,10 +234,13 @@ export function printReceipts(
   iframe.style.border = "0";
   document.body.appendChild(iframe);
   const win = iframe.contentWindow;
+
   if (!win) {
     iframe.remove();
+
     return;
   }
+
   win.document.open();
   win.document.write(html);
   win.document.close();

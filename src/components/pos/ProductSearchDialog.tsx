@@ -45,7 +45,9 @@ export function ProductSearchDialog({
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
+
     if (!q) return [];
+
     return products
       .filter(
         (product) =>
@@ -80,8 +82,10 @@ export function ProductSearchDialog({
           )}
           {results.map((product) => {
             const tracksStock = product.productType === "standard";
+
             const outOfStock =
               !allowOutOfStock && tracksStock && product.stock <= 0;
+
             return (
               <button
                 key={product.id}

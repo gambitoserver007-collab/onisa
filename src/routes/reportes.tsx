@@ -95,11 +95,14 @@ function Reportes() {
   const { customers } = useCompanyCatalog();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+
   const range = useMemo(
     () => ({ from: from || undefined, to: to || undefined }),
     [from, to],
   );
+
   const hasRange = Boolean(from || to);
+
   const { data, error, source } = useDashboardData(
     currentLocationId === ALL_LOCATIONS
       ? undefined
@@ -117,10 +120,12 @@ function Reportes() {
     if (!session?.companyId) return;
     let active = true;
     setVendorLoading(true);
+
     const locationId =
       currentLocationId === ALL_LOCATIONS
         ? undefined
         : (currentLocationId ?? undefined);
+
     void Promise.all([
       fetchEmployeeCommissions(session.companyId, {
         from: from || undefined,
@@ -140,6 +145,7 @@ function Reportes() {
       .finally(() => {
         if (active) setVendorLoading(false);
       });
+
     return () => {
       active = false;
     };
@@ -148,6 +154,7 @@ function Reportes() {
   // (el historial de canje/ganancia vive por venta, ver ventas.$id.tsx).
   const showLoyalty = settings.loyaltyEnabled;
   const showTiers = showLoyalty && settings.loyaltyTiersEnabled;
+
   const topLoyalty = useMemo(
     () =>
       customers
@@ -165,22 +172,27 @@ function Reportes() {
         .slice(0, 15),
     [customers, showTiers],
   );
+
   const totalLoyaltyPoints = useMemo(
     () => customers.reduce((sum, c) => sum + (c.loyaltyPoints ?? 0), 0),
     [customers],
   );
 
   const lowStock = data.lowStockProducts;
+
   const rangeTotal = useMemo(
     () => data.salesByCategory.reduce((acc, row) => acc + (row.value || 0), 0),
     [data.salesByCategory],
   );
+
   const salesByCategory = data.salesByCategory.length
     ? data.salesByCategory
     : [{ name: "Sin datos", value: 0 }];
+
   const salesByMethod = data.salesByMethod.length
     ? data.salesByMethod
     : [{ name: "Sin datos", value: 0 }];
+
   const salesLast7Days = data.salesLast7Days.length
     ? data.salesLast7Days
     : [{ day: "Sin datos", total: 0 }];
@@ -204,9 +216,11 @@ function Reportes() {
       ["Ventas por día", "Total"],
       ...data.salesLast7Days.map((d) => [d.day, d.total]),
     ];
+
     const csv = rows
       .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
       .join("\n");
+
     const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -472,6 +486,7 @@ function Reportes() {
                         customer.loyaltyYearSpend ?? 0,
                         settings,
                       );
+
                       return (
                         <TableRow key={customer.id}>
                           <TableCell className="font-medium">

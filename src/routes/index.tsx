@@ -30,6 +30,7 @@ function Index() {
   // manda al panel que corresponda (Super Admin → /admin; dueño de tienda → /dashboard).
   useEffect(() => {
     if (!isReady) return;
+
     if (session) {
       navigate({ to: canAccessSaaS(session) ? "/admin" : "/dashboard" });
     }

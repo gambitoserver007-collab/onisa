@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 const requiredEnv = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
+
 const missing = requiredEnv.filter((key) => !process.env[key]?.trim());
 
 if (missing.length > 0) {
@@ -9,7 +10,9 @@ if (missing.length > 0) {
 }
 
 const supabaseUrl = process.env.SUPABASE_URL.trim();
+
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY.trim();
+
 const ownerEmail = (process.env.OWNER_EMAIL || "owner@tiendaagil.test")
   .trim()
   .toLowerCase();
@@ -60,6 +63,7 @@ function pass(label) {
 function fail(label, details) {
   results.push({ ok: false, label, details });
   console.error(`ERR ${label}`);
+
   if (details) console.error(`    ${details}`);
 }
 
@@ -71,6 +75,7 @@ async function verifyTable(table) {
 
   if (error) {
     fail(`table ${table}`, error.message);
+
     return;
   }
 
@@ -91,6 +96,7 @@ async function verifyPlans() {
 
   if (error) {
     fail("base subscription plans", error.message);
+
     return;
   }
 
@@ -99,15 +105,18 @@ async function verifyPlans() {
       "base subscription plans",
       `expected ${expectedPlanIds.length}, found ${data.length}`,
     );
+
     return;
   }
 
   const hasDemoPlan = data.some((plan) => plan.is_demo_data);
+
   if (hasDemoPlan) {
     fail(
       "base subscription plans",
       "base plans must not be marked as demo data",
     );
+
     return;
   }
 
@@ -125,11 +134,13 @@ async function verifyOwnerProfile() {
 
   if (error) {
     fail("owner profile", error.message);
+
     return;
   }
 
   if (!data) {
     fail("owner profile", `profile not found for ${ownerEmail}`);
+
     return;
   }
 
@@ -144,6 +155,7 @@ async function verifyOwnerProfile() {
       "owner profile",
       "owner must be active admin, is_demo=false, demo_mode=none, is_platform_admin=true",
     );
+
     return;
   }
 
@@ -155,6 +167,7 @@ for (const table of tables) {
 }
 
 await verifyPlans();
+
 await verifyOwnerProfile();
 
 const failures = results.filter((result) => !result.ok);

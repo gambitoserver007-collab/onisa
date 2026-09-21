@@ -71,17 +71,22 @@ function statusBadge(apartado: Apartado) {
   const isOverdue =
     apartado.status === "activo" &&
     apartado.dueDate < new Date().toISOString().slice(0, 10);
+
   if (isOverdue) return <Badge variant="destructive">Vencido</Badge>;
+
   if (apartado.status === "completado")
     return <Badge variant="success">Completado</Badge>;
+
   if (apartado.status === "cancelado")
     return <Badge variant="secondary">Cancelado</Badge>;
+
   return <Badge variant="warm">Activo</Badge>;
 }
 
 function defaultDueDate() {
   const d = new Date();
   d.setDate(d.getDate() + 30);
+
   return d.toISOString().slice(0, 10);
 }
 
@@ -101,6 +106,7 @@ function ApartadosPage() {
   const [apartados, setApartados] = useState<Apartado[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
   const [statusFilter, setStatusFilter] = useState<"all" | ApartadoStatus>(
     "all",
   );
@@ -109,10 +115,12 @@ function ApartadosPage() {
     if (!session?.companyId) return;
     setIsLoading(true);
     setError(null);
+
     try {
       const data = await fetchApartados(session.companyId, {
         status: statusFilter === "all" ? undefined : statusFilter,
       });
+
       setApartados(data);
     } catch (err) {
       setError(getErrorMessage(err));
@@ -159,19 +167,25 @@ function ApartadosPage() {
       toast.error(
         "Por ahora los apartados no admiten productos con variantes.",
       );
+
       return;
     }
+
     if (product.productType === "service") {
       toast.error("Por ahora los servicios no se pueden apartar.");
+
       return;
     }
+
     setCart((prev) => {
       const existing = prev.find((item) => item.productId === product.id);
+
       if (existing) {
         return prev.map((item) =>
           item.productId === product.id ? { ...item, qty: item.qty + 1 } : item,
         );
       }
+
       return [
         ...prev,
         {
@@ -189,6 +203,7 @@ function ApartadosPage() {
     () => cart.reduce((sum, item) => sum + item.price * item.qty, 0),
     [cart],
   );
+
   const minDeposit = useMemo(
     () => Math.round(cartTotal * settings.apartadoMinDepositPct * 100) / 100,
     [cartTotal, settings.apartadoMinDepositPct],
@@ -197,21 +212,30 @@ function ApartadosPage() {
   const handleSave = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!customerId) {
       toast.error("Elige el cliente que aparta.");
+
       return;
     }
+
     if (cart.length === 0) {
       toast.error("Agrega al menos un producto.");
+
       return;
     }
+
     if (!locationId) {
       toast.error("Elige la sucursal donde se reserva el producto.");
+
       return;
     }
+
     setIsSaving(true);
+
     try {
       await createApartado({
         customerId,

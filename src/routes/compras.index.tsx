@@ -34,6 +34,7 @@ function Compras() {
 
   const reload = useCallback(async () => {
     setIsLoading(true);
+
     try {
       setPurchases(await fetchPurchases(session?.companyId));
     } catch (error) {

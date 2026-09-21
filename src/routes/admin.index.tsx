@@ -66,7 +66,9 @@ const STATUS_LABELS: Record<string, string> = {
 
 function statusVariant(status: string) {
   if (status === "active") return "success" as const;
+
   if (status === "trial") return "warm" as const;
+
   return "destructive" as const;
 }
 
@@ -113,9 +115,11 @@ function AdminDashboard() {
   const byPlan = stats?.byPlan.length
     ? stats.byPlan
     : [{ name: "Sin datos", value: 0 }];
+
   const byStatus = stats?.byStatus.length
     ? stats.byStatus
     : [{ name: "Sin datos", value: 0 }];
+
   const growth = stats?.growth ?? [];
 
   return (

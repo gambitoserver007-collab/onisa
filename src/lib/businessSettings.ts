@@ -7,6 +7,7 @@ import {
 import type { DemoSession } from "@/types";
 
 const BUSINESS_SETTINGS_KEY = "onisa_business_settings";
+
 const BUSINESS_SETTINGS_CHANGED_EVENT = "onisa:business-settings-changed";
 
 export interface BusinessSettings {
@@ -54,7 +55,9 @@ export interface BusinessSettings {
 }
 
 let cachedRawSettings: string | null | undefined;
+
 let cachedSettings: BusinessSettings | null = null;
+
 let cachedDefaultSettings: BusinessSettings | null = null;
 
 export function createBusinessSettingsFromMarket(
@@ -100,6 +103,7 @@ export function getDefaultBusinessSettings() {
   cachedDefaultSettings ??= createBusinessSettingsFromMarket(
     getMarketByCountryCode(),
   );
+
   return cachedDefaultSettings;
 }
 
@@ -107,6 +111,7 @@ function normalizeBusinessSettings(
   settings?: Partial<BusinessSettings> | null,
 ) {
   const market = getMarketByCountryCode(settings?.countryCode);
+
   const base = createBusinessSettingsFromMarket(
     market,
     settings?.businessName?.trim() || DEFAULT_BUSINESS_NAME,
@@ -197,6 +202,7 @@ function normalizeBusinessSettings(
 
 function emitBusinessSettingsChange() {
   cachedRawSettings = undefined;
+
   if (typeof window === "undefined") return;
   window.dispatchEvent(new Event(BUSINESS_SETTINGS_CHANGED_EVENT));
 }
@@ -222,6 +228,7 @@ export function getBusinessSettings(): BusinessSettings {
 
   try {
     const raw = localStorage.getItem(BUSINESS_SETTINGS_KEY);
+
     if (raw === cachedRawSettings && cachedSettings) return cachedSettings;
 
     cachedRawSettings = raw;
@@ -245,11 +252,13 @@ export function saveBusinessSettings(settings: Partial<BusinessSettings>) {
 
   localStorage.setItem(BUSINESS_SETTINGS_KEY, JSON.stringify(nextSettings));
   emitBusinessSettingsChange();
+
   return nextSettings;
 }
 
 export function setBusinessCountry(countryCode: string) {
   const current = getBusinessSettings();
+
   return saveBusinessSettings({
     businessName: current.businessName,
     countryCode,

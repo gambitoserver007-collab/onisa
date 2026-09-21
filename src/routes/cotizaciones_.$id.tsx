@@ -69,6 +69,7 @@ function CotizacionDetail() {
   const load = async () => {
     setIsLoading(true);
     setError(null);
+
     try {
       const result = await fetchQuote(id);
       setQuote(result?.quote ?? null);
@@ -88,9 +89,12 @@ function CotizacionDetail() {
   const handleReject = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!window.confirm("¿Marcar esta cotización como rechazada?")) return;
+
     try {
       await rejectQuote(id);
       toast.success("Cotización rechazada.");
@@ -122,8 +126,10 @@ function CotizacionDetail() {
   const quoteCustomer = quote?.customerId
     ? (customers.find((c) => c.id === quote.customerId) ?? null)
     : null;
+
   const canRedeemPoints =
     settings.loyaltyEnabled && (quoteCustomer?.loyaltyPoints ?? 0) > 0;
+
   const maxRedeemablePoints = quote
     ? Math.max(
         0,
@@ -139,14 +145,20 @@ function CotizacionDetail() {
   const handleConvert = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!quote) return;
+
     if (!convertLocationId) {
       toast.error("Elige la sucursal donde se entrega esta venta.");
+
       return;
     }
+
     setIsConverting(true);
+
     try {
       const result = await convertQuoteToSale({
         quoteId: quote.id,
@@ -154,6 +166,7 @@ function CotizacionDetail() {
         paymentMethod,
         pointsRedeemed: Number(pointsToRedeem) || 0,
       });
+
       toast.success(`Venta ${result.saleNumber} creada.`);
       setConvertOpen(false);
       navigate({ to: "/ventas/$id", params: { id: result.saleId } });

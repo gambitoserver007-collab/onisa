@@ -28,6 +28,7 @@ function resizeToDataUrl(file: File, size: number): Promise<string> {
         canvas.width = size;
         canvas.height = size;
         const ctx = canvas.getContext("2d");
+
         if (!ctx) return reject(new Error("No se pudo procesar la imagen."));
         const scale = Math.max(size / img.width, size / img.height);
         const w = img.width * scale;
@@ -35,8 +36,10 @@ function resizeToDataUrl(file: File, size: number): Promise<string> {
         ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
         resolve(canvas.toDataURL("image/jpeg", 0.85));
       };
+
       img.src = reader.result as string;
     };
+
     reader.readAsDataURL(file);
   });
 }
@@ -55,16 +58,23 @@ export function LogoUploader({
   const handleFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
+
     if (!file) return;
+
     if (!file.type.startsWith("image/")) {
       toast.error("Selecciona un archivo de imagen.");
+
       return;
     }
+
     if (file.size > 8 * 1024 * 1024) {
       toast.error("La imagen es muy grande (máx. 8 MB).");
+
       return;
     }
+
     setBusy(true);
+
     try {
       onChange(await resizeToDataUrl(file, size));
     } catch (error) {

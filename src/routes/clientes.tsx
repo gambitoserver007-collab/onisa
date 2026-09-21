@@ -70,6 +70,7 @@ const clean = (value: string) => (value === "-" ? "" : value);
 function Clientes() {
   const { customers, error, source, isLoading, reload, session } =
     useCompanyCatalog();
+
   const { isDemo, role } = useDemoSession();
   const { formatMoney, settings } = useBusinessSettings();
   const isAdmin = role === "admin";
@@ -93,6 +94,7 @@ function Clientes() {
   // la dirección de otro cliente si el usuario abre otro registro rápido.
   const editingIdRef = useRef<string | null>(null);
   const [addressLoading, setAddressLoading] = useState(false);
+
   const list = useMemo(
     () =>
       customers.filter((customer) =>
@@ -108,11 +110,14 @@ function Clientes() {
   // un interruptor aparte que se pueda desincronizar del real.
   const tierCounts = useMemo(() => {
     const counts: Record<LoyaltyTier, number> = { bronce: 0, plata: 0, oro: 0 };
+
     if (!showTiers) return counts;
+
     for (const customer of customers) {
       const tier = getLoyaltyTier(customer.loyaltyYearSpend ?? 0, settings);
       counts[tier] += 1;
     }
+
     return counts;
   }, [customers, showTiers, settings]);
 
@@ -139,6 +144,7 @@ function Clientes() {
     setAddressLoading(true);
     setOpen(true);
     const addr = await getCustomerAddress(customer.id);
+
     // Solo aplica si seguimos editando a ese mismo cliente (descarta resultados obsoletos).
     if (editingIdRef.current === customer.id) {
       setAddress(addr);
@@ -149,17 +155,23 @@ function Clientes() {
   const handleSave = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session) return;
     let creditLimitNum: number | undefined;
+
     if (isAdmin) {
       creditLimitNum = creditLimit.trim() ? Number(creditLimit) : 0;
+
       if (!Number.isFinite(creditLimitNum) || creditLimitNum < 0) {
         toast.error("El límite de crédito debe ser un número positivo.");
+
         return;
       }
     }
+
     setIsSaving(true);
 
     try {
@@ -182,6 +194,7 @@ function Clientes() {
         });
         toast.success("Cliente creado.");
       }
+
       setOpen(false);
       await reload();
     } catch (error) {
@@ -193,16 +206,23 @@ function Clientes() {
 
   const handleCollectCredit = async () => {
     if (!collectTarget) return;
+
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     const amount = Number(collectAmount);
+
     if (!Number.isFinite(amount) || amount <= 0) {
       toast.error("Ingresa un monto válido.");
+
       return;
     }
+
     setIsCollecting(true);
+
     try {
       const result = await collectCustomerCredit(
         collectTarget.id,
@@ -210,6 +230,7 @@ function Clientes() {
         collectMethod,
         collectMethod === "Efectivo" ? "cash" : "other",
       );
+
       toast.success(
         `Se registró ${formatMoney(result.applied)}. Saldo restante: ${formatMoney(result.remainingBalance)}.`,
       );
@@ -226,8 +247,10 @@ function Clientes() {
   const handleDelete = async (customer: Customer) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (
       !window.confirm(
         `¿Eliminar al cliente "${customer.name}"? Esta acción no se puede deshacer.`,
@@ -235,6 +258,7 @@ function Clientes() {
     ) {
       return;
     }
+
     try {
       await deleteCustomer(customer.id);
       toast.success("Cliente eliminado.");
@@ -452,6 +476,7 @@ function Clientes() {
                             customer.loyaltyYearSpend ?? 0,
                             settings,
                           );
+
                           return (
                             <TableCell>
                               <Badge variant={LOYALTY_TIER_BADGE_VARIANT[tier]}>

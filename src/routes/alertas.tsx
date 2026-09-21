@@ -59,6 +59,7 @@ function Section({
   children: React.ReactNode;
 }) {
   if (count === 0) return null;
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -97,6 +98,7 @@ function AlertasPage() {
       .finally(() => {
         if (!cancelled) setIsLoading(false);
       });
+
     return () => {
       cancelled = true;
     };

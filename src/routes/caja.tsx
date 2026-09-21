@@ -90,6 +90,7 @@ const DEMO_SESSION: CashSession = {
   reviewStatus: "pending",
   classification: null,
 };
+
 const DEMO_MOVEMENTS: CashMovement[] = [
   {
     id: "d1",
@@ -113,6 +114,7 @@ const DEMO_MOVEMENTS: CashMovement[] = [
     movementAt: "2026-06-18T12:05:00Z",
   },
 ];
+
 const DEMO_CLOSINGS: CashSession[] = [
   {
     id: "CJ-0009",
@@ -159,19 +161,23 @@ function Caja() {
   // Solo admin/finanzas ven el esperado/real/diferencia -- el arqueo ciego
   // exige que el cajero nunca los vea, ni siquiera de turnos ya autorizados.
   const canSeeFigures = role === "admin" || role === "finanzas";
+
   // La caja es de un local: el cajero usa el suyo; el admin, el local activo.
   // "Todas las tiendas" no aplica a la caja → exige elegir una sucursal.
   const resolvedLocationId =
     currentLocationId === ALL_LOCATIONS ? null : currentLocationId;
+
   const cajaLocationId =
     role === "admin"
       ? resolvedLocationId
       : (session?.locationId ?? resolvedLocationId);
+
   // No operar caja en una sucursal desactivada (ya no está en la lista de activas).
   const cajaLocationInactive =
     !!cajaLocationId &&
     locations.length > 0 &&
     !locations.some((loc) => loc.id === cajaLocationId);
+
   const { sales } = useSales(cajaLocationId ?? undefined);
   const companyId = session?.companyId;
 
@@ -190,6 +196,7 @@ function Caja() {
   const [loadError, setLoadError] = useState(false);
 
   const activeTills = tills.filter((t) => t.isActive);
+
   const tillName = (id: string | null) =>
     id ? (tills.find((t) => t.id === id)?.name ?? null) : null;
 
@@ -214,6 +221,7 @@ function Caja() {
 
   const load = async () => {
     setIsLoading(true);
+
     try {
       const [current, history, names, tillsList] = await Promise.all([
         // Acotado al propio usuario: puede haber varias cajas abiertas a la
@@ -236,21 +244,25 @@ function Caja() {
         fetchProfileNames(companyId),
         cajaLocationId ? fetchTills(cajaLocationId) : Promise.resolve([]),
       ]);
+
       const mv = current ? await fetchCashMovements(current.id) : [];
       const tc = current ? await fetchTillCounts(current.id) : [];
       // Sin caja propia: busca si alguien más dejó una caja de esta
       // sucursal esperando un segundo conteo que yo pueda hacer.
       let help: CashSession | null = null;
       let helpCounts: TillCount[] = [];
+
       if (!current && companyId && cajaLocationId && session?.userId) {
         const candidates = await fetchSessionsNeedingSecondCount(
           companyId,
           cajaLocationId,
           session.userId,
         );
+
         help = candidates[0] ?? null;
         helpCounts = help ? await fetchTillCounts(help.id) : [];
       }
+
       setOpenSession(current);
       setClosings(history);
       setProfileNames(names);
@@ -287,6 +299,7 @@ function Caja() {
   const cashSales = useMemo(() => {
     if (!openSession) return 0;
     const openedAt = openSession.openedAt;
+
     return sales
       .filter(
         (sale) =>
@@ -299,9 +312,11 @@ function Caja() {
   const ingresos = movements
     .filter((m) => m.amount > 0)
     .reduce((s, m) => s + m.amount, 0);
+
   const egresos = movements
     .filter((m) => m.amount < 0)
     .reduce((s, m) => s + m.amount, 0); // negative
+
   const expected =
     (openSession?.openingAmount ?? 0) + cashSales + ingresos + egresos;
 
@@ -335,8 +350,10 @@ function Caja() {
       return "";
     }
   };
+
   const fmtDate = (iso: string | null) => {
     if (!iso) return "—";
+
     try {
       return new Date(iso).toLocaleDateString(settings.locale, {
         day: "2-digit",
@@ -350,15 +367,20 @@ function Caja() {
 
   const handleOpen = async () => {
     if (isDemo) return blockDemoAction();
+
     if (!session) return;
+
     // Con una sola caja activa no hay nada que elegir; con varias, sí se
     // exige (el servidor también lo exige -- esto es solo para no mandar
     // una petición que sabemos que va a fallar).
     if (activeTills.length > 1 && !openingTillId) {
       toast.error("Elige en qué caja vas a trabajar.");
+
       return;
     }
+
     setBusy(true);
+
     try {
       await openCashSession(
         session,
@@ -379,8 +401,10 @@ function Caja() {
 
   const handleAddMovement = async () => {
     if (isDemo) return blockDemoAction();
+
     if (!session || !openSession) return;
     setBusy(true);
+
     try {
       await createCashMovement(
         session,
@@ -409,12 +433,15 @@ function Caja() {
     manualAdjustment: number,
   ) => {
     if (isDemo) return blockDemoAction();
+
     if (!session || !activeSessionId) return;
     setCountBusy(true);
+
     try {
       await submitTillCount(activeSessionId, lines, manualAdjustment);
       const finish = await finishTillCount(activeSessionId);
       setCountDialog(false);
+
       if (finish.status === "closed") {
         toast.success(
           "Caja cerrada. Queda pendiente de que admin la autorice.",
@@ -424,6 +451,7 @@ function Caja() {
           "Conteo registrado. Se necesita un segundo conteo, hecho por otra persona, antes de cerrar.",
         );
       }
+
       await load();
     } catch (error) {
       toast.error(getErrorMessage(error, "No se pudo registrar el conteo."));

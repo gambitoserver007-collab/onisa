@@ -24,11 +24,15 @@ function requiresSingleLocation(pathname: string) {
 // En POS/Caja siempre se exige una tienda concreta.
 export function LocationSwitcher() {
   const { role } = useDemoSession();
+
   const { locations, currentLocationId, setCurrentLocationId } =
     useCurrentLocation();
+
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const canViewAllStores = role === "admin" || role === "finanzas";
+
   if (locations.length === 0) return null;
+
   // Admin/finanzas con una sola tienda no necesitan selector. El cajero/operador
   // sí ve su sucursal asignada aunque sea una (sabe dónde está operando).
   if (canViewAllStores && locations.length <= 1) return null;
@@ -36,6 +40,7 @@ export function LocationSwitcher() {
   // El cajero/operador nunca ve "Todas las tiendas" (siempre opera en una).
   const singleOnly = requiresSingleLocation(pathname) || !canViewAllStores;
   const isAll = currentLocationId === ALL_LOCATIONS;
+
   // On single-store pages, never show "Todas"; if it's currently selected, leave
   // the trigger empty so the user is forced to choose a concrete store.
   const value =

@@ -69,12 +69,15 @@ export function PurchaseFormSheet({
   const [date, setDate] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+
   const [variantsByProduct, setVariantsByProduct] = useState<
     Record<string, ProductVariant[]>
   >({});
+
   const [newProdOpen, setNewProdOpen] = useState(false);
 
   const supplier = suppliers.find((s) => s.id === supplierId) ?? null;
+
   // Solo los productos de este proveedor (más los que aún no tienen proveedor asignado).
   const availableProducts = products.filter(
     (p) => p.supplierId === supplierId || !p.supplierId,
@@ -104,6 +107,7 @@ export function PurchaseFormSheet({
   useEffect(() => {
     rows.forEach((row) => {
       const product = products.find((p) => p.id === row.productId);
+
       if (product?.hasVariants && !variantsByProduct[product.id]) {
         void fetchProductVariants(product.id)
           .then((vs) =>
@@ -141,29 +145,39 @@ export function PurchaseFormSheet({
   const handleSave = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session) return;
+
     if (!supplierId) {
       toast.error("Selecciona un proveedor.");
+
       return;
     }
+
     const missingVariant = rows.some((row) => {
       const product = products.find((p) => p.id === row.productId);
+
       return product?.hasVariants && !row.variantId;
     });
+
     if (missingVariant) {
       toast.error(
         "Elige la variante (talla/color) en los productos que la usan.",
       );
+
       return;
     }
+
     const items = rows.map((row) => ({
       productId: row.productId,
       variantId: row.variantId,
       qty: Math.trunc(Number(row.qty)),
       unitCost: Number(row.cost),
     }));
+
     if (
       items.length === 0 ||
       items.some(
@@ -178,9 +192,12 @@ export function PurchaseFormSheet({
       toast.error(
         "Revisa las líneas: la cantidad debe ser entero ≥ 1 y el costo un número ≥ 0.",
       );
+
       return;
     }
+
     setIsSaving(true);
+
     try {
       await createPurchase(session, {
         supplierId,
@@ -270,6 +287,7 @@ export function PurchaseFormSheet({
                                 const product = products.find(
                                   (x) => x.id === v,
                                 );
+
                                 setRows((rs) =>
                                   rs.map((x, i) =>
                                     i === idx
@@ -302,8 +320,10 @@ export function PurchaseFormSheet({
                               const product = products.find(
                                 (p) => p.id === row.productId,
                               );
+
                               if (!product?.hasVariants) return null;
                               const vs = variantsByProduct[product.id] ?? [];
+
                               return (
                                 <Select
                                   value={row.variantId ?? ""}

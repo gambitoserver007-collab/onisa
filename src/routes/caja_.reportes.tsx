@@ -76,10 +76,13 @@ function CajaReportes() {
   // caja seleccionada (de la sucursal anterior) ya no aplica.
   useEffect(() => {
     setTillId(ALL);
+
     if (locationId === ALL) {
       setTills([]);
+
       return;
     }
+
     void fetchTills(locationId)
       .then(setTills)
       .catch(() => setTills([]));
@@ -95,6 +98,7 @@ function CajaReportes() {
   const load = async () => {
     if (!session?.companyId) return;
     setIsLoading(true);
+
     try {
       const [report, names] = await Promise.all([
         fetchCashReport(session.companyId, {
@@ -106,6 +110,7 @@ function CajaReportes() {
         }),
         fetchProfileNames(session.companyId),
       ]);
+
       setRows(report);
       setProfileNames(names);
     } catch (error) {
@@ -147,6 +152,7 @@ function CajaReportes() {
 
   const fmtDate = (iso: string | null) => {
     if (!iso) return "—";
+
     try {
       return new Date(iso).toLocaleDateString(settings.locale, {
         day: "2-digit",
@@ -160,6 +166,7 @@ function CajaReportes() {
 
   const handleExport = async () => {
     if (!rows.length) return;
+
     try {
       await exportCashReportToExcel(rows, nameOf, range);
     } catch {

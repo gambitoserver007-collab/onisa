@@ -46,6 +46,7 @@ import type { CartItem, Product, ProductVariant, Sale } from "@/types";
 export const Route = createFileRoute("/pos")({ component: POS });
 
 type SaleDocumentType = Sale["type"];
+
 type PaymentMethod = Sale["method"];
 
 // 3 "ventanas" de venta simultáneas en el POS -- ver el efecto de
@@ -97,8 +98,10 @@ function POS() {
   const navigate = useNavigate();
   const { formatMoney, settings } = useBusinessSettings();
   const { isDemo, session, role } = useDemoSession();
+
   const { products, customers, error, source, isLoading, reload } =
     useCompanyCatalog();
+
   const { activeMethods } = usePaymentMethods(settings.countryCode);
   const { currentLocationId, locations } = useCurrentLocation();
   const [query, setQuery] = useState("");
@@ -113,15 +116,18 @@ function POS() {
   const [splitMode, setSplitMode] = useState(false);
   const [splitPayments, setSplitPayments] = useState<SalePaymentLine[]>([]);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+
   const [success, setSuccess] = useState<{ amount: number; id: string } | null>(
     null,
   );
+
   // Clave de idempotencia del cobro en curso: se mantiene igual mientras el
   // carrito no cambie, para que un reintento tras un error de red reutilice
   // la misma venta en vez de duplicarla (ver create_sale, p_client_request_id).
   const pendingSaleRef = useRef<{ key: string; signature: string } | null>(
     null,
   );
+
   // Atajos de teclado (F4/F6/F9/F10): cobrar, cambiar de venta, verificador
   // de precios y buscador de productos.
   const [priceCheckOpen, setPriceCheckOpen] = useState(false);
@@ -132,25 +138,31 @@ function POS() {
   // que el cajero vuelve a hacer click manualmente en el buscador. Se
   // reenfoca ahí después de cada una de esas acciones rápidas.
   const scanInputRef = useRef<HTMLInputElement>(null);
+
   const refocusScanner = () => {
     requestAnimationFrame(() => scanInputRef.current?.focus());
   };
+
   // Stock del punto de venta activo: Map product_id -> stock (null = sin cargar).
   const [locationStock, setLocationStock] = useState<Map<
     string,
     number
   > | null>(null);
+
   // Stock de variantes en la sucursal: por producto (para el catálogo) y por variante.
   const [variantStockByProduct, setVariantStockByProduct] = useState<
     Map<string, number>
   >(new Map());
+
   const [variantStockByVariant, setVariantStockByVariant] = useState<
     Map<string, number>
   >(new Map());
+
   // Índice de códigos de barras de variantes → {product, variant}, para escanear variantes.
   const [variantBarcodeIndex, setVariantBarcodeIndex] = useState<
     Map<string, { product: Product; variant: ProductVariant }>
   >(new Map());
+
   // Selección de variante (cuando se toca un producto con variantes).
   const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
   const [pendingVariants, setPendingVariants] = useState<ProductVariant[]>([]);
@@ -160,10 +172,12 @@ function POS() {
   // selector. "Todas las tiendas" no aplica al vender → exige elegir una.
   const resolvedLocationId =
     currentLocationId === ALL_LOCATIONS ? null : currentLocationId;
+
   const posLocationId =
     role === "admin"
       ? resolvedLocationId
       : (session?.locationId ?? resolvedLocationId);
+
   // Si la sucursal asignada/activa fue desactivada (ya no está en la lista de activas),
   // no se puede vender ahí. Durante la carga (lista vacía) no se bloquea.
   const posLocationInactive =
@@ -181,8 +195,10 @@ function POS() {
   useEffect(() => {
     if (!session?.companyId || !posLocationId) {
       setHasOpenCashSession(null);
+
       return;
     }
+
     let active = true;
     setHasOpenCashSession(null);
     void fetchOpenCashSession(session.companyId, posLocationId)
@@ -192,6 +208,7 @@ function POS() {
       .catch(() => {
         if (active) setHasOpenCashSession(null);
       });
+
     return () => {
       active = false;
     };
@@ -200,13 +217,16 @@ function POS() {
   const reloadLocationStock = useCallback(async () => {
     if (!posLocationId) {
       setLocationStock(null);
+
       return;
     }
+
     try {
       const [base, variant] = await Promise.all([
         fetchLocationStock(posLocationId),
         fetchLocationVariantStock(posLocationId),
       ]);
+
       setLocationStock(base);
       setVariantStockByProduct(variant.byProduct);
       setVariantStockByVariant(variant.byVariant);
@@ -222,10 +242,13 @@ function POS() {
   // Índice de códigos de barras de variantes, para poder escanearlas en el POS.
   useEffect(() => {
     const variantProducts = products.filter((p) => p.hasVariants);
+
     if (!variantProducts.length) {
       setVariantBarcodeIndex(new Map());
+
       return;
     }
+
     let active = true;
     void Promise.all(
       variantProducts.map((p) =>
@@ -235,17 +258,21 @@ function POS() {
       ),
     ).then((results) => {
       if (!active) return;
+
       const idx = new Map<
         string,
         { product: Product; variant: ProductVariant }
       >();
+
       for (const { p, vs } of results) {
         for (const v of vs) {
           if (v.barcode) idx.set(v.barcode.trim(), { product: p, variant: v });
         }
       }
+
       setVariantBarcodeIndex(idx);
     });
+
     return () => {
       active = false;
     };
@@ -284,10 +311,13 @@ function POS() {
   const slotsKey = session?.companyId
     ? `ventapro:sale-slots:${session.companyId}`
     : null;
+
   const [activeSlot, setActiveSlot] = useState(0);
+
   const [slots, setSlots] = useState<SaleSlot[]>(() =>
     Array.from({ length: SLOT_COUNT }, () => makeEmptySlot()),
   );
+
   // Se vuelve true recién en el render que YA refleja los datos cargados
   // (batchea con los setState de abajo). Antes usaba un ref actualizado de
   // forma síncrona, pero eso dejaba correr el efecto de sincronización de
@@ -300,6 +330,7 @@ function POS() {
 
   useEffect(() => {
     setSlotsReady(false);
+
     if (!slotsKey) {
       setSlots(Array.from({ length: SLOT_COUNT }, () => makeEmptySlot()));
       setActiveSlot(0);
@@ -309,20 +340,27 @@ function POS() {
       setSplitMode(false);
       setSplitPayments([]);
       setSlotsReady(true);
+
       return;
     }
+
     try {
       const raw = localStorage.getItem(slotsKey);
+
       const parsed = raw
         ? (JSON.parse(raw) as { activeSlot: number; slots: SaleSlot[] })
         : null;
+
       const loadedSlots =
         parsed?.slots?.length === SLOT_COUNT
           ? parsed.slots
           : Array.from({ length: SLOT_COUNT }, () => makeEmptySlot());
+
       const loadedActive = parsed?.activeSlot ?? 0;
+
       const normalizedActive =
         loadedActive >= 0 && loadedActive < SLOT_COUNT ? loadedActive : 0;
+
       const current = loadedSlots[normalizedActive] ?? loadedSlots[0];
       setSlots(loadedSlots);
       setActiveSlot(normalizedActive);
@@ -363,6 +401,7 @@ function POS() {
         splitMode,
         splitPayments,
       };
+
       if (slotsKey) {
         try {
           localStorage.setItem(
@@ -374,6 +413,7 @@ function POS() {
           // memoria para esta sesión, solo no sobrevive un refresh.
         }
       }
+
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -395,6 +435,7 @@ function POS() {
     setActiveSlot(index);
     setCart(target.cart);
     setCustomer(target.customerId);
+
     if (target.docType) setDocType(target.docType as SaleDocumentType);
     setMethod(target.method as PaymentMethod);
     setPointsToRedeem(target.pointsToRedeem);
@@ -422,6 +463,7 @@ function POS() {
       .catch(() => {
         /* si falla, los combos simplemente se muestran sin stock disponible */
       });
+
     return () => {
       active = false;
     };
@@ -431,24 +473,31 @@ function POS() {
   // sucursal activa -- el mínimo entre todas las piezas (la más escasa manda).
   const comboAvailability = useMemo(() => {
     const byCombo = new Map<string, ComboItemRow[]>();
+
     for (const item of comboItems) {
       const list = byCombo.get(item.comboProductId) ?? [];
       list.push(item);
       byCombo.set(item.comboProductId, list);
     }
+
     const map = new Map<string, number>();
+
     for (const [comboId, items] of byCombo) {
       if (!locationStock || items.length === 0) {
         map.set(comboId, 0);
         continue;
       }
+
       let available = Infinity;
+
       for (const item of items) {
         const componentStock = locationStock.get(item.componentProductId) ?? 0;
         available = Math.min(available, Math.floor(componentStock / item.qty));
       }
+
       map.set(comboId, Number.isFinite(available) ? Math.max(available, 0) : 0);
     }
+
     return map;
   }, [comboItems, locationStock]);
 
@@ -460,6 +509,7 @@ function POS() {
   // esta sucursal), Servicio siempre está "disponible" (SERVICE_STOCK_SENTINEL).
   const locatedProducts = useMemo(() => {
     if (!locationStock) return products;
+
     return products
       .filter((product) => {
         if (
@@ -467,6 +517,7 @@ function POS() {
           product.productType === "service"
         )
           return true;
+
         return product.hasVariants
           ? variantStockByProduct.has(product.id)
           : locationStock.has(product.id);
@@ -475,9 +526,11 @@ function POS() {
         if (product.productType === "combo") {
           return { ...product, stock: comboAvailability.get(product.id) ?? 0 };
         }
+
         if (product.productType === "service") {
           return { ...product, stock: SERVICE_STOCK_SENTINEL };
         }
+
         return {
           ...product,
           stock: product.hasVariants
@@ -505,6 +558,7 @@ function POS() {
       .catch(() => {
         /* aviso opcional -- si falla, simplemente no se muestra */
       });
+
     return () => {
       active = false;
     };
@@ -515,12 +569,14 @@ function POS() {
     const now = new Date();
     const qtyByProduct = new Map<string, number>();
     const qtyByCategory = new Map<string, number>();
+
     for (const item of cart) {
       qtyByProduct.set(
         item.productId,
         (qtyByProduct.get(item.productId) ?? 0) + item.qty,
       );
       const categoryId = productById.get(item.productId)?.categoryId;
+
       if (categoryId) {
         qtyByCategory.set(
           categoryId,
@@ -528,6 +584,7 @@ function POS() {
         );
       }
     }
+
     return promotions.filter((promo) => {
       if (
         promo.type !== "discount" ||
@@ -535,15 +592,20 @@ function POS() {
         !promo.active
       )
         return false;
+
       if (promo.startsAt && new Date(promo.startsAt) > now) return false;
+
       if (promo.endsAt && new Date(promo.endsAt) < now) return false;
       const minQty = promo.minQty ?? 0;
+
       if (promo.scopeType === "product" && promo.productId) {
         return (qtyByProduct.get(promo.productId) ?? 0) >= minQty;
       }
+
       if (promo.scopeType === "category" && promo.categoryId) {
         return (qtyByCategory.get(promo.categoryId) ?? 0) >= minQty;
       }
+
       return false;
     });
   }, [promotions, cart, productById]);
@@ -552,6 +614,7 @@ function POS() {
   // grilla se recalcula sin bloquear la UI (cambiar de categoría se siente fluido).
   const deferredQuery = useDeferredValue(query);
   const deferredCategory = useDeferredValue(category);
+
   const filteredProducts = useMemo(
     () =>
       locatedProducts.filter(
@@ -586,34 +649,45 @@ function POS() {
 
   const addVariantToCart = (variant: ProductVariant, productArg?: Product) => {
     const product = productArg ?? pendingProduct;
+
     if (!product) return;
     const stock = variantStockByVariant.get(variant.id) ?? 0;
+
     if (stock <= 0) {
       toast.error("Esta variante no tiene stock disponible.");
+
       return;
     }
+
     const existing = cart.find(
       (item) => item.productId === product.id && item.variantId === variant.id,
     );
+
     if (existing && existing.qty >= stock) {
       toast.error("No hay más stock de esta variante.");
+
       return;
     }
+
     const price =
       variant.priceOverride != null ? variant.priceOverride : product.price;
+
     setCart((currentCart) => {
       const item = currentCart.find(
         (entry) =>
           entry.productId === product.id && entry.variantId === variant.id,
       );
+
       if (item) {
         if (item.qty >= stock) return currentCart; // tope de stock (evita sobrepasar)
+
         return currentCart.map((entry) =>
           entry.productId === product.id && entry.variantId === variant.id
             ? { ...entry, qty: entry.qty + 1 }
             : entry,
         );
       }
+
       return [
         ...currentCart,
         {
@@ -639,31 +713,39 @@ function POS() {
   const addProduct = (product: Product) => {
     if (product.hasVariants) {
       openVariantPicker(product);
+
       return;
     }
+
     if (product.stock === 0) {
       toast.error("Este producto no tiene stock disponible.");
+
       return;
     }
 
     const existingItem = cart.find(
       (item) => item.productId === product.id && !item.variantId,
     );
+
     if (existingItem && existingItem.qty >= product.stock) {
       toast.error("No hay más stock disponible para este producto.");
+
       return;
     }
 
     setCart((currentCart) => {
       const item = currentCart.find((entry) => entry.productId === product.id);
+
       if (item) {
         if (item.qty >= product.stock) return currentCart; // tope de stock (evita sobrepasar)
+
         return currentCart.map((entry) =>
           entry.productId === product.id
             ? { ...entry, qty: entry.qty + 1 }
             : entry,
         );
       }
+
       return [
         ...currentCart,
         {
@@ -686,28 +768,39 @@ function POS() {
   // add the matching product to the cart and clear the box, ready for the next scan.
   const handleScan = (rawCode: string) => {
     const code = rawCode.trim();
+
     if (!code) return;
+
     const exact = locatedProducts.find(
       (product) => product.barcode && product.barcode === code,
     );
+
     if (exact) {
       addProduct(exact);
       setQuery("");
+
       return;
     }
+
     // ¿Es el código de barras de una variante? La agrega directo (sin abrir el selector).
     const variantHit = variantBarcodeIndex.get(code);
+
     if (variantHit) {
       addVariantToCart(variantHit.variant, variantHit.product);
       setQuery("");
+
       return;
     }
+
     const product = filteredProducts.length === 1 ? filteredProducts[0] : null;
+
     if (product) {
       addProduct(product);
       setQuery("");
+
       return;
     }
+
     // Nothing matched the scanned code; if there are several matches (manual
     // typing), leave the search so the cashier can pick from the list.
     if (filteredProducts.length === 0) {
@@ -726,13 +819,17 @@ function POS() {
     setCart((currentCart) =>
       currentCart.map((item) => {
         if (lineKey(item) !== lineId) return item;
+
         const stock = item.variantId
           ? (variantStockByVariant.get(item.variantId) ?? item.qty)
           : (productById.get(item.productId)?.stock ?? item.qty);
+
         if (item.qty >= stock) {
           toast.error("No hay más stock disponible.");
+
           return item;
         }
+
         return { ...item, qty: item.qty + 1 };
       }),
     );
@@ -756,13 +853,17 @@ function POS() {
     setCart((currentCart) =>
       currentCart.map((item) => {
         if (lineKey(item) !== lineId) return item;
+
         const stock = item.variantId
           ? (variantStockByVariant.get(item.variantId) ?? qty)
           : (productById.get(item.productId)?.stock ?? qty);
+
         if (qty > stock) {
           toast.error(`Solo hay ${stock} en stock.`);
+
           return { ...item, qty: stock };
         }
+
         return { ...item, qty: Math.floor(qty) };
       }),
     );
@@ -782,12 +883,16 @@ function POS() {
   }) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session) return;
+
     try {
       const newId = await createCustomer(session, input);
       await reload();
+
       if (newId) setCustomer(newId);
       toast.success(`Cliente "${input.name}" creado y seleccionado.`);
     } catch (error) {
@@ -800,11 +905,14 @@ function POS() {
   const { total, subtotal, igv } = useMemo(() => {
     const charges =
       documentTypes.find((d) => d.name === docType)?.chargesIva ?? true;
+
     const rate = settings.taxRate;
     let runningTotal = 0;
     let runningTax = 0;
+
     for (const item of cart) {
       const line = Math.round(item.qty * item.price * 100) / 100;
+
       if (!charges) {
         runningTotal += line;
       } else if (item.priceIncludesTax !== false) {
@@ -816,6 +924,7 @@ function POS() {
         runningTax += lineTax;
       }
     }
+
     return {
       total: runningTotal,
       igv: runningTax,
@@ -825,6 +934,7 @@ function POS() {
 
   const selectedCustomer = customers.find((entry) => entry.id === customer);
   const loyaltyEnabled = !!settings.loyaltyEnabled;
+
   const maxRedeemablePoints =
     loyaltyEnabled && selectedCustomer && settings.loyaltyPointValue > 0
       ? Math.max(
@@ -837,6 +947,7 @@ function POS() {
           ),
         )
       : 0;
+
   const loyaltyDiscount =
     Math.round(pointsToRedeem * settings.loyaltyPointValue * 100) / 100;
 
@@ -857,10 +968,12 @@ function POS() {
           (selectedCustomer.creditBalance ?? 0),
       )
     : 0;
+
   const paymentMethodsWithCredit = useMemo(() => {
     if (!selectedCustomer || (selectedCustomer.creditLimit ?? 0) <= 0) {
       return activeMethods;
     }
+
     return [
       ...activeMethods,
       {
@@ -874,6 +987,7 @@ function POS() {
 
   useEffect(() => {
     if (!paymentMethodsWithCredit.length) return;
+
     if (
       !paymentMethodsWithCredit.some(
         (paymentMethod) => paymentMethod.label === method,
@@ -886,22 +1000,26 @@ function POS() {
   const checkout = async () => {
     if (cart.length === 0) {
       toast.error("El carrito está vacío.");
+
       return;
     }
 
     if (hasOpenCashSession === false) {
       toast.error("Abre la caja de esta sucursal antes de cobrar.");
+
       return;
     }
 
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
 
     const splitAssigned =
       Math.round(splitPayments.reduce((sum, p) => sum + p.amount, 0) * 100) /
       100;
+
     if (
       splitMode &&
       (splitPayments.length === 0 ||
@@ -909,18 +1027,22 @@ function POS() {
           Math.round(Math.max(0, total - loyaltyDiscount) * 100) / 100)
     ) {
       toast.error("El pago dividido debe sumar exacto al total.");
+
       return;
     }
 
     const validCustomerNow = customers.some((entry) => entry.id === customer);
+
     const usesCredit = splitMode
       ? splitPayments.some((p) => p.kind === "credit")
       : paymentMethodsWithCredit.find((m) => m.label === method)?.kind ===
         "credit";
+
     if (usesCredit && !validCustomerNow) {
       toast.error(
         "Elige un cliente con crédito habilitado para vender a crédito.",
       );
+
       return;
     }
 
@@ -929,13 +1051,16 @@ function POS() {
     // Reutiliza la misma clave si es el mismo carrito de un intento anterior
     // (reintento tras error de red); genera una nueva si el carrito cambió.
     const signature = cartSignature(cart);
+
     if (pendingSaleRef.current?.signature !== signature) {
       pendingSaleRef.current = { key: crypto.randomUUID(), signature };
     }
+
     const clientRequestId = pendingSaleRef.current.key;
 
     try {
       const validCustomer = customers.some((entry) => entry.id === customer);
+
       const sale = await createSaleFromCart({
         customerId: validCustomer ? customer : null,
         documentType: docType,
@@ -949,6 +1074,7 @@ function POS() {
         pointsRedeemed: validCustomer ? pointsToRedeem : 0,
         payments: splitMode ? splitPayments : undefined,
       });
+
       const saleId = sale?.id ?? "reciente";
       const amount = sale?.total ?? Math.max(0, total - loyaltyDiscount);
       pendingSaleRef.current = null;
@@ -959,11 +1085,13 @@ function POS() {
       await reload();
       await reloadLocationStock();
       setSuccess({ amount, id: saleId });
+
       if (sale?.promoDiscount && sale.promoDiscount > 0) {
         toast.success(
           `Promoción aplicada: ahorraste ${formatMoney(sale.promoDiscount)}.`,
         );
       }
+
       setTimeout(() => {
         navigate({
           to: "/ventas/$id",
@@ -987,6 +1115,7 @@ function POS() {
   // escrito.
   const handleVoidSale = async (reason: string) => {
     if (cart.length === 0) return;
+
     try {
       await logVoidedSale({
         items: cart.map((item) => ({
@@ -1027,6 +1156,7 @@ function POS() {
     activeSlot,
     isCheckingOut,
   });
+
   shortcutsRef.current = {
     switchSlot,
     checkout,
@@ -1037,6 +1167,7 @@ function POS() {
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       const h = shortcutsRef.current;
+
       switch (event.key) {
         case "F10":
           event.preventDefault();
@@ -1048,6 +1179,7 @@ function POS() {
           break;
         case "F4":
           event.preventDefault();
+
           if (!h.isCheckingOut) void h.checkout();
           break;
         case "F9":
@@ -1058,7 +1190,9 @@ function POS() {
           break;
       }
     };
+
     window.addEventListener("keydown", handler);
+
     return () => window.removeEventListener("keydown", handler);
   }, []);
 

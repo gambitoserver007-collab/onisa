@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 const INSTALL_SQL_PATH = path.join(
   __dirname,
   "../../supabase/install/01_install.sql",
@@ -50,6 +51,7 @@ export async function createTestDb(): Promise<PGlite> {
 
   const sql = readFileSync(INSTALL_SQL_PATH, "utf-8");
   await db.exec(sql);
+
   return db;
 }
 
@@ -71,6 +73,7 @@ export async function asUser<T>(
   await db.query("select set_config('request.jwt.claim.sub', $1, false);", [
     userId,
   ]);
+
   try {
     return await fn();
   } finally {
@@ -97,16 +100,19 @@ export async function makeCompany(
      values ($1,$2,'MX','MXN','es-MX','RFC','IVA',0.16,$3,$4)`,
     [id, name, opts.status ?? "active", opts.planId ?? null],
   );
+
   const { rows } = await db.query<{ id: string }>(
     "select id from public.locations where company_id=$1 limit 1",
     [id],
   );
+
   const loc1 = rows[0].id;
   const loc2 = randomUUID();
   await db.query(
     "insert into public.locations (id, company_id, name) values ($1,$2,'Sucursal 2')",
     [loc2, id],
   );
+
   return { id, loc1, loc2 };
 }
 
@@ -132,6 +138,7 @@ export async function makeUser(
        is_platform_admin=excluded.is_platform_admin`,
     [id, companyId, email, role, role, isPlatformAdmin],
   );
+
   return id;
 }
 
@@ -153,6 +160,7 @@ export async function makeProduct(
     "insert into public.product_locations (company_id, product_id, location_id, stock, is_active) values ($1,$2,$3,$4,true)",
     [companyId, id, locationId, stock],
   );
+
   return id;
 }
 
@@ -169,6 +177,7 @@ export async function makePlan(
      values ($1,$2,10,$3,$4,$5)`,
     [id, name, productLimit, userLimit, salesLimit],
   );
+
   return id;
 }
 
@@ -219,6 +228,7 @@ export async function createSale(
       opts.paymentKind ?? null,
     ],
   );
+
   return rows[0].create_sale as {
     sale_id: string;
     subtotal: number;
@@ -242,6 +252,7 @@ export async function makeCustomer(
     "insert into public.customers (id, company_id, name, loyalty_points) values ($1,$2,$3,$4)",
     [id, companyId, name, loyaltyPoints],
   );
+
   return id;
 }
 
@@ -295,6 +306,7 @@ export async function getCustomerLoyaltyPoints(
     "select loyalty_points from public.customers where id = $1",
     [customerId],
   );
+
   return Number(rows[0].loyalty_points);
 }
 
@@ -316,6 +328,7 @@ export async function submitTillCount(
     "select submit_till_count($1, $2::jsonb, $3) as submit_till_count",
     [sessionId, JSON.stringify(denominations), manualAdjustment],
   );
+
   return rows[0].submit_till_count as {
     count_id: string;
     count_number: number;
@@ -339,6 +352,7 @@ export async function finishTillCount(
     "select finish_till_count($1) as finish_till_count",
     [sessionId],
   );
+
   return rows[0].finish_till_count as {
     session_id: string;
     status: string;
@@ -361,6 +375,7 @@ export async function authorizeCashSession(
     "select authorize_cash_session($1, $2) as authorize_cash_session",
     [sessionId, notes ?? null],
   );
+
   return rows[0].authorize_cash_session as {
     session_id: string;
     expected_amount: number;
@@ -373,5 +388,6 @@ export async function authorizeCashSession(
 /** Extrae un mensaje de error legible sin importar la forma exacta del throw. */
 export function errMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
+
   return String(err);
 }

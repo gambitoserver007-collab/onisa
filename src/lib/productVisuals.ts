@@ -108,6 +108,7 @@ export function getProductVisual(
   const categoryVisual = CATEGORY_VISUAL[product.category] ?? DEFAULT_VISUAL;
   const name = product.name.toLowerCase();
   const byName = NAME_EMOJI.find((entry) => name.includes(entry.match));
+
   return {
     emoji: byName?.emoji ?? categoryVisual.emoji,
     gradient: categoryVisual.gradient,
@@ -119,5 +120,6 @@ export function getProductImage(
   product: Pick<Product, "image" | "barcode">,
 ): string | null {
   if (product.image?.trim()) return product.image;
+
   return PRODUCT_IMAGES[product.barcode] ?? null;
 }

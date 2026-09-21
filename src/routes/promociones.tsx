@@ -80,6 +80,7 @@ function Promos() {
 
   const reload = useCallback(async () => {
     setIsLoading(true);
+
     try {
       setPromos(await fetchPromotions(session?.companyId));
     } catch (error) {
@@ -133,28 +134,39 @@ function Promos() {
   const handleSave = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session) return;
+
     if (type === "discount" && scopeType === "product" && !scopeProductId) {
       toast.error("Elige el producto al que aplica.");
+
       return;
     }
+
     if (type === "discount" && scopeType === "category" && !scopeCategoryId) {
       toast.error("Elige la categoría a la que aplica.");
+
       return;
     }
+
     if (
       type === "discount" &&
       scopeType !== SCOPE_NONE &&
       !(Number(minQty) > 0)
     ) {
       toast.error("Ingresa la cantidad mínima para que se aplique sola.");
+
       return;
     }
+
     setIsSaving(true);
+
     try {
       const numeric = Number(value);
+
       const input = {
         name,
         type,
@@ -167,6 +179,7 @@ function Promos() {
         categoryId: scopeType === "category" ? scopeCategoryId : null,
         minQty: scopeType === SCOPE_NONE ? null : Number(minQty) || null,
       };
+
       if (editing) {
         await updatePromotion(editing.id, input);
         toast.success("Promoción actualizada.");
@@ -174,6 +187,7 @@ function Promos() {
         await createPromotion(session, input);
         toast.success("Promoción creada.");
       }
+
       setOpen(false);
       await reload();
     } catch (error) {
@@ -186,13 +200,16 @@ function Promos() {
   const handleToggle = async (promo: Promotion, active: boolean) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     setPromos((current) =>
       current.map((item) =>
         item.id === promo.id ? { ...item, active } : item,
       ),
     );
+
     try {
       await setPromotionActive(promo.id, active);
     } catch (error) {
@@ -204,8 +221,10 @@ function Promos() {
   const handleDelete = async (promo: Promotion) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     try {
       await deletePromotion(promo.id);
       toast.success("Promoción eliminada.");
@@ -217,19 +236,25 @@ function Promos() {
 
   const valueOf = (promo: Promotion) => {
     if (promo.type === "combo") return formatMoney(promo.valueAmount ?? 0);
+
     if (promo.type === "discount") return promo.valueText ?? "-";
+
     return "-";
   };
 
   const applicationOf = (promo: Promotion) => {
     if (promo.scopeType === "product") {
       const p = products.find((item) => item.id === promo.productId);
+
       return `${p?.name ?? "producto"} · mín. ${promo.minQty ?? 0}`;
     }
+
     if (promo.scopeType === "category") {
       const c = categories.find((item) => item.id === promo.categoryId);
+
       return `${c?.name ?? "categoría"} · mín. ${promo.minQty ?? 0}`;
     }
+
     return null;
   };
 

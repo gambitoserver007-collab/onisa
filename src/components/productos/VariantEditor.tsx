@@ -35,6 +35,7 @@ export function variantLabel(attributes: Record<string, string>): string {
 // nombre, para no generar variantes con label repetido ni perder dimensiones.
 export function buildVariantCombos(defs: AttrDef[]): Record<string, string>[] {
   const seenNames = new Set<string>();
+
   const clean = defs
     .map((d) => ({
       name: d.name.trim(),
@@ -45,21 +46,28 @@ export function buildVariantCombos(defs: AttrDef[]): Record<string, string>[] {
     .filter((d) => {
       if (!d.name || d.values.length === 0) return false;
       const key = d.name.toLowerCase();
+
       if (seenNames.has(key)) return false; // ignora atributos con nombre duplicado
       seenNames.add(key);
+
       return true;
     });
+
   if (!clean.length) return [];
   let combos: Record<string, string>[] = [{}];
+
   for (const def of clean) {
     const next: Record<string, string>[] = [];
+
     for (const combo of combos) {
       for (const value of def.values) {
         next.push({ ...combo, [def.name]: value });
       }
     }
+
     combos = next;
   }
+
   return combos;
 }
 
@@ -84,18 +92,22 @@ export function VariantEditor({
     onAttrDefsChange(
       attrDefs.map((d, i) => (i === index ? { ...d, ...patch } : d)),
     );
+
   const addAttr = () =>
     onAttrDefsChange([...attrDefs, { name: "", values: [] }]);
+
   const removeAttr = (index: number) =>
     onAttrDefsChange(attrDefs.filter((_, i) => i !== index));
 
   // Genera la matriz preservando código/precio/stock de las combinaciones que ya existían.
   const regenerate = () => {
     const byLabel = new Map(variants.map((v) => [v.label, v]));
+
     const next: VariantRow[] = buildVariantCombos(attrDefs).map(
       (attributes) => {
         const label = variantLabel(attributes);
         const existing = byLabel.get(label);
+
         return existing
           ? { ...existing, attributes, label }
           : {
@@ -108,6 +120,7 @@ export function VariantEditor({
             };
       },
     );
+
     onVariantsChange(next);
   };
 
@@ -115,6 +128,7 @@ export function VariantEditor({
     onVariantsChange(
       variants.map((v, i) => (i === index ? { ...v, ...patch } : v)),
     );
+
   const setVariantStock = (index: number, locationId: string, value: string) =>
     onVariantsChange(
       variants.map((v, i) =>

@@ -57,6 +57,7 @@ const clean = (value: string) => (value === "-" ? "" : value);
 function Proveedores() {
   const { suppliers, error, source, isLoading, reload, session } =
     useCompanyCatalog();
+
   const { isDemo } = useDemoSession();
   const { formatMoney } = useBusinessSettings();
   const [query, setQuery] = useState("");
@@ -70,6 +71,7 @@ function Proveedores() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [purchasesLoading, setPurchasesLoading] = useState(false);
+
   const [purchaseSupplierId, setPurchaseSupplierId] = useState<string | null>(
     null,
   );
@@ -85,6 +87,7 @@ function Proveedores() {
   const reloadPurchases = useCallback(async () => {
     if (!session?.companyId) return;
     setPurchasesLoading(true);
+
     try {
       setPurchases(await fetchPurchases(session.companyId));
     } catch (error) {
@@ -100,12 +103,14 @@ function Proveedores() {
 
   const purchasesBySupplier = useMemo(() => {
     const map = new Map<string, Purchase[]>();
+
     for (const purchase of purchases) {
       if (!purchase.supplierId) continue;
       const arr = map.get(purchase.supplierId) ?? [];
       arr.push(purchase);
       map.set(purchase.supplierId, arr);
     }
+
     return map;
   }, [purchases]);
 
@@ -128,8 +133,10 @@ function Proveedores() {
   const handleSave = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session) return;
     setIsSaving(true);
 
@@ -141,6 +148,7 @@ function Proveedores() {
         await createSupplier(session, { name, documentNumber, phone });
         toast.success("Proveedor creado.");
       }
+
       setOpen(false);
       await reload();
     } catch (error) {
@@ -153,8 +161,10 @@ function Proveedores() {
   const handleDelete = async (supplier: Supplier) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (
       !window.confirm(
         `¿Eliminar al proveedor "${supplier.name}"? Esta acción no se puede deshacer.`,
@@ -162,6 +172,7 @@ function Proveedores() {
     ) {
       return;
     }
+
     try {
       await deleteSupplier(supplier.id);
       toast.success("Proveedor eliminado.");
@@ -272,8 +283,10 @@ function Proveedores() {
                 {!isLoading &&
                   list.map((supplier) => {
                     const expanded = expandedId === supplier.id;
+
                     const supplierPurchases =
                       purchasesBySupplier.get(supplier.id) ?? [];
+
                     return (
                       <Fragment key={supplier.id}>
                         <TableRow

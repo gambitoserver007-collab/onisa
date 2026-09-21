@@ -76,8 +76,10 @@ const SECTION_GROUPS = GRANTABLE_SECTIONS.reduce<
   { group: string; items: typeof GRANTABLE_SECTIONS }[]
 >((acc, section) => {
   const existing = acc.find((g) => g.group === section.group);
+
   if (existing) existing.items.push(section);
   else acc.push({ group: section.group, items: [section] });
+
   return acc;
 }, []);
 
@@ -89,15 +91,20 @@ function Usuarios() {
   const { isDemo, session, isReady } = useDemoSession();
   const { locations } = useCurrentLocation();
   const multiLocal = locations.length > 1;
+
   const locationNames = (ids: string[]) => {
     if (!ids.length) return "Todas";
+
     const names = ids
       .map((id) => locations.find((loc) => loc.id === id)?.name)
       .filter((name): name is string => !!name);
+
     return names.length ? names.join(", ") : "—";
   };
+
   const toggleId = (list: string[], id: string) =>
     list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [usage, setUsage] = useState<PlanUsage | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -108,15 +115,18 @@ function Usuarios() {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<StoreRole>("user");
   const [locationIds, setLocationIds] = useState<string[]>([]);
+
   const [sectionKeys, setSectionKeys] = useState<string[]>(
     defaultSectionsFor("user"),
   );
+
   const [saasPanel, setSaasPanel] = useState(false);
 
   // Al cambiar el rol, pre-marca los accesos por defecto de ese rol.
   const handleRoleChange = (next: StoreRole) => {
     setRole(next);
     setSectionKeys(defaultSectionsFor(next));
+
     if (next !== "admin") setSaasPanel(false);
   };
 
@@ -133,19 +143,23 @@ function Usuarios() {
   const handleEditRoleChange = (next: StoreRole) => {
     setEditRole(next);
     setEditSectionKeys(defaultSectionsFor(next));
+
     if (next !== "admin") setEditSaasPanel(false);
   };
+
   const [isEditSaving, setIsEditSaving] = useState(false);
   const [deleting, setDeleting] = useState<TeamMember | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
   const reload = useCallback(async () => {
     setIsLoading(true);
+
     try {
       const [teamData, usageData] = await Promise.all([
         fetchTeam(session?.companyId),
         fetchPlanUsage(session?.companyId),
       ]);
+
       setTeam(teamData);
       setUsage(usageData);
     } catch (error) {
@@ -157,6 +171,7 @@ function Usuarios() {
 
   const userLimit = usage?.plan?.userLimit ?? 0;
   const activeCount = team.filter((t) => t.active).length;
+
   const atLimit =
     userLimit > 0 && userLimit < UNLIMITED && activeCount >= userLimit;
 
@@ -168,16 +183,22 @@ function Usuarios() {
   const handleCreate = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session) return;
+
     if (atLimit) {
       toast.error(
         `Alcanzaste el límite de ${userLimit} ${userLimit === 1 ? "usuario" : "usuarios"} de tu plan. Mejora tu plan para agregar más.`,
       );
+
       return;
     }
+
     setIsSaving(true);
+
     try {
       await createTeamUser(session, {
         fullName,
@@ -208,8 +229,10 @@ function Usuarios() {
   const openEdit = (member: TeamMember) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     const memberRole = (member.role as StoreRole) ?? "user";
     setEditing(member);
     setEditName(member.name);
@@ -229,6 +252,7 @@ function Usuarios() {
   const handleUpdate = async () => {
     if (!session || !editing) return;
     setIsEditSaving(true);
+
     try {
       await updateTeamUser(session, {
         userId: editing.id,
@@ -253,14 +277,17 @@ function Usuarios() {
   const askDelete = (member: TeamMember) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     setDeleting(member);
   };
 
   const handleDelete = async () => {
     if (!session || !deleting) return;
     setIsDeleting(true);
+
     try {
       await deleteTeamUser(session, deleting.id);
       toast.success("Usuario eliminado.");
@@ -426,6 +453,7 @@ function Usuarios() {
               {!isLoading &&
                 team.map((user) => {
                   const isSelf = user.id === session?.userId;
+
                   return (
                     <TableRow key={user.id}>
                       <TableCell className="font-medium">{user.name}</TableCell>

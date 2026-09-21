@@ -73,8 +73,10 @@ function Paises() {
   const openEdit = (country: CountrySetting) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     setEditing(country);
     setTaxRatePct(String(Math.round(country.taxRate * 10000) / 100));
     setTaxName(country.taxName);
@@ -84,25 +86,34 @@ function Paises() {
 
   const addDoc = () =>
     setDocs((prev) => [...prev, { name: "", chargesIva: true }]);
+
   const patchDoc = (index: number, patch: Partial<DocumentType>) =>
     setDocs((prev) =>
       prev.map((doc, i) => (i === index ? { ...doc, ...patch } : doc)),
     );
+
   const removeDoc = (index: number) =>
     setDocs((prev) => prev.filter((_, i) => i !== index));
 
   const handleSave = async () => {
     if (!editing) return;
+
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     const rate = Number(taxRatePct) / 100;
+
     if (!Number.isFinite(rate) || rate < 0 || rate > 1) {
       toast.error("Ingresa un % de IVA válido (entre 0 y 100).");
+
       return;
     }
+
     setIsSaving(true);
+
     try {
       await updateCountrySetting(editing.countryCode, {
         taxRate: rate,

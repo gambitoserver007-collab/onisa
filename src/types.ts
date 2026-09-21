@@ -116,12 +116,14 @@ export interface Category {
   name: string;
   active: boolean;
 }
+
 export interface Supplier {
   id: string;
   name: string;
   ruc: string;
   phone: string;
 }
+
 export interface Customer {
   id: string;
   name: string;
@@ -138,6 +140,7 @@ export interface Customer {
   /** Cuánto debe actualmente el cliente (nunca puede superar creditLimit). */
   creditBalance?: number;
 }
+
 export interface Sale {
   id: string;
   databaseId?: string;
@@ -167,6 +170,7 @@ export interface Sale {
   igv: number;
   total: number;
 }
+
 export interface Purchase {
   id: string;
   date: string;
@@ -174,6 +178,7 @@ export interface Purchase {
   doc: string;
   total: number;
 }
+
 export interface Plan {
   id: string;
   name: string;
@@ -183,6 +188,7 @@ export interface Plan {
   sales: number;
   active: number;
 }
+
 export interface Company {
   id: string;
   name: string;

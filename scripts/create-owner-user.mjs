@@ -6,6 +6,7 @@ const requiredEnv = [
   "OWNER_EMAIL",
   "OWNER_PASSWORD",
 ];
+
 const missing = requiredEnv.filter((key) => !process.env[key]?.trim());
 
 if (missing.length > 0) {
@@ -14,11 +15,16 @@ if (missing.length > 0) {
 }
 
 const supabaseUrl = process.env.SUPABASE_URL.trim();
+
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY.trim();
+
 const ownerEmail = process.env.OWNER_EMAIL.trim().toLowerCase();
+
 const ownerPassword = process.env.OWNER_PASSWORD;
+
 const ownerFullName =
   process.env.OWNER_FULL_NAME?.trim() || "Owner Tienda Agil";
+
 const resetOwnerPassword = process.env.RESET_OWNER_PASSWORD === "true";
 
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
@@ -67,6 +73,7 @@ async function upsertOwnerUser() {
     }
 
     console.log(`Owner Auth user created: ${data.user.email}`);
+
     return data.user;
   }
 

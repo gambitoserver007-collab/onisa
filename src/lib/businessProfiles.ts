@@ -26,6 +26,7 @@ export interface BusinessProfile {
 }
 
 const TALLA_COLOR = ["Talla", "Color"];
+
 const COLOR_CAP = ["Color", "Capacidad"];
 
 export const BUSINESS_PROFILES: Record<string, BusinessProfile> = {

@@ -80,6 +80,7 @@ import type { Sale } from "@/types";
 export const Route = createFileRoute("/empleados")({ component: Empleados });
 
 const ALL = "__all__";
+
 const TIME_EVENT_LABELS: Record<string, string> = {
   absence: "Falta",
   vacation: "Vacación",
@@ -90,6 +91,7 @@ function localDateKey(value: string | Date) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
+
   return `${y}-${m}-${day}`;
 }
 
@@ -111,6 +113,7 @@ function Empleados() {
   const reload = async () => {
     if (!session?.companyId) return;
     setIsLoading(true);
+
     try {
       const [
         teamData,
@@ -127,6 +130,7 @@ function Empleados() {
         fetchSales(session.companyId),
         fetchStockMovements(session.companyId),
       ]);
+
       setTeam(teamData);
       setProfileNames(names);
       setAttendance(attendanceData);
@@ -150,6 +154,7 @@ function Empleados() {
 
   const fmtDateTime = (iso: string | null) => {
     if (!iso) return "—";
+
     try {
       return new Date(iso).toLocaleString(settings.locale, {
         day: "2-digit",
@@ -174,9 +179,11 @@ function Empleados() {
   const [scheduleStart, setScheduleStart] = useState("");
   const [scheduleEnd, setScheduleEnd] = useState("");
   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+
   const [commissionTarget, setCommissionTarget] = useState<TeamMember | null>(
     null,
   );
+
   const [commissionValue, setCommissionValue] = useState("");
   const [isSavingCommission, setIsSavingCommission] = useState(false);
 
@@ -191,16 +198,21 @@ function Empleados() {
   const handlePunch = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!pin.trim()) return;
     setIsPunching(true);
+
     try {
       const result = await punchEmployee(
         pin.trim(),
         punchLocationId === ALL ? null : punchLocationId,
       );
+
       setPin("");
+
       if (result.action === "check_in") {
         toast.success(
           `${result.fullName}: entrada registrada${result.isLate ? " (con retardo)" : ""}.`,
@@ -210,6 +222,7 @@ function Empleados() {
           `${result.fullName}: salida registrada${result.isEarlyLeave ? " (anticipada)" : ""}.`,
         );
       }
+
       await reload();
     } catch (error) {
       toast.error(getErrorMessage(error, "No se pudo registrar el PIN."));
@@ -220,11 +233,15 @@ function Empleados() {
 
   const handleSavePin = async () => {
     if (!pinTarget) return;
+
     if (!/^\d{4,6}$/.test(pinValue.trim())) {
       toast.error("El PIN debe ser numérico, de 4 a 6 dígitos.");
+
       return;
     }
+
     setIsSavingPin(true);
+
     try {
       await setEmployeePin(pinTarget.id, pinValue.trim());
       toast.success(`PIN asignado a ${pinTarget.name}.`);
@@ -240,6 +257,7 @@ function Empleados() {
 
   const handleClearPin = async () => {
     if (!clearPinTarget) return;
+
     try {
       await clearEmployeePin(clearPinTarget.id);
       toast.success(`PIN de ${clearPinTarget.name} eliminado.`);
@@ -252,16 +270,22 @@ function Empleados() {
 
   const handleSaveSchedule = async () => {
     if (!scheduleTarget) return;
+
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     // Ambos vacíos = usar el horario de la sucursal; si se da uno, se exige el otro.
     if (!!scheduleStart !== !!scheduleEnd) {
       toast.error("Define hora de entrada y de salida, o deja ambas vacías.");
+
       return;
     }
+
     setIsSavingSchedule(true);
+
     try {
       await updateEmployeeSchedule(
         scheduleTarget.id,
@@ -280,21 +304,30 @@ function Empleados() {
 
   const handleSaveCommission = async () => {
     if (!commissionTarget) return;
+
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     const trimmed = commissionValue.trim();
     let rate: number | null = null;
+
     if (trimmed) {
       const pct = Number(trimmed);
+
       if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
         toast.error("La comisión debe ser un porcentaje entre 0 y 100.");
+
         return;
       }
+
       rate = pct / 100;
     }
+
     setIsSavingCommission(true);
+
     try {
       await setEmployeeCommission(commissionTarget.id, rate);
       toast.success(`Comisión de ${commissionTarget.name} actualizada.`);
@@ -309,6 +342,7 @@ function Empleados() {
 
   // ---- Ventas / Mermas por empleado ----
   const [salesEmployeeId, setSalesEmployeeId] = useState(ALL);
+
   const employeeSales = useMemo(
     () =>
       salesEmployeeId === ALL
@@ -316,13 +350,16 @@ function Empleados() {
         : sales.filter((s) => s.createdBy === salesEmployeeId),
     [sales, salesEmployeeId],
   );
+
   const employeeSalesTotal = employeeSales.reduce((sum, s) => sum + s.total, 0);
+
   const employeeCommissionTotal = employeeSales.reduce(
     (sum, s) => sum + (s.commissionAmount ?? 0),
     0,
   );
 
   const [mermasEmployeeId, setMermasEmployeeId] = useState(ALL);
+
   const employeeMermas = useMemo(
     () =>
       mermasEmployeeId === ALL
@@ -346,17 +383,24 @@ function Empleados() {
   const handleCreateTimeEvent = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session || !teEmployeeId) {
       toast.error("Elige un empleado.");
+
       return;
     }
+
     if (teType === "vacation" && teEndDate < teDate) {
       toast.error("La fecha de regreso no puede ser antes de la salida.");
+
       return;
     }
+
     setIsSavingTe(true);
+
     try {
       await createTimeEvent(session, {
         profileId: teEmployeeId,
@@ -378,8 +422,10 @@ function Empleados() {
   const handleDeleteTimeEvent = async (id: string) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     try {
       await deleteTimeEvent(id);
       await reload();

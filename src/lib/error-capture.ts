@@ -2,6 +2,7 @@
 // when h3 has already swallowed the throw into a generic 500 Response.
 
 let lastCapturedError: { error: unknown; at: number } | undefined;
+
 const TTL_MS = 5_000;
 
 function record(error: unknown) {
@@ -19,11 +20,15 @@ if (typeof globalThis.addEventListener === "function") {
 
 export function consumeLastCapturedError(): unknown {
   if (!lastCapturedError) return undefined;
+
   if (Date.now() - lastCapturedError.at > TTL_MS) {
     lastCapturedError = undefined;
+
     return undefined;
   }
+
   const { error } = lastCapturedError;
   lastCapturedError = undefined;
+
   return error;
 }

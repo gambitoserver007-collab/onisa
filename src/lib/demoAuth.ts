@@ -12,9 +12,11 @@ import { syncBusinessSettingsWithSession } from "@/lib/businessSettings";
 import type { Tables } from "@/integrations/supabase/types";
 
 type CompanyRow = Tables<"companies">;
+
 type ProfileRow = Tables<"profiles">;
 
 const SESSION_CHANGED_EVENT = "onisa:session-changed";
+
 const DEMO_MARKET_OVERRIDE_KEY = "onisa_demo_market_code";
 
 export const DEMO_USERS = DEMO_ACCOUNTS;
@@ -39,21 +41,29 @@ export type RegisterLocalAccountResult =
     };
 
 let cachedSession: DemoSession | null = null;
+
 let cachedSessionSnapshot = "";
+
 let authSubscriptionReady = false;
+
 let initializePromise: Promise<DemoSession | null> | null = null;
+
 let authSubscription: { unsubscribe: () => void } | null = null;
+
 const listeners = new Set<() => void>();
 
 function getCompany(profile?: ProfileWithCompany | null) {
   const relation = profile?.companies;
+
   if (Array.isArray(relation)) return relation[0] ?? null;
+
   return relation ?? null;
 }
 
 // Map the company's `document_types` jsonb ([{name, charges_iva}]) to typed list.
 function parseDocumentTypes(raw: unknown): DocumentType[] | undefined {
   if (!Array.isArray(raw)) return undefined;
+
   const list = raw
     .filter(
       (entry): entry is Record<string, unknown> =>
@@ -64,6 +74,7 @@ function parseDocumentTypes(raw: unknown): DocumentType[] | undefined {
       chargesIva: Boolean(entry.charges_iva),
     }))
     .filter((entry) => entry.name.length > 0);
+
   return list.length ? list : undefined;
 }
 
@@ -73,14 +84,19 @@ function createSessionFromUser(
 ): DemoSession {
   const company = getCompany(profile);
   const metadata = user.user_metadata ?? {};
+
   const market = getMarketByCountryCode(
     company?.country_code ?? (metadata.country_code as string | undefined),
   );
+
   const role = profile?.role ?? "user";
+
   const profileDemo = Boolean(
     profile?.is_demo || profile?.demo_mode === "read_only",
   );
+
   const demoFallback = isDemoEmail(user.email);
+
   // `undefined` when the column isn't in the DB yet (keeps current SaaS access).
   const isSuperAdmin =
     profile &&
@@ -244,6 +260,7 @@ function applyDemoMarketOverride(
 
 const PROFILE_SELECT_BASE =
   "id, company_id, location_id, email, full_name, role, is_demo, demo_mode, is_active, created_at, updated_at, companies(*)";
+
 const PROFILE_SELECT_FULL =
   "id, company_id, location_id, email, full_name, role, is_demo, demo_mode, is_active, is_platform_admin, created_at, updated_at, companies(*)";
 
@@ -251,6 +268,7 @@ async function loadProfile(user: User) {
   // Prefer the full select (with the platform-admin flag); if that column does
   // not exist yet, fall back to the base select so login never breaks.
   let select = PROFILE_SELECT_FULL;
+
   for (let attempt = 0; attempt < 3; attempt++) {
     const { data, error } = await supabase
       .from("profiles")
@@ -264,14 +282,17 @@ async function loadProfile(user: User) {
         attempt--; // retry immediately without consuming a propagation attempt
         continue;
       }
+
       console.warn(
         "[Supabase] No se pudo cargar profiles/companies.",
         error.message,
       );
+
       return null;
     }
 
     if (data) return data as unknown as ProfileWithCompany;
+
     if (attempt < 2)
       await new Promise((resolve) => globalThis.setTimeout(resolve, 250));
   }
@@ -281,6 +302,7 @@ async function loadProfile(user: User) {
 
 function notifySessionChange() {
   for (const listener of listeners) listener();
+
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(SESSION_CHANGED_EVENT));
   }
@@ -288,10 +310,12 @@ function notifySessionChange() {
 
 function setCachedSession(session: DemoSession | null) {
   const nextSnapshot = session ? JSON.stringify(session) : "";
+
   if (nextSnapshot === cachedSessionSnapshot) return;
 
   cachedSession = session;
   cachedSessionSnapshot = nextSnapshot;
+
   if (session) syncBusinessSettingsWithSession(session);
   notifySessionChange();
 }
@@ -299,6 +323,7 @@ function setCachedSession(session: DemoSession | null) {
 async function setSessionFromAuth(authSession: SupabaseSession | null) {
   if (!authSession?.user) {
     setCachedSession(null);
+
     return null;
   }
 
@@ -310,13 +335,16 @@ async function setSessionFromAuth(authSession: SupabaseSession | null) {
   if (profile && profile.is_active === false) {
     await supabase.auth.signOut();
     setCachedSession(null);
+
     return null;
   }
 
   const session = applyDemoMarketOverride(
     createSessionFromUser(authSession.user, profile),
   );
+
   setCachedSession(session);
+
   return session;
 }
 
@@ -335,6 +363,7 @@ function ensureAuthSubscription() {
 
 export async function initializeSession() {
   ensureAuthSubscription();
+
   if (initializePromise) return initializePromise;
 
   initializePromise = supabase.auth
@@ -343,6 +372,7 @@ export async function initializeSession() {
     .catch((error) => {
       console.warn("[Supabase] No se pudo inicializar la sesión.", error);
       setCachedSession(null);
+
       return null;
     })
     .finally(() => {
@@ -365,6 +395,7 @@ export function subscribeSession(listener: () => void) {
 
   return () => {
     listeners.delete(listener);
+
     if (typeof window !== "undefined")
       window.removeEventListener("storage", onStorage);
 
@@ -387,6 +418,7 @@ export async function login(
 
   if (error || !data.session) {
     if (error) console.warn("[Supabase] Login rechazado.", error.message);
+
     return null;
   }
 
@@ -398,14 +430,17 @@ export async function loginAs(
   countryCode?: string,
 ): Promise<DemoSession> {
   const account = getDemoAccountByRole(role);
+
   if (countryCode) saveDemoMarketOverride(countryCode);
 
   const session = await login(account.email, account.password);
+
   if (!session)
     throw new Error("No se pudo iniciar la cuenta de prueba en Supabase Auth.");
 
   const demoSession = applyDemoMarketOverride(session, countryCode);
   setCachedSession(demoSession);
+
   return demoSession;
 }
 
@@ -447,6 +482,7 @@ export async function registerLocalAccount({
 
   if (error) {
     const message = error.message.toLowerCase();
+
     if (message.includes("already") || message.includes("registered")) {
       return { ok: false, error: "email-exists", message: error.message };
     }
@@ -468,6 +504,7 @@ export async function registerLocalAccount({
   }
 
   const session = await setSessionFromAuth(data.session);
+
   return { ok: true, session, needsEmailConfirmation: false };
 }
 

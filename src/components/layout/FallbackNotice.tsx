@@ -13,6 +13,7 @@ export function FallbackNotice({
   children: ReactNode;
 }) {
   if (!show) return null;
+
   return (
     <div className="mb-4 flex items-start gap-2.5 rounded-2xl border border-warm/30 bg-warm/10 px-3.5 py-2.5 text-sm text-foreground">
       <Info className="mt-0.5 h-4 w-4 shrink-0 text-warm-foreground" />

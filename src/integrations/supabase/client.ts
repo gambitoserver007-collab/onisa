@@ -7,6 +7,7 @@ function createSupabaseClient() {
   // Fall back to process.env for SSR (server-side rendering)
   const SUPABASE_URL =
     import.meta.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+
   const SUPABASE_ANON_KEY =
     import.meta.env.VITE_SUPABASE_ANON_KEY ||
     import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
@@ -18,6 +19,7 @@ function createSupabaseClient() {
       ...(!SUPABASE_URL ? ["SUPABASE_URL"] : []),
       ...(!SUPABASE_ANON_KEY ? ["SUPABASE_ANON_KEY"] : []),
     ];
+
     const message = `Missing Supabase environment variable(s): ${missing.join(", ")}. Configure Supabase environment variables.`;
     console.error(`[Supabase] ${message}`);
     throw new Error(message);
@@ -41,6 +43,7 @@ export const supabase = new Proxy(
   {
     get(_, prop, receiver) {
       if (!_supabase) _supabase = createSupabaseClient();
+
       return Reflect.get(_supabase, prop, receiver);
     },
   },

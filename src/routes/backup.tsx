@@ -42,7 +42,9 @@ function downloadJson(filename: string, json: string) {
 
 function humanSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
+
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
@@ -54,19 +56,24 @@ function Backup() {
   const handleGenerate = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!isReady) return;
     setIsGenerating(true);
+
     try {
       const data = await buildBackupExport(session?.companyId);
       const json = JSON.stringify(data, null, 2);
       const now = new Date();
+
       const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
         now.getDate(),
       ).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(
         now.getMinutes(),
       ).padStart(2, "0")}`;
+
       const id = `BK-${stamp}`;
       const size = humanSize(new Blob([json]).size);
       downloadJson(`${id}.json`, json);

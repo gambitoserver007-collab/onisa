@@ -42,8 +42,10 @@ function AdminPaymentMethods() {
   const [customLabel, setCustomLabel] = useState("");
   const [customKind, setCustomKind] = useState<PaymentMethodKind>("other");
   const market = getMarketByCountryCode(countryCode);
+
   const { addCustom, adminCatalog, activeMethods, resetCountry, setAvailable } =
     usePaymentMethods(countryCode);
+
   const availableCount = adminCatalog.filter(
     (method) => method.available,
   ).length;
@@ -55,6 +57,7 @@ function AdminPaymentMethods() {
   const handleAvailabilityChange = (methodId: string, available: boolean) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
 
@@ -65,6 +68,7 @@ function AdminPaymentMethods() {
   const handleAddCustomMethod = () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
 
@@ -83,6 +87,7 @@ function AdminPaymentMethods() {
   const handleResetCountry = () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
 

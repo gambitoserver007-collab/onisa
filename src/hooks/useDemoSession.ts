@@ -18,17 +18,20 @@ export function useDemoSession() {
     getSession,
     getServerSessionSnapshot,
   );
+
   const [isReady, setIsReady] = useState(sessionHasInitialized);
 
   useEffect(() => {
     if (sessionHasInitialized) {
       setIsReady(true);
+
       return;
     }
 
     let mounted = true;
     void initializeSession().finally(() => {
       sessionHasInitialized = true;
+
       if (mounted) setIsReady(true);
     });
 

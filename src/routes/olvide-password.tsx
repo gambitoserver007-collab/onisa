@@ -44,6 +44,7 @@ function ForgotPasswordPage() {
         /rate limit|too many|seconds/i.test(error.message)
           ? "Hiciste varios intentos seguidos. Espera unos minutos y vuelve a intentarlo."
           : "No se pudo enviar el correo. Revisa que esté bien escrito e inténtalo de nuevo.";
+
       toast.error(message);
     } finally {
       setIsSubmitting(false);

@@ -47,6 +47,7 @@ export function OnboardingChecklist({
           );
       })
       .catch(() => undefined);
+
     return () => {
       active = false;
     };

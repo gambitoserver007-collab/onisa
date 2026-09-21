@@ -74,6 +74,7 @@ const REASON_OPTIONS: { value: MermaReasonCategory; label: string }[] = [
   { value: "robo_interno", label: "Robo/extravío" },
   { value: "otro", label: "Otro" },
 ];
+
 const REASON_LABELS = Object.fromEntries(
   REASON_OPTIONS.map((o) => [o.value, o.label]),
 ) as Record<MermaReasonCategory, string>;
@@ -98,6 +99,7 @@ function Mermas() {
   const load = async () => {
     if (!session?.companyId) return;
     setIsLoading(true);
+
     try {
       const data = await fetchMermas(session.companyId, {
         from: from || undefined,
@@ -110,6 +112,7 @@ function Mermas() {
             ? undefined
             : (reasonFilter as MermaReasonCategory),
       });
+
       setMermas(data);
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -139,7 +142,9 @@ function Mermas() {
 
   const locationNames = useMemo(() => {
     const map: Record<string, string> = {};
+
     for (const loc of locations) map[loc.id] = loc.name;
+
     return map;
   }, [locations]);
 
@@ -173,6 +178,7 @@ function Mermas() {
   }, [open, currentLocationId, locations]);
 
   const selectedProduct = products.find((p) => p.id === productId) ?? null;
+
   const previewLoss = selectedProduct
     ? selectedProduct.cost * (Number(quantity) || 0)
     : Number(estimatedLoss) || 0;
@@ -182,13 +188,18 @@ function Mermas() {
   const handleSave = async () => {
     if (!formLocation) {
       toast.error("Selecciona una sucursal.");
+
       return;
     }
+
     if (hasProduct && !productId) {
       toast.error("Selecciona un producto.");
+
       return;
     }
+
     setIsSaving(true);
+
     try {
       await registerMerma({
         locationId: formLocation,
@@ -212,8 +223,10 @@ function Mermas() {
   const handleDelete = async (id: string) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (
       !window.confirm(
         "¿Eliminar esta merma? Si tenía producto, se repone el stock.",
@@ -221,6 +234,7 @@ function Mermas() {
     ) {
       return;
     }
+
     try {
       await deleteMerma(id);
       toast.success("Merma eliminada.");

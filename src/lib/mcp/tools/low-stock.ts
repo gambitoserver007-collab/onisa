@@ -45,17 +45,20 @@ export default defineTool({
         isError: true,
       };
     const client = supabaseForUser(ctx);
+
     const { data, error } = await client
       .from("products")
       .select("id,name,sku,stock,price,supplier_id")
       .lt("stock", threshold ?? 5)
       .order("stock", { ascending: true })
       .limit(limit ?? 50);
+
     if (error)
       return {
         content: [{ type: "text", text: error.message }],
         isError: true,
       };
+
     return {
       content: [{ type: "text", text: JSON.stringify(data ?? []) }],
       structuredContent: { products: data ?? [] },

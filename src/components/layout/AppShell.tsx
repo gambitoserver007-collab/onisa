@@ -170,6 +170,7 @@ function NavList({
       ),
     }))
     .filter((s) => s.items.length > 0);
+
   return (
     <nav className="flex flex-col gap-5 px-3 py-4">
       {visibleSections.map((s) => (
@@ -180,6 +181,7 @@ function NavList({
           <div className="flex flex-col gap-1">
             {s.items.map((it) => {
               const active = isActive(pathname, it.to);
+
               return (
                 <Link
                   key={it.to}
@@ -275,17 +277,20 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { settings } = useBusinessSettings();
   const { allowedSections, ready: accessReady } = useAccessControl();
   const role = session?.role;
+
   const hasAppAccess =
     role === "user" ||
     role === "admin" ||
     role === "finanzas" ||
     role === "operador";
+
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
   const desktopSidebarRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!isReady) return;
+
     if (!role) navigate({ to: "/login" });
   }, [isReady, role, navigate]);
 
@@ -305,11 +310,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   // URL escrita a mano, favorito viejo a algo que ya perdió).
   useEffect(() => {
     if (!isReady || !role || !accessReady) return;
+
     if (!canAccessPath(role, pathname, allowedSections)) {
       const home = resolveHomePath(role, allowedSections);
+
       if (pathname !== "/dashboard") {
         toast.error("No tienes acceso a esta sección.");
       }
+
       navigate({ to: home });
     }
   }, [isReady, role, accessReady, pathname, allowedSections, navigate]);
@@ -321,18 +329,22 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   if (!isReady || !session || !hasAppAccess) return null;
+
   // Mientras se conocen los accesos personalizados (accessReady), o si la
   // sección actual resulta prohibida, no se pinta el contenido -- antes se
   // veía un instante la pantalla completa (con los datos de toda la tienda)
   // antes de que el efecto de arriba alcanzara a redirigir. El efecto ya se
   // encarga de mandar a otro lado; aquí solo se evita ese parpadeo.
   if (!accessReady) return null;
+
   if (!canAccessPath(role, pathname, allowedSections)) return null;
+
   const today = new Date().toLocaleDateString(settings.locale, {
     day: "2-digit",
     month: "long",
     year: "numeric",
   });
+
   const subtitle = `${settings.countryName} · ${settings.currencyCode}`;
   const initials = session.name.slice(0, 1).toUpperCase();
   // POS is a focused "task" flow with its own bottom cart bar — hide the tab bar there.
@@ -340,6 +352,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const canSell = canAccessPath(role, "/pos", allowedSections);
   const canManagePlan = role === "admin";
   const showSaaS = canAccessSaaS(session);
+
   const visibleBottomNav = bottomNav.filter((it) =>
     canAccessPath(role, it.to, allowedSections),
   );

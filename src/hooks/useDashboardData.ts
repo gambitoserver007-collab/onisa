@@ -29,9 +29,11 @@ export interface DashboardRange {
 // `range` opcional: aplica p_from/p_to a las RPCs de categoría y método de pago.
 export function useDashboardData(locationId?: string, range?: DashboardRange) {
   const { isReady, session } = useDemoSession();
+
   const sessionKey = session
     ? `${session.userId ?? session.email}:${session.companyId ?? ""}`
     : "";
+
   // companyId/isDemo (primitivos) en vez de todo el objeto session en los deps
   // de reload -- session cambia de referencia varias veces mientras arranca la
   // sesión (aunque el contenido real no cambie), y eso volvía a disparar TODA
@@ -41,6 +43,7 @@ export function useDashboardData(locationId?: string, range?: DashboardRange) {
   const [data, setData] = useState<DashboardData>(() => emptyDashboardData());
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
   const [source, setSource] = useState<"supabase" | "demo-fallback">(
     "supabase",
   );
@@ -51,6 +54,7 @@ export function useDashboardData(locationId?: string, range?: DashboardRange) {
   const reload = useCallback(async () => {
     if (!sessionKey) {
       setIsLoading(false);
+
       return;
     }
 
@@ -59,10 +63,12 @@ export function useDashboardData(locationId?: string, range?: DashboardRange) {
 
     try {
       const tz = getBusinessTz();
+
       // Convertir yyyy-mm-dd a timestamps en TZ del negocio (rango [from 00:00, to+1 00:00)).
       const fromTs = rangeFrom
         ? new Date(`${rangeFrom}T00:00:00`).toISOString()
         : undefined;
+
       const toTs = rangeTo
         ? new Date(
             new Date(`${rangeTo}T00:00:00`).getTime() + 24 * 60 * 60 * 1000,

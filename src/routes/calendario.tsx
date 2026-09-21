@@ -73,19 +73,25 @@ const WEEKDAY_LABELS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 function pad2(n: number) {
   return n.toString().padStart(2, "0");
 }
+
 function toDateKey(year: number, month: number, day: number) {
   return `${year}-${pad2(month + 1)}-${pad2(day)}`;
 }
+
 function todayKey() {
   const now = new Date();
+
   return toDateKey(now.getFullYear(), now.getMonth(), now.getDate());
 }
+
 /** Lunes=0 .. Domingo=6 (a diferencia de Date#getDay(), que empieza en domingo). */
 function mondayIndex(date: Date) {
   return (date.getDay() + 6) % 7;
 }
+
 function eventAppliesToDay(event: CalendarEvent, dayKey: string) {
   const end = event.endDate ?? event.date;
+
   return dayKey >= event.date && dayKey <= end;
 }
 
@@ -111,6 +117,7 @@ function suggestedTitle(
   profileNames: Record<string, string>,
 ): string {
   const name = profileId !== NO_PROFILE ? profileNames[profileId] : undefined;
+
   switch (eventType) {
     case "rest":
       return name ? `Descanso de ${name}` : "Descanso";
@@ -153,11 +160,13 @@ function Calendario() {
   const load = async () => {
     if (!session?.companyId) return;
     setIsLoading(true);
+
     try {
       const [eventsData, names] = await Promise.all([
         fetchCalendarEvents(session.companyId),
         fetchProfileNames(session.companyId),
       ]);
+
       setEvents(eventsData);
       setProfileNames(names);
     } catch (error) {
@@ -183,11 +192,14 @@ function Calendario() {
     const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
     const leadBlanks = mondayIndex(first);
     const cells: { dayKey: string | null; dayNum: number | null }[] = [];
+
     for (let i = 0; i < leadBlanks; i++)
       cells.push({ dayKey: null, dayNum: null });
+
     for (let d = 1; d <= daysInMonth; d++) {
       cells.push({ dayKey: toDateKey(viewYear, viewMonth, d), dayNum: d });
     }
+
     return cells;
   }, [viewYear, viewMonth]);
 
@@ -231,6 +243,7 @@ function Calendario() {
   const updateForm = (patch: Partial<EventFormState>) => {
     setForm((prev) => {
       const next = { ...prev, ...patch };
+
       if (
         !titleTouched &&
         (patch.eventType !== undefined || patch.profileId !== undefined)
@@ -241,6 +254,7 @@ function Calendario() {
           profileNames,
         );
       }
+
       return next;
     });
   };
@@ -251,6 +265,7 @@ function Calendario() {
   const handleSave = async () => {
     if (!session) return;
     setIsSaving(true);
+
     try {
       const input = {
         eventType: form.eventType,
@@ -261,6 +276,7 @@ function Calendario() {
         title: form.title,
         notes: form.notes,
       };
+
       if (editing) {
         await updateCalendarEvent(editing.id, input);
         toast.success("Evento actualizado.");
@@ -268,6 +284,7 @@ function Calendario() {
         await createCalendarEvent(session, input);
         toast.success("Evento agregado.");
       }
+
       setDialogOpen(false);
       await load();
     } catch (error) {
@@ -279,8 +296,10 @@ function Calendario() {
 
   const handleDelete = async () => {
     if (!editing) return;
+
     if (!window.confirm("¿Eliminar este evento del calendario?")) return;
     setIsSaving(true);
+
     try {
       await deleteCalendarEvent(editing.id);
       toast.success("Evento eliminado.");
@@ -372,10 +391,13 @@ function Calendario() {
                     />
                   );
                 }
+
                 const dayEvents = events.filter((event) =>
                   eventAppliesToDay(event, cell.dayKey!),
                 );
+
                 const isToday = cell.dayKey === today;
+
                 return (
                   <div
                     key={cell.dayKey}

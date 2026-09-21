@@ -74,8 +74,10 @@ const labelFor = (type: string) => tipoLabel[type] ?? type;
 function Kardex() {
   const { products, session } = useCompanyCatalog();
   const { isDemo } = useDemoSession();
+
   const { currentLocationId, currentLocation, isAllLocations } =
     useCurrentLocation();
+
   const companyId = session?.companyId;
 
   const [movs, setMovs] = useState<StockMovementRow[]>([]);
@@ -93,6 +95,7 @@ function Kardex() {
   const reloadMovs = useCallback(async () => {
     if (!companyId) return;
     setIsLoading(true);
+
     try {
       setMovs(
         await fetchStockMovements(
@@ -132,16 +135,22 @@ function Kardex() {
   const handleAdjust = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session) return;
+
     if (isAllLocations || !currentLocationId) {
       toast.error(
         "Elige una sucursal específica (arriba) para registrar un ajuste.",
       );
+
       return;
     }
+
     setASaving(true);
+
     try {
       await createStockAdjustment(session, {
         productId: aProduct,

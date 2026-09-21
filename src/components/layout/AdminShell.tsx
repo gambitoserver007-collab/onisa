@@ -74,6 +74,7 @@ function NavList({ pathname }: { pathname: string }) {
     <nav className="flex flex-col gap-0.5 px-3 py-4">
       {items.map((it) => {
         const active = isActive(pathname, it);
+
         return (
           <Link
             key={it.to}
@@ -104,6 +105,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isReady) return;
+
     if (!session) navigate({ to: "/login" });
     else if (!allowed) navigate({ to: "/dashboard" });
   }, [isReady, session, allowed, navigate]);
@@ -117,6 +119,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       })
       .catch(() => undefined);
   }, [allowed]);
+
   if (!isReady || !session || !allowed) return null;
 
   return (
@@ -210,6 +213,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         <div className="mx-auto grid max-w-md grid-cols-6 items-end px-2 pt-1.5">
           {items.map((it) => {
             const active = isActive(pathname, it);
+
             return (
               <Link
                 key={it.to}

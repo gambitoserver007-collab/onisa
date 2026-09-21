@@ -33,6 +33,7 @@ import { fetchPlatformBranding } from "@/services/appData";
 export const Route = createFileRoute("/login")({
   validateSearch: (s: Record<string, unknown>): { next?: string } => {
     const next = typeof s.next === "string" ? s.next : undefined;
+
     return next ? { next } : {};
   },
   component: LoginPage,
@@ -40,6 +41,7 @@ export const Route = createFileRoute("/login")({
 
 function safeNext(next: string | undefined): string | null {
   if (!next || !next.startsWith("/") || next.startsWith("//")) return null;
+
   return next;
 }
 
@@ -60,9 +62,11 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [demoDialogRole, setDemoDialogRole] = useState<DemoRole | null>(null);
+
   const [demoCountryCode, setDemoCountryCode] = useState(
     () => getBusinessSettings().countryCode,
   );
+
   const selectedDemoMarket = getMarketByCountryCode(demoCountryCode);
   const [platformName, setPlatformName] = useState("Onisa");
 
@@ -78,17 +82,22 @@ function LoginPage() {
       .then((branding) => setPlatformName(branding.name))
       .catch(() => undefined);
   }, []);
+
   const selectedDemoOption = demoOptions.find(
     (option) => option.role === demoDialogRole,
   );
 
   const { next } = Route.useSearch();
+
   const routeAfterLogin = (session: DemoSession) => {
     const target = safeNext(next);
+
     if (target) {
       window.location.href = target;
+
       return;
     }
+
     navigate({ to: canAccessSaaS(session) ? "/admin" : "/dashboard" });
   };
 
@@ -98,10 +107,12 @@ function LoginPage() {
 
     try {
       const session = await login(email, password);
+
       if (!session) {
         toast.error(
           "Correo o contraseña incorrectos. Revísalos e inténtalo de nuevo.",
         );
+
         return;
       }
 

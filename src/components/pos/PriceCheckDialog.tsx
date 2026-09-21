@@ -37,7 +37,9 @@ export function PriceCheckDialog({
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
+
     if (!q) return [];
+
     return products
       .filter(
         (product) =>
@@ -72,6 +74,7 @@ export function PriceCheckDialog({
           )}
           {results.map((product) => {
             const tracksStock = product.productType === "standard";
+
             return (
               <div
                 key={product.id}

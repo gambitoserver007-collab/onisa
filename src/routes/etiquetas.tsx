@@ -67,6 +67,7 @@ function Etiquetas() {
 
   const reload = useCallback(async () => {
     setIsLoading(true);
+
     try {
       setUnits(await fetchUnits(session?.companyId));
     } catch (error) {
@@ -94,10 +95,13 @@ function Etiquetas() {
   const handleCreate = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session) return;
     setIsSaving(true);
+
     try {
       await createUnit(session, name);
       toast.success("Unidad creada.");
@@ -114,8 +118,10 @@ function Etiquetas() {
   const openEdit = (unit: Unit) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     setEditing(unit);
     setEditName(unit.name);
   };
@@ -123,6 +129,7 @@ function Etiquetas() {
   const handleUpdate = async () => {
     if (!session || !editing) return;
     setIsEditSaving(true);
+
     try {
       await updateUnit(session, editing.id, editName, editing.name);
       toast.success("Unidad actualizada.");
@@ -137,12 +144,16 @@ function Etiquetas() {
 
   const handleDelete = async () => {
     if (!deleting) return;
+
     if (isDemo) {
       blockDemoAction();
       setDeleting(null);
+
       return;
     }
+
     setIsDeleting(true);
+
     try {
       await deleteUnit(deleting.id);
       toast.success("Unidad eliminada.");

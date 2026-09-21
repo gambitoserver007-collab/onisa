@@ -104,9 +104,12 @@ function Ganancias() {
   const exportCsv = () => {
     if (rows.length === 0) {
       toast.error("No hay datos para exportar.");
+
       return;
     }
+
     const header = ["Producto", "Unidades", "Ingreso", "Costo", "Ganancia"];
+
     const body = rows.map((row) => [
       row.productName,
       row.qty,
@@ -114,15 +117,18 @@ function Ganancias() {
       row.cost.toFixed(2),
       row.profit.toFixed(2),
     ]);
+
     const csv = [header, ...body]
       .map((line) =>
         line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","),
       )
       .join("\n");
+
     // Prepend a UTF-8 BOM (U+FEFF) so Excel reads the accents correctly.
     const blob = new Blob([String.fromCharCode(0xfeff) + csv], {
       type: "text/csv;charset=utf-8;",
     });
+
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;

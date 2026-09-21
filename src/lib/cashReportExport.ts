@@ -6,8 +6,11 @@ function round2(value: number): number {
 
 function rangeStamp(from?: string, to?: string): string {
   if (from && to) return `${from}_a_${to}`;
+
   if (from) return `desde_${from}`;
+
   if (to) return `hasta_${to}`;
+
   return "todo";
 }
 
@@ -26,6 +29,7 @@ export async function exportCashReportToExcel(
   range: { from?: string; to?: string },
 ): Promise<void> {
   const XLSX = await import("xlsx");
+
   const sheetRows = rows.map((row) => ({
     Fecha: row.closedAt ? row.closedAt.slice(0, 10) : "",
     Sucursal: row.locationName,

@@ -23,10 +23,12 @@ export function DemoGuardedButton({
           event.preventDefault();
           event.stopPropagation();
           blockDemoAction();
+
           return;
         }
 
         onClick?.(event);
+
         if (!event.defaultPrevented) onAllowedClick?.(event);
       }}
     />

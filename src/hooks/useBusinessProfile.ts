@@ -14,6 +14,7 @@ export function useBusinessProfile(): {
 } {
   const { settings } = useBusinessSettings();
   const profile = getBusinessProfile(settings.businessType);
+
   return {
     profile,
     businessType: settings.businessType ?? profile.id,

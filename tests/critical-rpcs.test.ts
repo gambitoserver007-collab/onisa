@@ -87,6 +87,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select open_cash_session(100, $1) as open_cash_session",
           [companyA.loc1],
         );
+
         sessionId = rows[0].open_cash_session;
         await db.query(
           `insert into public.cash_movements (company_id, cash_session_id, movement_type, concept, amount, location_id)
@@ -98,6 +99,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "update public.cash_movements set amount = 999999 where cash_session_id=$1",
           [sessionId],
         );
+
         expect(res.affectedRows ?? 0).toBe(0);
       });
 
@@ -105,6 +107,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select amount from public.cash_movements where cash_session_id=$1",
         [sessionId],
       );
+
       expect(Number(rows[0].amount)).toBe(50);
     });
 
@@ -114,12 +117,15 @@ describe("RPCs críticas de dinero y stock", () => {
           "update public.product_locations set stock = 999999 where product_id=$1 and location_id=$2",
           [prodA1, companyA.loc1],
         );
+
         expect(res.affectedRows ?? 0).toBe(0);
       });
+
       const { rows } = await db.query<{ stock: number }>(
         "select stock from public.product_locations where product_id=$1 and location_id=$2",
         [prodA1, companyA.loc1],
       );
+
       expect(Number(rows[0].stock)).toBe(50);
     });
 
@@ -130,12 +136,15 @@ describe("RPCs críticas de dinero y stock", () => {
           [{ product_id: prodA1, qty: 2, unit_price: 10.0 }],
           companyA.loc1,
         );
+
         firstSaleId = sale.sale_id;
       });
+
       const { rows } = await db.query<{ stock: number }>(
         "select stock from public.product_locations where product_id=$1 and location_id=$2",
         [prodA1, companyA.loc1],
       );
+
       expect(Number(rows[0].stock)).toBe(48);
     });
 
@@ -145,6 +154,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "update public.products set price = 999 where id=$1",
           [prodA2],
         );
+
         expect(res.affectedRows ?? 0).toBe(1);
       });
       await asUser(db, cajeroA, async () => {
@@ -152,12 +162,15 @@ describe("RPCs críticas de dinero y stock", () => {
           "update public.products set price = 1 where id=$1",
           [prodA2],
         );
+
         expect(res.affectedRows ?? 0).toBe(0);
       });
+
       const { rows } = await db.query<{ price: number }>(
         "select price from public.products where id=$1",
         [prodA2],
       );
+
       expect(Number(rows[0].price)).toBe(999);
     });
 
@@ -168,10 +181,12 @@ describe("RPCs críticas de dinero y stock", () => {
           companyA.loc1,
         ]);
       });
+
       const { rows } = await db.query<{ stock: number }>(
         "select stock from public.product_locations where product_id=$1 and location_id=$2",
         [prodA2, companyA.loc1],
       );
+
       expect(Number(rows[0].stock)).toBe(55);
     });
   });
@@ -186,6 +201,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select id, unit_price from public.sale_items where sale_id=$1 limit 1",
           [firstSaleId],
         );
+
         const { id: saleItemId, unit_price: realPrice } = items[0];
 
         const { rows } = await db.query<{ create_return: string }>(
@@ -198,6 +214,7 @@ describe("RPCs críticas de dinero y stock", () => {
             companyA.loc1,
           ],
         );
+
         const returnId = rows[0].create_return;
 
         const { rows: returnItems } = await db.query<{
@@ -207,6 +224,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select unit_price, total from public.return_items where return_id=$1",
           [returnId],
         );
+
         expect(Number(returnItems[0].unit_price)).toBe(Number(realPrice));
         expect(Number(returnItems[0].unit_price)).not.toBe(999999);
       });
@@ -219,6 +237,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select cost from public.products where id=$1",
         [prodA1],
       );
+
       await asUser(db, cajeroA, async () => {
         await db.query(
           "select create_purchase(null, 'F-001', now(), $1, $2::jsonb)",
@@ -228,10 +247,12 @@ describe("RPCs críticas de dinero y stock", () => {
           ],
         );
       });
+
       const after = await db.query<{ cost: number }>(
         "select cost from public.products where id=$1",
         [prodA1],
       );
+
       expect(Number(before.rows[0].cost)).not.toBe(8.75);
       expect(Number(after.rows[0].cost)).toBe(8.75);
     });
@@ -240,10 +261,12 @@ describe("RPCs críticas de dinero y stock", () => {
   describe("4. create_sale es idempotente (mismo client_request_id)", () => {
     it("un reintento con la misma clave devuelve la MISMA venta y no duplica el descuento de stock", async () => {
       const crid = crypto.randomUUID();
+
       const before = await db.query<{ stock: number }>(
         "select stock from public.product_locations where product_id=$1 and location_id=$2",
         [prodA2, companyA.loc1],
       );
+
       let sale1 = "";
       let sale2 = "";
       await asUser(db, cajeroA, async () => {
@@ -270,12 +293,14 @@ describe("RPCs críticas de dinero y stock", () => {
         "select count(*) from public.sales where client_request_id=$1",
         [crid],
       );
+
       expect(Number(countRows[0].count)).toBe(1);
 
       const after = await db.query<{ stock: number }>(
         "select stock from public.product_locations where product_id=$1 and location_id=$2",
         [prodA2, companyA.loc1],
       );
+
       expect(Number(before.rows[0].stock) - Number(after.rows[0].stock)).toBe(
         1,
       );
@@ -287,6 +312,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const companyS = await makeCompany(db, "Empresa Suspendida Test");
       const adminS = await makeUser(db, companyS.id, "admin");
       const cajeroS = await makeUser(db, companyS.id, "user");
+
       const prodS1 = await makeProduct(
         db,
         companyS.id,
@@ -296,6 +322,7 @@ describe("RPCs críticas de dinero y stock", () => {
         4.0,
         20,
       );
+
       const platformAdmin = await makeUser(db, companyA.id, "admin", true);
 
       await asUser(db, cajeroS, async () => {
@@ -304,6 +331,7 @@ describe("RPCs críticas de dinero y stock", () => {
           [{ product_id: prodS1, qty: 1, unit_price: 4.0 }],
           companyS.loc1,
         );
+
         expect(sale.sale_id).toBeTruthy();
       });
 
@@ -327,6 +355,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "update public.products set price = 1 where id=$1",
           [prodS1],
         );
+
         expect(res.affectedRows ?? 0).toBe(0);
       });
 
@@ -343,6 +372,7 @@ describe("RPCs críticas de dinero y stock", () => {
           [{ product_id: prodS1, qty: 1, unit_price: 4.0 }],
           companyS.loc1,
         );
+
         expect(sale.sale_id).toBeTruthy();
       });
     });
@@ -351,10 +381,13 @@ describe("RPCs críticas de dinero y stock", () => {
   describe("6. Límites de plan (productos y ventas/mes)", () => {
     it("bloquea crear productos sobre el límite y vender sobre el límite mensual", async () => {
       const planTiny = await makePlan(db, "Plan Prueba Chico", 2, 5, 1);
+
       const companyL = await makeCompany(db, "Empresa Limites Test", {
         planId: planTiny,
       });
+
       const adminL = await makeUser(db, companyL.id, "admin");
+
       const prodL1 = await makeProduct(
         db,
         companyL.id,
@@ -364,6 +397,7 @@ describe("RPCs críticas de dinero y stock", () => {
         2,
         100,
       );
+
       await makeProduct(
         db,
         companyL.id,
@@ -387,6 +421,7 @@ describe("RPCs críticas de dinero y stock", () => {
           [{ product_id: prodL1, qty: 1, unit_price: 2.0 }],
           companyL.loc1,
         );
+
         expect(sale.sale_id).toBeTruthy();
 
         await expect(
@@ -411,6 +446,7 @@ describe("RPCs críticas de dinero y stock", () => {
           JSON.stringify({ company_name: "Tienda Nueva" }),
         ],
       );
+
       const { rows } = await db.query<{
         subscription_status: string;
         expires_at: string;
@@ -420,6 +456,7 @@ describe("RPCs críticas de dinero y stock", () => {
          where p.id = $1`,
         [newUserId],
       );
+
       expect(rows[0].subscription_status).toBe("trial");
       expect(rows[0].expires_at).toBeTruthy();
     });
@@ -435,10 +472,12 @@ describe("RPCs críticas de dinero y stock", () => {
       await asUser(db, platformAdmin, async () => {
         await db.query("select expire_overdue_trials()");
       });
+
       const { rows } = await db.query<{ subscription_status: string }>(
         "select subscription_status from public.companies where id=$1",
         [overdueId],
       );
+
       expect(rows[0].subscription_status).toBe("expired");
     });
   });
@@ -446,10 +485,13 @@ describe("RPCs críticas de dinero y stock", () => {
   describe("8. Regresión: cierre de caja completo (conteo ciego -> cierre -> autorización)", () => {
     it("abrir caja -> venta -> conteo exacto -> cierra solo -> autorizar calcula bien el esperado", async () => {
       const planTiny = await makePlan(db, "Plan Caja", 10, 5, 10);
+
       const company = await makeCompany(db, "Empresa Caja Test", {
         planId: planTiny,
       });
+
       const admin = await makeUser(db, company.id, "admin");
+
       const prod = await makeProduct(
         db,
         company.id,
@@ -468,12 +510,14 @@ describe("RPCs críticas de dinero y stock", () => {
             classification: string;
           }
         | undefined;
+
       await asUser(db, admin, async () => {
         const { rows: openRows } = await db.query<{
           open_cash_session: string;
         }>("select open_cash_session(200, $1) as open_cash_session", [
           company.loc1,
         ]);
+
         const sessionId = openRows[0].open_cash_session;
         await createSale(
           db,
@@ -515,6 +559,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select name, code, is_active from public.tills where location_id=$1",
           [locId],
         );
+
         expect(rows).toHaveLength(1);
         expect(rows[0].name).toBe("Caja 1");
         expect(rows[0].code).toBe("CAJA-1");
@@ -527,10 +572,12 @@ describe("RPCs críticas de dinero y stock", () => {
         "insert into public.locations (company_id, name) values ($1,'Sucursal Nueva') returning id",
         [companyA.id],
       );
+
       const { rows: newTill } = await db.query<{ name: string }>(
         "select name from public.tills where location_id=$1",
         [newLoc[0].id],
       );
+
       expect(newTill).toHaveLength(1);
       expect(newTill[0].name).toBe("Caja 1");
     });
@@ -541,6 +588,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select id from public.tills where location_id=$1",
           [companyA.loc1],
         );
+
         expect(rows.length).toBeGreaterThan(0);
 
         await expect(
@@ -557,6 +605,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "insert into public.tills (company_id, location_id, name, code) values ($1,$2,'Caja 2','CAJA-2') returning id",
           [companyA.id, companyA.loc1],
         );
+
         newTillId = rows[0].id;
 
         // Único por sucursal+nombre: repetir "Caja 2" en la misma sucursal falla.
@@ -576,6 +625,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select is_active from public.tills where id=$1",
         [newTillId!],
       );
+
       expect(finalRows[0].is_active).toBe(false);
     });
   });
@@ -583,6 +633,7 @@ describe("RPCs críticas de dinero y stock", () => {
   describe("10. Etapa 2 del arqueo: varias cajas simultáneas + atribución de ventas", () => {
     it("dos cajas abiertas a la vez en la misma sucursal no mezclan sus ventas", async () => {
       const company = await makeCompany(db, "Empresa Multi-Caja Test");
+
       const prod = await makeProduct(
         db,
         company.id,
@@ -592,6 +643,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         50,
       );
+
       const cajeroX = await makeUser(db, company.id, "user");
       const cajeroY = await makeUser(db, company.id, "user");
 
@@ -599,12 +651,15 @@ describe("RPCs críticas de dinero y stock", () => {
         "select id, name from public.tills where location_id=$1",
         [company.loc1],
       );
+
       expect(tillRows).toHaveLength(1); // "Caja 1" del trigger de Etapa 1
       const caja1 = tillRows[0].id;
+
       const { rows: caja2Rows } = await db.query<{ id: string }>(
         "insert into public.tills (company_id, location_id, name, code) values ($1,$2,'Caja 2','CAJA-2') returning id",
         [company.id, company.loc1],
       );
+
       const caja2 = caja2Rows[0].id;
 
       let sessionX = "";
@@ -614,6 +669,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select open_cash_session(200, $1, $2) as open_cash_session",
           [company.loc1, caja1],
         );
+
         sessionX = rows[0].open_cash_session;
       });
       // Caja1 sigue abierta -> abrir OTRA sesión en la misma caja debe fallar,
@@ -630,6 +686,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select open_cash_session(100, $1, $2) as open_cash_session",
           [company.loc1, caja2],
         );
+
         sessionY = rows[0].open_cash_session;
       });
 
@@ -645,6 +702,7 @@ describe("RPCs críticas de dinero y stock", () => {
             company.loc1,
           ],
         );
+
         saleXId = rows[0].create_sale.sale_id;
       });
       await asUser(db, cajeroY, async () => {
@@ -655,6 +713,7 @@ describe("RPCs críticas de dinero y stock", () => {
             company.loc1,
           ],
         );
+
         saleYId = rows[0].create_sale.sale_id;
       });
 
@@ -665,8 +724,10 @@ describe("RPCs críticas de dinero y stock", () => {
         saleXId,
         saleYId,
       ]);
+
       const tillOf = (id: string) =>
         saleTills.find((s) => s.id === id)?.till_id;
+
       expect(tillOf(saleXId)).toBe(caja1);
       expect(tillOf(saleYId)).toBe(caja2);
 
@@ -705,6 +766,7 @@ describe("RPCs críticas de dinero y stock", () => {
 
     it("create_sale nunca bloquea la venta aunque no haya ninguna caja abierta", async () => {
       const company = await makeCompany(db, "Empresa Sin Caja Abierta Test");
+
       const prod = await makeProduct(
         db,
         company.id,
@@ -714,6 +776,7 @@ describe("RPCs críticas de dinero y stock", () => {
         5,
         50,
       );
+
       const admin = await makeUser(db, company.id, "admin");
 
       let saleId = "";
@@ -726,6 +789,7 @@ describe("RPCs críticas de dinero y stock", () => {
             company.loc1,
           ],
         );
+
         saleId = rows[0].create_sale.sale_id;
       });
 
@@ -733,6 +797,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select till_id from public.sales where id=$1",
         [saleId],
       );
+
       tillId = rows[0].till_id;
       expect(saleId).toBeTruthy(); // la venta se completó de todos modos
       expect(tillId).toBeNull(); // pero sin caja abierta, no hay a qué atribuirla
@@ -741,6 +806,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("un solo caja por sucursal (caso Onisa hoy) sigue funcionando exactamente igual que antes", async () => {
       const company = await makeCompany(db, "Empresa Una Sola Caja Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const prod = await makeProduct(
         db,
         company.id,
@@ -754,6 +820,7 @@ describe("RPCs críticas de dinero y stock", () => {
       let authResult:
         | { expected_amount: number; difference: number }
         | undefined;
+
       await asUser(db, admin, async () => {
         // Sin p_till_id: con una sola caja activa en la sucursal, se
         // autoasigna sola -- cero cambios de comportamiento para Onisa.
@@ -762,6 +829,7 @@ describe("RPCs críticas de dinero y stock", () => {
         }>("select open_cash_session(50, $1) as open_cash_session", [
           company.loc1,
         ]);
+
         const sessionId = openRows[0].open_cash_session;
         await db.query(
           "select create_sale(null,'Ticket','Efectivo',$1::jsonb,$2) as create_sale",
@@ -797,6 +865,7 @@ describe("RPCs críticas de dinero y stock", () => {
         }>("select open_cash_session(100, $1) as open_cash_session", [
           company.loc1,
         ]);
+
         result = await submitTillCount(db, openRows[0].open_cash_session, [
           { denomination: 100, quantity: 1 },
         ]);
@@ -825,6 +894,7 @@ describe("RPCs críticas de dinero y stock", () => {
         }>("select open_cash_session(100, $1) as open_cash_session", [
           company.loc1,
         ]);
+
         await expect(
           submitTillCount(db, openRows[0].open_cash_session, [
             { denomination: 999, quantity: 1 },
@@ -845,6 +915,7 @@ describe("RPCs críticas de dinero y stock", () => {
         }>("select open_cash_session(100.25, $1) as open_cash_session", [
           company.loc1,
         ]);
+
         sessionId = openRows[0].open_cash_session;
 
         const result = await submitTillCount(
@@ -853,6 +924,7 @@ describe("RPCs críticas de dinero y stock", () => {
           [{ denomination: 100, quantity: 1 }],
           0.25,
         );
+
         expect(Number(result.manual_adjustment)).toBeCloseTo(0.25, 2);
         expect(Number(result.counted_cash_total)).toBeCloseTo(100.25, 2);
 
@@ -870,6 +942,7 @@ describe("RPCs críticas de dinero y stock", () => {
         }>("select open_cash_session(100, $1) as open_cash_session", [
           company.loc1,
         ]);
+
         await expect(
           submitTillCount(
             db,
@@ -890,6 +963,7 @@ describe("RPCs críticas de dinero y stock", () => {
         }>("select open_cash_session(100, $1) as open_cash_session", [
           company.loc1,
         ]);
+
         await expect(
           finishTillCount(db, openRows[0].open_cash_session),
         ).rejects.toThrow(/primero registra el conteo/i);
@@ -909,6 +983,7 @@ describe("RPCs críticas de dinero y stock", () => {
         }>("select open_cash_session(100, $1) as open_cash_session", [
           company.loc1,
         ]);
+
         sessionId = openRows[0].open_cash_session;
 
         // Conteo 1: 80 -- no cuadra contra el fondo de 100.
@@ -952,6 +1027,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select review_status, classification, expected_amount, real_amount from public.cash_sessions where id=$1",
         [sessionId],
       );
+
       expect(pending[0].review_status).toBe("pending");
       expect(pending[0].classification).toBeNull();
 
@@ -966,6 +1042,7 @@ describe("RPCs críticas de dinero y stock", () => {
       let auth:
         | { real_amount: number; difference: number; classification: string }
         | undefined;
+
       await asUser(db, admin, async () => {
         auth = await authorizeCashSession(db, sessionId);
       });
@@ -987,6 +1064,7 @@ describe("RPCs críticas de dinero y stock", () => {
         }>("select open_cash_session(100, $1) as open_cash_session", [
           company.loc1,
         ]);
+
         sessionId = openRows[0].open_cash_session;
         await submitTillCount(db, sessionId, [
           { denomination: 50, quantity: 1 },
@@ -1024,6 +1102,7 @@ describe("RPCs críticas de dinero y stock", () => {
         }>("select open_cash_session(100, $1) as open_cash_session", [
           company.loc1,
         ]);
+
         sessionId = openRows[0].open_cash_session;
         await submitTillCount(db, sessionId, [
           { denomination: 50, quantity: 1 },
@@ -1059,6 +1138,7 @@ describe("RPCs críticas de dinero y stock", () => {
         }>("select open_cash_session(100, $1) as open_cash_session", [
           company.loc1,
         ]);
+
         sessionId = openRows[0].open_cash_session;
 
         await db.query(
@@ -1082,6 +1162,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select id from public.audit_log where entity_id=$1",
           [sessionId],
         );
+
         expect(rows).toHaveLength(0);
       });
 
@@ -1093,6 +1174,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select action from public.audit_log where entity_id=$1 order by created_at asc",
           [sessionId],
         );
+
         auditActions = rows.map((r) => r.action);
       });
 
@@ -1110,6 +1192,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select detail from public.audit_log where entity_id=$1 and action='authorized'",
         [sessionId],
       );
+
       const detail = authRow[0].detail as { classification: string };
       expect(detail.classification).toBe("cuadrado");
     });
@@ -1158,6 +1241,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select count(*) from public.products where company_id=$1 and sku='SKU-1'",
         [companyB.id],
       );
+
       expect(Number(rows[0].count)).toBe(1);
     });
 
@@ -1169,6 +1253,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select card_commission_rate from public.companies where id=$1",
         [company.id],
       );
+
       expect(Number(before[0].card_commission_rate)).toBe(0.03);
 
       await asUser(db, admin, async () => {
@@ -1182,6 +1267,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select card_commission_rate from public.companies where id=$1",
         [company.id],
       );
+
       expect(Number(after[0].card_commission_rate)).toBe(0.045);
     });
   });
@@ -1190,6 +1276,7 @@ describe("RPCs críticas de dinero y stock", () => {
     async function setupLoyaltyCompany() {
       const company = await makeCompany(db, "Empresa Lealtad Test");
       const admin = await makeUser(db, company.id, "admin");
+
       // price_includes_tax=true por defecto -> total de línea = price*qty
       // exacto, sin que la tasa de IVA complique la aritmética de puntos.
       const product = await makeProduct(
@@ -1201,11 +1288,13 @@ describe("RPCs críticas de dinero y stock", () => {
         100,
         1000,
       );
+
       return { company, admin, product };
     }
 
     it("con loyalty_enabled=false (default) no gana ni permite canjear puntos, aunque haya cliente y saldo", async () => {
       const { company, admin, product } = await setupLoyaltyCompany();
+
       const customer = await makeCustomer(
         db,
         company.id,
@@ -1286,6 +1375,7 @@ describe("RPCs críticas de dinero y stock", () => {
         pointValue: 1,
         earnRate: 0,
       });
+
       const customer = await makeCustomer(
         db,
         company.id,
@@ -1316,6 +1406,7 @@ describe("RPCs críticas de dinero y stock", () => {
         pointValue: 1,
         earnRate: 0,
       });
+
       const cheapProduct = await makeProduct(
         db,
         company.id,
@@ -1325,6 +1416,7 @@ describe("RPCs críticas de dinero y stock", () => {
         20,
         1000,
       );
+
       const customer = await makeCustomer(
         db,
         company.id,
@@ -1379,6 +1471,7 @@ describe("RPCs críticas de dinero y stock", () => {
         pointValue: 1,
         earnRate: 10,
       });
+
       const customer = await makeCustomer(
         db,
         company.id,
@@ -1406,6 +1499,7 @@ describe("RPCs críticas de dinero y stock", () => {
         pointValue: 1,
         earnRate: 0,
       });
+
       const customer = await makeCustomer(
         db,
         company.id,
@@ -1432,6 +1526,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select total, subtotal, tax, discount_total from public.sales where id=$1",
         [result.sale_id],
       );
+
       const row = rows[0];
       expect(Number(row.total)).toBe(60);
       expect(Number(row.total)).toBe(result.total);
@@ -1447,6 +1542,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const company = await makeCompany(db, "Empresa Empleados Test");
       const admin = await makeUser(db, company.id, "admin");
       const employee = await makeUser(db, company.id, "user");
+
       return { company, admin, employee };
     }
 
@@ -1498,10 +1594,12 @@ describe("RPCs críticas de dinero y stock", () => {
           "select punch_employee('1111', $1) as punch_employee",
           [company.loc1],
         );
+
         const checkIn = inRows[0].punch_employee as {
           action: string;
           profile_id: string;
         };
+
         expect(checkIn.action).toBe("check_in");
         expect(checkIn.profile_id).toBe(employee);
 
@@ -1509,6 +1607,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select punch_employee('1111', $1) as punch_employee",
           [company.loc1],
         );
+
         const checkOut = outRows[0].punch_employee as { action: string };
         expect(checkOut.action).toBe("check_out");
       });
@@ -1520,6 +1619,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select status, check_out_at from public.employee_attendance where profile_id=$1",
         [employee],
       );
+
       expect(rows[0].status).toBe("closed");
       expect(rows[0].check_out_at).not.toBeNull();
     });
@@ -1533,10 +1633,12 @@ describe("RPCs críticas de dinero y stock", () => {
       );
       await asUser(db, admin, async () => {
         await db.query("select set_employee_pin($1, '2222')", [employee]);
+
         const { rows } = await db.query<{ punch_employee: unknown }>(
           "select punch_employee('2222', $1) as punch_employee",
           [company.loc1],
         );
+
         const checkIn = rows[0].punch_employee as { is_late: boolean };
         expect(checkIn.is_late).toBe(true);
       });
@@ -1557,10 +1659,12 @@ describe("RPCs críticas de dinero y stock", () => {
       );
       await asUser(db, admin, async () => {
         await db.query("select set_employee_pin($1, '2233')", [employee]);
+
         const { rows } = await db.query<{ punch_employee: unknown }>(
           "select punch_employee('2233', $1) as punch_employee",
           [company.loc1],
         );
+
         const checkIn = rows[0].punch_employee as { is_late: boolean };
         expect(checkIn.is_late).toBe(false);
       });
@@ -1583,10 +1687,12 @@ describe("RPCs críticas de dinero y stock", () => {
       );
       await asUser(db, admin, async () => {
         await db.query("select set_employee_pin($1, '6677')", [employee]);
+
         const { rows } = await db.query<{ punch_employee: unknown }>(
           "select punch_employee('6677', $1) as punch_employee",
           [company.loc1],
         );
+
         const checkIn = rows[0].punch_employee as { is_late: boolean };
         expect(checkIn.is_late).toBe(false);
       });
@@ -1601,10 +1707,12 @@ describe("RPCs críticas de dinero y stock", () => {
       );
       await asUser(db, admin, async () => {
         await db.query("select set_employee_pin($1, '8899')", [employee]);
+
         const { rows } = await db.query<{ punch_employee: unknown }>(
           "select punch_employee('8899', $1) as punch_employee",
           [company.loc1],
         );
+
         const checkIn = rows[0].punch_employee as { is_late: boolean };
         expect(checkIn.is_late).toBe(false);
       });
@@ -1616,6 +1724,7 @@ describe("RPCs críticas de dinero y stock", () => {
         admin,
         employee: lateEmployee,
       } = await setupEmployeeCompany();
+
       const onTimeEmployee = await makeUser(db, company.id, "user");
       await db.query(
         "update public.profiles set shift_start='00:01' where id=$1",
@@ -1628,16 +1737,19 @@ describe("RPCs críticas de dinero y stock", () => {
       await asUser(db, admin, async () => {
         await db.query("select set_employee_pin($1, '3344')", [lateEmployee]);
         await db.query("select set_employee_pin($1, '4455')", [onTimeEmployee]);
+
         const { rows: lateRows } = await db.query<{
           punch_employee: unknown;
         }>("select punch_employee('3344', $1) as punch_employee", [
           company.loc1,
         ]);
+
         const { rows: onTimeRows } = await db.query<{
           punch_employee: unknown;
         }>("select punch_employee('4455', $1) as punch_employee", [
           company.loc1,
         ]);
+
         expect(
           (lateRows[0].punch_employee as { is_late: boolean }).is_late,
         ).toBe(true);
@@ -1657,14 +1769,17 @@ describe("RPCs críticas de dinero y stock", () => {
       await asUser(db, admin, async () => {
         await db.query("select set_employee_pin($1, '5566')", [employee]);
         await db.query("select punch_employee('5566', $1)", [company.loc1]);
+
         const { rows } = await db.query<{ punch_employee: unknown }>(
           "select punch_employee('5566', $1) as punch_employee",
           [company.loc1],
         );
+
         const checkOut = rows[0].punch_employee as {
           action: string;
           is_early_leave: boolean;
         };
+
         expect(checkOut.action).toBe("check_out");
         expect(checkOut.is_early_leave).toBe(true);
       });
@@ -1684,8 +1799,10 @@ describe("RPCs críticas de dinero y stock", () => {
 
     it("el PIN de un empleado de otra empresa no funciona (aislamiento entre empresas)", async () => {
       const { admin: adminA } = await setupEmployeeCompany();
+
       const { company: companyB, employee: employeeB } =
         await setupEmployeeCompany();
+
       const adminB2 = await makeUser(db, companyB.id, "admin");
       await asUser(db, adminB2, async () => {
         await db.query("select set_employee_pin($1, '7777')", [employeeB]);
@@ -1712,6 +1829,7 @@ describe("RPCs críticas de dinero y stock", () => {
 
     it("adjust_stock graba quién hizo el ajuste (created_by), para calcular mermas por empleado", async () => {
       const { company, admin } = await setupEmployeeCompany();
+
       const product = await makeProduct(
         db,
         company.id,
@@ -1721,16 +1839,19 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         20,
       );
+
       await asUser(db, admin, async () => {
         await db.query("select adjust_stock($1, $2, -3, 'merma de prueba')", [
           product,
           company.loc1,
         ]);
       });
+
       const { rows } = await db.query<{ created_by: string }>(
         "select created_by from public.stock_movements where product_id=$1 and movement_type='adjustment'",
         [product],
       );
+
       expect(rows[0].created_by).toBe(admin);
     });
 
@@ -1743,10 +1864,12 @@ describe("RPCs críticas de dinero y stock", () => {
           [company.id, employee, admin],
         );
       });
+
       const { rows } = await db.query<{ count: string }>(
         "select count(*) from public.employee_time_events where profile_id=$1",
         [employee],
       );
+
       expect(Number(rows[0].count)).toBe(1);
 
       await asUser(db, employee, async () => {
@@ -1783,6 +1906,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select type, event_date, end_date from public.employee_time_events where profile_id=$1 order by event_date",
         [employee],
       );
+
       expect(rows[0].type).toBe("absence");
       expect(rows[0].end_date).toBeNull();
       expect(rows[1].type).toBe("vacation");
@@ -1823,12 +1947,14 @@ describe("RPCs críticas de dinero y stock", () => {
           opts.endsAt ?? null,
         ],
       );
+
       return rows[0].id;
     }
 
     it("aplica el descuento automático cuando la cantidad de un producto llega al mínimo", async () => {
       const company = await makeCompany(db, "Empresa Promo Producto");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -1838,6 +1964,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         1000,
       );
+
       await makePromotion(company.id, {
         scopeType: "product",
         productId: product,
@@ -1861,6 +1988,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("no aplica el descuento si la cantidad no alcanza el mínimo", async () => {
       const company = await makeCompany(db, "Empresa Promo Bajo Minimo");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -1870,6 +1998,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         1000,
       );
+
       await makePromotion(company.id, {
         scopeType: "product",
         productId: product,
@@ -1892,11 +2021,14 @@ describe("RPCs críticas de dinero y stock", () => {
     it("una promoción por categoría suma cantidades de varios productos de esa categoría", async () => {
       const company = await makeCompany(db, "Empresa Promo Categoria");
       const admin = await makeUser(db, company.id, "admin");
+
       const { rows: catRows } = await db.query<{ id: string }>(
         "insert into public.categories (company_id, name) values ($1, 'Copias') returning id",
         [company.id],
       );
+
       const categoryId = catRows[0].id;
+
       const productA = await makeProduct(
         db,
         company.id,
@@ -1906,6 +2038,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         1000,
       );
+
       const productB = await makeProduct(
         db,
         company.id,
@@ -1915,6 +2048,7 @@ describe("RPCs críticas de dinero y stock", () => {
         20,
         1000,
       );
+
       await db.query(
         "update public.products set category_id=$1 where id in ($2,$3)",
         [categoryId, productA, productB],
@@ -1946,6 +2080,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("una promoción inactiva o fuera de rango de fechas no se aplica", async () => {
       const company = await makeCompany(db, "Empresa Promo Inactiva");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -1955,6 +2090,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         1000,
       );
+
       await makePromotion(company.id, {
         scopeType: "product",
         productId: product,
@@ -1985,11 +2121,14 @@ describe("RPCs críticas de dinero y stock", () => {
     it("si compiten dos promociones sobre el mismo producto, gana la de mayor porcentaje (no se acumulan)", async () => {
       const company = await makeCompany(db, "Empresa Promo Competencia");
       const admin = await makeUser(db, company.id, "admin");
+
       const { rows: catRows } = await db.query<{ id: string }>(
         "insert into public.categories (company_id, name) values ($1, 'Copias') returning id",
         [company.id],
       );
+
       const categoryId = catRows[0].id;
+
       const product = await makeProduct(
         db,
         company.id,
@@ -1999,6 +2138,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         1000,
       );
+
       await db.query("update public.products set category_id=$1 where id=$2", [
         categoryId,
         product,
@@ -2032,6 +2172,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("promociones 2x1 o combo no se aplican solas (solo 'discount' se automatiza)", async () => {
       const company = await makeCompany(db, "Empresa Promo 2x1");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -2041,6 +2182,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         1000,
       );
+
       await makePromotion(company.id, {
         scopeType: "product",
         productId: product,
@@ -2070,6 +2212,7 @@ describe("RPCs críticas de dinero y stock", () => {
         earnRate: 0,
       });
       const customer = await makeCustomer(db, company.id, "Cliente Promo", 30);
+
       const product = await makeProduct(
         db,
         company.id,
@@ -2079,6 +2222,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         1000,
       );
+
       await makePromotion(company.id, {
         scopeType: "product",
         productId: product,
@@ -2106,6 +2250,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("regresión: subtotal + tax sigue siendo igual a total en una venta con promoción automática", async () => {
       const company = await makeCompany(db, "Empresa Promo Regresion");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -2115,6 +2260,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         1000,
       );
+
       await makePromotion(company.id, {
         scopeType: "product",
         productId: product,
@@ -2140,6 +2286,7 @@ describe("RPCs críticas de dinero y stock", () => {
     async function setupPaymentCompany() {
       const company = await makeCompany(db, "Empresa Pago Dividido");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -2149,11 +2296,13 @@ describe("RPCs críticas de dinero y stock", () => {
         200,
         1000,
       );
+
       return { company, admin, product };
     }
 
     it("un pago dividido que suma exacto al total se acepta y guarda el desglose", async () => {
       const { company, admin, product } = await setupPaymentCompany();
+
       const result = await asUser(db, admin, () =>
         createSale(
           db,
@@ -2168,12 +2317,14 @@ describe("RPCs críticas de dinero y stock", () => {
           },
         ),
       );
+
       expect(result.total).toBe(200);
 
       const { rows } = await db.query<{ method: string; amount: number }>(
         "select method, amount from public.sale_payments where sale_id=$1 order by method",
         [result.sale_id],
       );
+
       expect(rows).toHaveLength(2);
       expect(rows.find((r) => r.method === "Efectivo")?.amount).toBe("60.00");
       expect(rows.find((r) => r.method === "Tarjeta")?.amount).toBe("140.00");
@@ -2182,6 +2333,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select payment_method from public.sales where id=$1",
         [result.sale_id],
       );
+
       expect(saleRows[0].payment_method).toBe("Mixto");
     });
 
@@ -2207,6 +2359,7 @@ describe("RPCs críticas de dinero y stock", () => {
 
     it("sin desglose de pagos se guarda una sola fila, igual que antes (regresión)", async () => {
       const { company, admin, product } = await setupPaymentCompany();
+
       const result = await asUser(db, admin, () =>
         createSale(
           db,
@@ -2214,10 +2367,12 @@ describe("RPCs críticas de dinero y stock", () => {
           company.loc1,
         ),
       );
+
       const { rows } = await db.query<{ method: string; amount: number }>(
         "select method, amount from public.sale_payments where sale_id=$1",
         [result.sale_id],
       );
+
       expect(rows).toHaveLength(1);
       expect(rows[0].method).toBe("Efectivo");
       expect(rows[0].amount).toBe("200.00");
@@ -2231,6 +2386,7 @@ describe("RPCs críticas de dinero y stock", () => {
         }>("select open_cash_session(100, $1) as open_cash_session", [
           company.loc1,
         ]);
+
         const sessionId = openRows[0].open_cash_session;
 
         await createSale(
@@ -2252,6 +2408,7 @@ describe("RPCs críticas de dinero y stock", () => {
           { denomination: 100, quantity: 1 },
           { denomination: 50, quantity: 1 },
         ]);
+
         expect(Number(count.card_total)).toBe(150);
 
         await finishTillCount(db, sessionId);
@@ -2281,6 +2438,7 @@ describe("RPCs críticas de dinero y stock", () => {
         const { rows } = await db.query<{ method: string; total: number }>(
           "select * from sales_by_payment_method()",
         );
+
         const byMethod = new Map(rows.map((r) => [r.method, Number(r.total)]));
         expect(byMethod.get("Efectivo")).toBe(70);
         expect(byMethod.get("Tarjeta")).toBe(130);
@@ -2292,6 +2450,7 @@ describe("RPCs críticas de dinero y stock", () => {
     async function setupCreditCompany() {
       const company = await makeCompany(db, "Empresa Credito Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -2301,6 +2460,7 @@ describe("RPCs críticas de dinero y stock", () => {
         200,
         1000,
       );
+
       return { company, admin, product };
     }
 
@@ -2324,12 +2484,14 @@ describe("RPCs críticas de dinero y stock", () => {
           },
         ),
       );
+
       expect(result.total).toBe(200);
 
       const { rows } = await db.query<{ credit_balance: number }>(
         "select credit_balance from public.customers where id=$1",
         [customer],
       );
+
       expect(Number(rows[0].credit_balance)).toBe(200);
     });
 
@@ -2360,6 +2522,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select credit_balance from public.customers where id=$1",
         [customer],
       );
+
       expect(Number(rows[0].credit_balance)).toBe(0);
     });
 
@@ -2382,11 +2545,13 @@ describe("RPCs críticas de dinero y stock", () => {
 
     it("un cliente sin límite de crédito asignado no puede comprar a crédito", async () => {
       const { company, admin, product } = await setupCreditCompany();
+
       const customer = await makeCustomer(
         db,
         company.id,
         "Cliente Sin Credito",
       );
+
       await asUser(db, admin, async () => {
         await expect(
           createSale(
@@ -2426,12 +2591,14 @@ describe("RPCs críticas de dinero y stock", () => {
           },
         ),
       );
+
       expect(result.total).toBe(200);
 
       const { rows } = await db.query<{ credit_balance: number }>(
         "select credit_balance from public.customers where id=$1",
         [customer],
       );
+
       expect(Number(rows[0].credit_balance)).toBe(100);
     });
 
@@ -2449,6 +2616,7 @@ describe("RPCs críticas de dinero y stock", () => {
         }>("select open_cash_session(100, $1) as open_cash_session", [
           company.loc1,
         ]);
+
         const sessionId = openRows[0].open_cash_session;
 
         await createSale(
@@ -2466,6 +2634,7 @@ describe("RPCs críticas de dinero y stock", () => {
         const count = await submitTillCount(db, sessionId, [
           { denomination: 100, quantity: 1 },
         ]);
+
         expect(Number(count.card_total)).toBe(0);
         expect(Number(count.transfer_total)).toBe(0);
         expect(Number(count.other_total)).toBe(0);
@@ -2502,16 +2671,19 @@ describe("RPCs críticas de dinero y stock", () => {
         }>("select open_cash_session(0, $1) as open_cash_session", [
           company.loc1,
         ]);
+
         const sessionId = openRows[0].open_cash_session;
 
         const { rows } = await db.query<{ collect_customer_credit: unknown }>(
           "select collect_customer_credit($1, 150, 'Efectivo', 'cash') as collect_customer_credit",
           [customer],
         );
+
         const collected = rows[0].collect_customer_credit as {
           applied: number;
           remaining_balance: number;
         };
+
         expect(Number(collected.applied)).toBe(150);
         expect(Number(collected.remaining_balance)).toBe(50);
 
@@ -2519,12 +2691,14 @@ describe("RPCs críticas de dinero y stock", () => {
           "select credit_balance from public.customers where id=$1",
           [customer],
         );
+
         expect(Number(balRows[0].credit_balance)).toBe(50);
 
         const { rows: movRows } = await db.query<{ amount: number }>(
           "select amount from public.cash_movements where cash_session_id=$1 and concept='Cobro de credito'",
           [sessionId],
         );
+
         expect(movRows).toHaveLength(1);
         expect(Number(movRows[0].amount)).toBe(150);
       });
@@ -2553,10 +2727,12 @@ describe("RPCs críticas de dinero y stock", () => {
           "select collect_customer_credit($1, 500, 'Efectivo', 'cash') as collect_customer_credit",
           [customer],
         );
+
         const collected = rows[0].collect_customer_credit as {
           applied: number;
           remaining_balance: number;
         };
+
         expect(Number(collected.applied)).toBe(200);
         expect(Number(collected.remaining_balance)).toBe(0);
       });
@@ -2587,6 +2763,7 @@ describe("RPCs críticas de dinero y stock", () => {
         }>("select open_cash_session(0, $1) as open_cash_session", [
           company.loc1,
         ]);
+
         const sessionId = openRows[0].open_cash_session;
 
         await db.query(
@@ -2598,12 +2775,14 @@ describe("RPCs críticas de dinero y stock", () => {
           "select id from public.cash_movements where cash_session_id=$1",
           [sessionId],
         );
+
         expect(movRows).toHaveLength(0);
 
         const { rows: balRows } = await db.query<{ credit_balance: number }>(
           "select credit_balance from public.customers where id=$1",
           [customer],
         );
+
         expect(Number(balRows[0].credit_balance)).toBe(0);
       });
     });
@@ -2618,6 +2797,7 @@ describe("RPCs críticas de dinero y stock", () => {
       );
       const admin = await makeUser(db, company.id, "admin");
       const cashier = await makeUser(db, company.id, "user");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -2627,6 +2807,7 @@ describe("RPCs críticas de dinero y stock", () => {
         200,
         100,
       );
+
       const customer = await makeCustomer(db, company.id, "Cliente Sucio");
       await asUser(db, admin, () =>
         createSale(
@@ -2641,6 +2822,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "update public.profiles set location_id=$2, allowed_sections=$3, pin_hash='x', shift_start='08:00', shift_end='14:00' where id=$1",
         [admin, company.loc1, ["pos"]],
       );
+
       return { company, admin, cashier, product, customer };
     }
 
@@ -2660,11 +2842,13 @@ describe("RPCs críticas de dinero y stock", () => {
         "customers",
         "product_locations",
       ];
+
       for (const table of tables) {
         const { rows } = await db.query<{ count: string }>(
           `select count(*)::int as count from public.${table} where company_id=$1`,
           [company.id],
         );
+
         expect(Number(rows[0].count)).toBe(0);
       }
     });
@@ -2691,6 +2875,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select count(*)::int as count from public.products where company_id=$1",
         [otherCompany.id],
       );
+
       expect(Number(rows[0].count)).toBe(1);
       void otherAdmin;
     });
@@ -2724,6 +2909,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select id, name from public.locations where company_id=$1",
         [company.id],
       );
+
       expect(locRows).toHaveLength(1);
       expect(locRows[0].name).toBe("Principal");
 
@@ -2731,6 +2917,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select name from public.tills where company_id=$1 and location_id=$2",
         [company.id, locRows[0].id],
       );
+
       expect(tillRows).toHaveLength(1);
       expect(tillRows[0].name).toBe("Caja 1");
     });
@@ -2754,6 +2941,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select tax_rate, tax_name, fiscal_id_label, card_commission_rate, loyalty_enabled, loyalty_point_value, name from public.companies where id=$1",
         [company.id],
       );
+
       const row = rows[0];
       expect(Number(row.tax_rate)).toBeCloseTo(0.16);
       expect(row.tax_name).toBe("IVA");
@@ -2780,6 +2968,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select location_id, allowed_sections, pin_hash, shift_start from public.profiles where id=$1",
         [admin],
       );
+
       expect(adminRows).toHaveLength(1);
       expect(adminRows[0].location_id).toBeNull();
       expect(adminRows[0].allowed_sections).toBeNull();
@@ -2790,6 +2979,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select id from public.profiles where id=$1",
         [cashier],
       );
+
       expect(cashierRows).toHaveLength(1);
     });
 
@@ -2811,11 +3001,13 @@ describe("RPCs críticas de dinero y stock", () => {
         }>("select open_cash_session(100, $1) as open_cash_session", [
           company.loc1,
         ]);
+
         const result = await submitTillCount(
           db,
           openRows[0].open_cash_session,
           [{ denomination: 100, quantity: 1 }],
         );
+
         countId = result.count_id;
       });
 
@@ -2827,6 +3019,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select counted_by from public.till_counts where id=$1",
         [countId],
       );
+
       expect(rows[0].counted_by).toBeNull();
     });
   });
@@ -2865,6 +3058,7 @@ describe("RPCs críticas de dinero y stock", () => {
       }>("select company_id, role from public.profiles where id=$1", [
         atacanteId,
       ]);
+
       expect(rows[0].company_id).not.toBe(victima.id);
       expect(rows[0].role).toBe("admin"); // dueño de SU propia empresa nueva
 
@@ -2873,12 +3067,14 @@ describe("RPCs críticas de dinero y stock", () => {
           "select name from public.products where company_id=$1",
           [victima.id],
         );
+
         expect(leaked).toHaveLength(0);
 
         const { rows: canRead } = await db.query<{ ok: boolean }>(
           "select public.can_select_company($1) as ok",
           [victima.id],
         );
+
         expect(canRead[0].ok).toBe(false);
       });
     });
@@ -2893,10 +3089,12 @@ describe("RPCs críticas de dinero y stock", () => {
           JSON.stringify({ company_name: "Tienda Nueva" }),
         ],
       );
+
       const { rows } = await db.query<{ role: string; company_id: string }>(
         "select role, company_id from public.profiles where id=$1",
         [nuevoId],
       );
+
       expect(rows[0].role).toBe("admin");
       expect(rows[0].company_id).toBeTruthy();
     });
@@ -2906,6 +3104,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("un producto sin umbral propio usa el default de la empresa", async () => {
       const company = await makeCompany(db, "Empresa Stock Test");
       const admin = await makeUser(db, company.id, "admin");
+
       // Default de la empresa es 10: 8 está bajo, 12 no.
       const bajo = await makeProduct(
         db,
@@ -2916,6 +3115,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         8,
       );
+
       await makeProduct(db, company.id, company.loc1, "Normal", 5, 10, 12);
 
       const { rows } = await asUser(db, admin, () =>
@@ -2923,6 +3123,7 @@ describe("RPCs críticas de dinero y stock", () => {
           low_stock_summary: { count: number; items: { id: string }[] };
         }>("select low_stock_summary() as low_stock_summary"),
       );
+
       const result = rows[0].low_stock_summary;
       expect(result.count).toBe(1);
       expect(result.items[0].id).toBe(bajo);
@@ -2931,6 +3132,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("un producto con umbral propio lo usa en vez del default de la empresa", async () => {
       const company = await makeCompany(db, "Empresa Umbral Propio Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const producto = await makeProduct(
         db,
         company.id,
@@ -2940,6 +3142,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         15,
       );
+
       // Con el default (10) NO estaría bajo; con un umbral propio de 20, sí.
       await db.query(
         "update public.products set low_stock_threshold=20 where id=$1",
@@ -2951,6 +3154,7 @@ describe("RPCs críticas de dinero y stock", () => {
           low_stock_summary: { count: number; items: { id: string }[] };
         }>("select low_stock_summary() as low_stock_summary"),
       );
+
       expect(rows[0].low_stock_summary.count).toBe(1);
       expect(rows[0].low_stock_summary.items[0].id).toBe(producto);
     });
@@ -2958,6 +3162,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("un producto agotado (stock=0) aparece incluido -- antes se excluía del resumen", async () => {
       const company = await makeCompany(db, "Empresa Agotado Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const agotado = await makeProduct(
         db,
         company.id,
@@ -2976,6 +3181,7 @@ describe("RPCs críticas de dinero y stock", () => {
           };
         }>("select low_stock_summary() as low_stock_summary"),
       );
+
       expect(rows[0].low_stock_summary.count).toBe(1);
       expect(rows[0].low_stock_summary.items[0].id).toBe(agotado);
       expect(Number(rows[0].low_stock_summary.items[0].stock)).toBe(0);
@@ -2984,6 +3190,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("con p_location_id usa el stock de ESA sucursal, no el agregado de la empresa", async () => {
       const company = await makeCompany(db, "Empresa Multisucursal Test");
       const admin = await makeUser(db, company.id, "admin");
+
       // 8 en loc1 (bajo) + 8 en loc2 (bajo) -> products.stock agregado = 16 (NO bajo),
       // pero cada sucursal individualmente SÍ está baja.
       const producto = await makeProduct(
@@ -2995,6 +3202,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         8,
       );
+
       await db.query(
         "insert into public.product_locations (company_id, product_id, location_id, stock, is_active) values ($1,$2,$3,8,true)",
         [company.id, producto, company.loc2],
@@ -3008,6 +3216,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select low_stock_summary() as low_stock_summary",
         ),
       );
+
       expect(aggRows[0].low_stock_summary.count).toBe(0);
 
       const { rows: locRows } = await asUser(db, admin, () =>
@@ -3015,6 +3224,7 @@ describe("RPCs críticas de dinero y stock", () => {
           low_stock_summary: { count: number; items: { stock: number }[] };
         }>("select low_stock_summary($1) as low_stock_summary", [company.loc1]),
       );
+
       expect(locRows[0].low_stock_summary.count).toBe(1);
       expect(Number(locRows[0].low_stock_summary.items[0].stock)).toBe(8);
     });
@@ -3022,6 +3232,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("respeta el límite y ordena por stock ascendente (los más urgentes primero)", async () => {
       const company = await makeCompany(db, "Empresa Orden Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const p5 = await makeProduct(
         db,
         company.id,
@@ -3031,6 +3242,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         5,
       );
+
       await makeProduct(db, company.id, company.loc1, "Stock 2", 5, 10, 2);
       await makeProduct(db, company.id, company.loc1, "Stock 0", 5, 10, 0);
       await makeProduct(db, company.id, company.loc1, "Stock 8", 5, 10, 8);
@@ -3040,6 +3252,7 @@ describe("RPCs críticas de dinero y stock", () => {
           low_stock_summary: { count: number; items: { stock: number }[] };
         }>("select low_stock_summary(null, 2) as low_stock_summary"),
       );
+
       expect(rows[0].low_stock_summary.count).toBe(4);
       expect(rows[0].low_stock_summary.items).toHaveLength(2);
       expect(Number(rows[0].low_stock_summary.items[0].stock)).toBe(0);
@@ -3075,6 +3288,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select low_stock_summary() as low_stock_summary",
         ),
       );
+
       expect(rows[0].low_stock_summary.count).toBe(0);
     });
 
@@ -3093,6 +3307,7 @@ describe("RPCs críticas de dinero y stock", () => {
           [company.loc1],
         ),
       );
+
       expect(rows[0].low_stock_summary.count).toBe(0);
     });
   });
@@ -3102,6 +3317,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const company = await makeCompany(db, "Empresa Proyección Test");
       const admin = await makeUser(db, company.id, "admin");
       const customer = await makeCustomer(db, company.id, "Cliente Proyección");
+
       // 30 unidades vendidas en la ventana de 30 días -> velocidad = 1/día.
       const producto = await makeProduct(
         db,
@@ -3112,6 +3328,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         1000,
       );
+
       await asUser(db, admin, () =>
         createSale(
           db,
@@ -3138,9 +3355,11 @@ describe("RPCs críticas de dinero y stock", () => {
           };
         }>("select purchase_projection(30, 30) as purchase_projection"),
       );
+
       const item = rows[0].purchase_projection.items.find(
         (i) => i.id === producto,
       );
+
       expect(item).toBeDefined();
       expect(Number(item!.velocity)).toBeCloseTo(1);
       expect(Number(item!.daysOfCoverage)).toBeCloseTo(10); // stock 10 / velocidad 1
@@ -3150,6 +3369,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const company = await makeCompany(db, "Empresa Venta Vieja Test");
       const admin = await makeUser(db, company.id, "admin");
       const customer = await makeCustomer(db, company.id, "Cliente Viejo");
+
       const producto = await makeProduct(
         db,
         company.id,
@@ -3159,6 +3379,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         20,
       );
+
       const result = await asUser(db, admin, () =>
         createSale(
           db,
@@ -3168,6 +3389,7 @@ describe("RPCs críticas de dinero y stock", () => {
           { customerId: customer },
         ),
       );
+
       // La venta ocurrió, pero hace 60 días -- fuera de la ventana de 30.
       await db.query(
         "update public.sales set sale_date = now() - interval '60 days' where id=$1",
@@ -3179,6 +3401,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select purchase_projection(30, 30) as purchase_projection",
         ),
       );
+
       expect(
         rows[0].purchase_projection.items.some((i) => i.id === producto),
       ).toBe(false);
@@ -3188,6 +3411,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const company = await makeCompany(db, "Empresa Devolución Test");
       const admin = await makeUser(db, company.id, "admin");
       const customer = await makeCustomer(db, company.id, "Cliente Devuelve");
+
       const producto = await makeProduct(
         db,
         company.id,
@@ -3197,6 +3421,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         50,
       );
+
       let saleId = "";
       let saleItemId = "";
       await asUser(db, admin, async () => {
@@ -3207,11 +3432,14 @@ describe("RPCs críticas de dinero y stock", () => {
           undefined,
           { customerId: customer },
         );
+
         saleId = result.sale_id;
+
         const { rows: items } = await db.query<{ id: string }>(
           "select id from public.sale_items where sale_id=$1",
           [saleId],
         );
+
         saleItemId = items[0].id;
         // Se devuelven 8 de las 20 -> neto vendido = 12 en la ventana de 30 días.
         await db.query(
@@ -3231,9 +3459,11 @@ describe("RPCs críticas de dinero y stock", () => {
           purchase_projection: { items: { id: string; velocity: number }[] };
         }>("select purchase_projection(30, 30) as purchase_projection"),
       );
+
       const item = rows[0].purchase_projection.items.find(
         (i) => i.id === producto,
       );
+
       expect(item).toBeDefined();
       expect(Number(item!.velocity)).toBeCloseTo(12 / 30);
     });
@@ -3241,6 +3471,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("un producto sin ventas en la ventana no aparece en la proyección", async () => {
       const company = await makeCompany(db, "Empresa Sin Ventas Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const producto = await makeProduct(
         db,
         company.id,
@@ -3256,6 +3487,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select purchase_projection(30, 30) as purchase_projection",
         ),
       );
+
       expect(
         rows[0].purchase_projection.items.some((i) => i.id === producto),
       ).toBe(false);
@@ -3265,6 +3497,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const company = await makeCompany(db, "Empresa Sugerencia Test");
       const admin = await makeUser(db, company.id, "admin");
       const customer = await makeCustomer(db, company.id, "Cliente Sugerencia");
+
       // Velocidad = 30/30 = 1/día, stock = 5, cobertura pedida = 15 días
       // -> sugerido = 1*15 - 5 = 10.
       const producto = await makeProduct(
@@ -3276,6 +3509,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         1000,
       );
+
       await asUser(db, admin, () =>
         createSale(
           db,
@@ -3296,9 +3530,11 @@ describe("RPCs críticas de dinero y stock", () => {
           };
         }>("select purchase_projection(30, 15) as purchase_projection"),
       );
+
       const item = rows[0].purchase_projection.items.find(
         (i) => i.id === producto,
       );
+
       expect(item).toBeDefined();
       expect(Number(item!.suggestedQty)).toBe(10);
     });
@@ -3308,13 +3544,16 @@ describe("RPCs críticas de dinero y stock", () => {
         db,
         "Empresa A Proyección Aislamiento",
       );
+
       const companyB = await makeCompany(
         db,
         "Empresa B Proyección Aislamiento",
       );
+
       const adminA = await makeUser(db, companyA.id, "admin");
       const adminB = await makeUser(db, companyB.id, "admin");
       const customerB = await makeCustomer(db, companyB.id, "Cliente B");
+
       const productoB = await makeProduct(
         db,
         companyB.id,
@@ -3324,6 +3563,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         1000,
       );
+
       await asUser(db, adminB, () =>
         createSale(
           db,
@@ -3339,6 +3579,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select purchase_projection(30, 30) as purchase_projection",
         ),
       );
+
       expect(rows[0].purchase_projection.items).toHaveLength(0);
     });
 
@@ -3346,6 +3587,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const company = await makeCompany(db, "Empresa Orden Proyección Test");
       const admin = await makeUser(db, company.id, "admin");
       const customer = await makeCustomer(db, company.id, "Cliente Orden");
+
       // Misma velocidad (30/30=1/día) para los tres, distinto stock ->
       // distintos días de cobertura: 2, 5, 20.
       const urgente = await makeProduct(
@@ -3357,6 +3599,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         1000,
       );
+
       const medio = await makeProduct(
         db,
         company.id,
@@ -3366,6 +3609,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         1000,
       );
+
       const holgado = await makeProduct(
         db,
         company.id,
@@ -3375,6 +3619,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         1000,
       );
+
       await asUser(db, admin, async () => {
         for (const productId of [urgente, medio, holgado]) {
           await createSale(
@@ -3400,6 +3645,7 @@ describe("RPCs críticas de dinero y stock", () => {
           purchase_projection: { items: { id: string }[] };
         }>("select purchase_projection(30, 30, 2) as purchase_projection"),
       );
+
       const ids = rows[0].purchase_projection.items.map((i) => i.id);
       expect(ids).toHaveLength(2);
       expect(ids[0]).toBe(urgente);
@@ -3410,10 +3656,12 @@ describe("RPCs críticas de dinero y stock", () => {
       const company = await makeCompany(db, "Empresa Resurtido Test");
       const admin = await makeUser(db, company.id, "admin");
       const customer = await makeCustomer(db, company.id, "Cliente Resurtido");
+
       const { rows: supplierRows } = await db.query<{ id: string }>(
         "insert into public.suppliers (company_id, name) values ($1, $2) returning id",
         [company.id, "Proveedor Resurtido"],
       );
+
       const supplierId = supplierRows[0].id;
 
       const conProveedor = await makeProduct(
@@ -3425,10 +3673,12 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         1000,
       );
+
       await db.query(
         "update public.products set supplier_id = $2 where id = $1",
         [conProveedor, supplierId],
       );
+
       const sinProveedor = await makeProduct(
         db,
         company.id,
@@ -3463,6 +3713,7 @@ describe("RPCs críticas de dinero y stock", () => {
           };
         }>("select purchase_projection(30, 30) as purchase_projection"),
       );
+
       const items = rows[0].purchase_projection.items;
       const withSupplier = items.find((i) => i.id === conProveedor);
       const withoutSupplier = items.find((i) => i.id === sinProveedor);
@@ -3487,6 +3738,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,0,'und','combo') returning id",
         [companyId, name, price],
       );
+
       return rows[0].id;
     }
 
@@ -3500,6 +3752,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,$4,'und','service') returning id",
         [companyId, name, price, cost],
       );
+
       return rows[0].id;
     }
 
@@ -3518,6 +3771,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("vender un combo descuenta cada pieza según su cantidad, no el combo mismo", async () => {
       const company = await makeCompany(db, "Empresa Combo Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const boligrafo = await makeProduct(
         db,
         company.id,
@@ -3527,6 +3781,7 @@ describe("RPCs críticas de dinero y stock", () => {
         5,
         100,
       );
+
       const combo = await makeComboProduct(company.id, "Caja de 12", 50);
       await addComboItem(company.id, combo, boligrafo, 12);
 
@@ -3542,6 +3797,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select stock from public.products where id=$1",
         [boligrafo],
       );
+
       // 100 - (12 piezas * 2 cajas) = 76
       expect(Number(pieza[0].stock)).toBe(76);
 
@@ -3549,6 +3805,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select stock from public.products where id=$1",
         [combo],
       );
+
       expect(Number(comboRow[0].stock)).toBe(0);
 
       const { rows: items } = await db.query<{
@@ -3559,6 +3816,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select product_id, qty, cost from public.sale_items where product_id=$1",
         [combo],
       );
+
       expect(items).toHaveLength(1);
       expect(Number(items[0].qty)).toBe(2);
       // Costo del combo = costo de la pieza (2) * 12 = 24 por caja.
@@ -3568,6 +3826,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("un combo con varias piezas distintas descuenta todas correctamente", async () => {
       const company = await makeCompany(db, "Empresa Combo Múltiple Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const lapiz = await makeProduct(
         db,
         company.id,
@@ -3577,6 +3836,7 @@ describe("RPCs críticas de dinero y stock", () => {
         3,
         50,
       );
+
       const goma = await makeProduct(
         db,
         company.id,
@@ -3586,6 +3846,7 @@ describe("RPCs críticas de dinero y stock", () => {
         2,
         50,
       );
+
       const combo = await makeComboProduct(company.id, "Kit escolar", 10);
       await addComboItem(company.id, combo, lapiz, 2);
       await addComboItem(company.id, combo, goma, 1);
@@ -3602,10 +3863,12 @@ describe("RPCs críticas de dinero y stock", () => {
         "select stock from public.products where id=$1",
         [lapiz],
       );
+
       const { rows: gomaRow } = await db.query<{ stock: number }>(
         "select stock from public.products where id=$1",
         [goma],
       );
+
       expect(Number(lapizRow[0].stock)).toBe(50 - 2 * 3);
       expect(Number(gomaRow[0].stock)).toBe(50 - 1 * 3);
     });
@@ -3613,6 +3876,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("rechaza vender un combo si falta stock de alguna pieza -- sin descontar nada (atómico)", async () => {
       const company = await makeCompany(db, "Empresa Combo Falta Stock Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const conStock = await makeProduct(
         db,
         company.id,
@@ -3622,6 +3886,7 @@ describe("RPCs críticas de dinero y stock", () => {
         3,
         100,
       );
+
       const sinStock = await makeProduct(
         db,
         company.id,
@@ -3631,6 +3896,7 @@ describe("RPCs críticas de dinero y stock", () => {
         3,
         1,
       );
+
       const combo = await makeComboProduct(company.id, "Combo incompleto", 10);
       await addComboItem(company.id, combo, conStock, 1);
       await addComboItem(company.id, combo, sinStock, 5); // pide 5, solo hay 1
@@ -3650,6 +3916,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select stock from public.products where id=$1",
         [conStock],
       );
+
       expect(Number(conStockRow[0].stock)).toBe(100);
     });
 
@@ -3672,6 +3939,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("vender un Servicio no valida ni descuenta stock, ni genera movimientos", async () => {
       const company = await makeCompany(db, "Empresa Servicio Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const servicio = await makeServiceProduct(
         company.id,
         "Instalación a domicilio",
@@ -3686,18 +3954,21 @@ describe("RPCs críticas de dinero y stock", () => {
           company.loc1,
         ),
       );
+
       expect(result.total).toBe(100);
 
       const { rows: movs } = await db.query<{ id: string }>(
         "select id from public.stock_movements where product_id=$1",
         [servicio],
       );
+
       expect(movs).toHaveLength(0);
     });
 
     it("no se puede borrar un producto Estándar que es pieza de un combo activo", async () => {
       const company = await makeCompany(db, "Empresa Borrado Pieza Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const pieza = await makeProduct(
         db,
         company.id,
@@ -3707,6 +3978,7 @@ describe("RPCs críticas de dinero y stock", () => {
         3,
         10,
       );
+
       const combo = await makeComboProduct(company.id, "Combo con pieza", 10);
       await addComboItem(company.id, combo, pieza, 1);
 
@@ -3720,12 +3992,14 @@ describe("RPCs críticas de dinero y stock", () => {
     it("el trigger rechaza una pieza que no sea de tipo Estándar (ej. otro combo o un servicio)", async () => {
       const company = await makeCompany(db, "Empresa Pieza Inválida Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const servicio = await makeServiceProduct(
         company.id,
         "Un servicio",
         5,
         20,
       );
+
       const combo = await makeComboProduct(
         company.id,
         "Combo con pieza inválida",
@@ -3742,6 +4016,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("el trigger rechaza usar un producto que no es Combo como combo_product_id", async () => {
       const company = await makeCompany(db, "Empresa Combo Inválido Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const estandar1 = await makeProduct(
         db,
         company.id,
@@ -3751,6 +4026,7 @@ describe("RPCs críticas de dinero y stock", () => {
         3,
         10,
       );
+
       const estandar2 = await makeProduct(
         db,
         company.id,
@@ -3785,6 +4061,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select commission_rate from public.profiles where id = $1",
         [profileId],
       );
+
       return rows[0].commission_rate === null
         ? null
         : Number(rows[0].commission_rate);
@@ -3794,6 +4071,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const company = await makeCompany(db, "Empresa Comisión Test");
       const admin = await makeUser(db, company.id, "admin");
       const cajero = await makeUser(db, company.id, "user");
+
       const prod = await makeProduct(
         db,
         company.id,
@@ -3814,6 +4092,7 @@ describe("RPCs críticas de dinero y stock", () => {
           company.loc1,
         ),
       );
+
       expect(sale.total).toBeCloseTo(20, 2);
 
       const { rows } = await db.query<{
@@ -3823,6 +4102,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select commission_rate, commission_amount from public.sales where id = $1",
         [sale.sale_id],
       );
+
       expect(Number(rows[0].commission_rate)).toBeCloseTo(0.05, 4);
       expect(Number(rows[0].commission_amount)).toBeCloseTo(1, 2); // 5% de 20
     });
@@ -3830,6 +4110,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("sin % configurado, la venta no genera comisión (y no bloquea la venta)", async () => {
       const company = await makeCompany(db, "Empresa Sin Comisión Test");
       const cajero = await makeUser(db, company.id, "user");
+
       const prod = await makeProduct(
         db,
         company.id,
@@ -3855,6 +4136,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select commission_rate, commission_amount from public.sales where id = $1",
         [sale.sale_id],
       );
+
       expect(rows[0].commission_rate).toBeNull();
       expect(Number(rows[0].commission_amount)).toBe(0);
     });
@@ -3863,6 +4145,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const company = await makeCompany(db, "Empresa Snapshot Comisión Test");
       const admin = await makeUser(db, company.id, "admin");
       const cajero = await makeUser(db, company.id, "user");
+
       const prod = await makeProduct(
         db,
         company.id,
@@ -3874,6 +4157,7 @@ describe("RPCs críticas de dinero y stock", () => {
       );
 
       await setCommission(admin, cajero, 0.1); // 10%
+
       const sale1 = await asUser(db, cajero, () =>
         createSale(
           db,
@@ -3884,6 +4168,7 @@ describe("RPCs críticas de dinero y stock", () => {
 
       // El admin sube la comisión DESPUÉS de la primera venta.
       await setCommission(admin, cajero, 0.2); // 20%
+
       const sale2 = await asUser(db, cajero, () =>
         createSale(
           db,
@@ -3896,10 +4181,12 @@ describe("RPCs críticas de dinero y stock", () => {
         "select commission_amount from public.sales where id = $1",
         [sale1.sale_id],
       );
+
       const { rows: rows2 } = await db.query<{ commission_amount: string }>(
         "select commission_amount from public.sales where id = $1",
         [sale2.sale_id],
       );
+
       expect(Number(rows1[0].commission_amount)).toBeCloseTo(1, 2); // 10% de 10, no cambia
       expect(Number(rows2[0].commission_amount)).toBeCloseTo(2, 2); // 20% de 10
     });
@@ -4010,6 +4297,7 @@ describe("RPCs críticas de dinero y stock", () => {
          from public.locations where id = $1`,
         [locationId],
       );
+
       return rows[0];
     }
 
@@ -4056,12 +4344,14 @@ describe("RPCs críticas de dinero y stock", () => {
           "select id from public.locations where id = $1",
           [companyA.loc1],
         );
+
         expect(rows.length).toBe(0);
 
         const result = await db.query(
           "update public.locations set ticket_footer_text = 'hackeado' where id = $1",
           [companyA.loc1],
         );
+
         expect(result.affectedRows ?? 0).toBe(0);
       });
 
@@ -4105,6 +4395,7 @@ describe("RPCs críticas de dinero y stock", () => {
           ],
         ),
       );
+
       return rows[0].register_merma;
     }
 
@@ -4113,12 +4404,14 @@ describe("RPCs críticas de dinero y stock", () => {
         "select stock from public.products where id = $1",
         [productId],
       );
+
       return Number(rows[0].stock);
     }
 
     it("un cajero registra su propia merma de un producto dañado y se descuenta el stock", async () => {
       const company = await makeCompany(db, "Empresa Merma Test");
       const cajero = await makeUser(db, company.id, "user");
+
       const prod = await makeProduct(
         db,
         company.id,
@@ -4135,6 +4428,7 @@ describe("RPCs críticas de dinero y stock", () => {
         productId: prod,
         quantity: 3,
       });
+
       expect(mermaId).toBeTruthy();
       expect(await getProductStock(prod)).toBe(17);
 
@@ -4147,6 +4441,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select employee_id, registered_by, unit_cost, estimated_loss from public.mermas where id = $1",
         [mermaId],
       );
+
       expect(rows[0].employee_id).toBe(cajero);
       expect(rows[0].registered_by).toBe(cajero);
       expect(Number(rows[0].unit_cost)).toBeCloseTo(5, 2); // costo congelado
@@ -4189,6 +4484,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select employee_id, registered_by, estimated_loss from public.mermas where id = $1",
         [mermaId],
       );
+
       expect(rows[0].employee_id).toBe(cajero);
       expect(rows[0].registered_by).toBe(admin);
       expect(Number(rows[0].estimated_loss)).toBe(500);
@@ -4228,6 +4524,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select product_id, quantity, estimated_loss from public.mermas where id = $1",
         [mermaId],
       );
+
       expect(rows[0].product_id).toBeNull();
       expect(rows[0].quantity).toBeNull();
       expect(Number(rows[0].estimated_loss)).toBe(30);
@@ -4236,6 +4533,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("no se puede registrar una merma que deje el stock de la sucursal en negativo", async () => {
       const company = await makeCompany(db, "Empresa Merma Sin Stock Test");
       const cajero = await makeUser(db, company.id, "user");
+
       const prod = await makeProduct(
         db,
         company.id,
@@ -4261,6 +4559,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const company = await makeCompany(db, "Empresa Merma Delete Test");
       const admin = await makeUser(db, company.id, "admin");
       const cajero = await makeUser(db, company.id, "user");
+
       const prod = await makeProduct(
         db,
         company.id,
@@ -4277,6 +4576,7 @@ describe("RPCs críticas de dinero y stock", () => {
         productId: prod,
         quantity: 4,
       });
+
       expect(await getProductStock(prod)).toBe(6);
 
       // Ni siquiera el cajero dueño de la merma puede eliminarla.
@@ -4295,6 +4595,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select deleted_at from public.mermas where id = $1",
         [mermaId],
       );
+
       expect(rows[0].deleted_at).not.toBeNull();
     });
 
@@ -4318,11 +4619,13 @@ describe("RPCs críticas de dinero y stock", () => {
       const seenByA = await asUser(db, cajeroA, () =>
         db.query("select id from public.mermas"),
       );
+
       expect(seenByA.rows.length).toBe(1);
 
       const seenByAdmin = await asUser(db, admin, () =>
         db.query("select id from public.mermas"),
       );
+
       expect(seenByAdmin.rows.length).toBe(2);
     });
 
@@ -4345,6 +4648,7 @@ describe("RPCs críticas de dinero y stock", () => {
     async function setupTierCompany() {
       const company = await makeCompany(db, "Empresa Niveles Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -4354,11 +4658,13 @@ describe("RPCs críticas de dinero y stock", () => {
         100,
         1000,
       );
+
       await setLoyaltySettings(db, company.id, {
         enabled: true,
         pointValue: 1,
         earnRate: 999999, // tasa plana absurda -- si algo usa esta por error, se nota (0 puntos)
       });
+
       return { company, admin, product };
     }
 
@@ -4528,6 +4834,7 @@ describe("RPCs críticas de dinero y stock", () => {
           { customerId: customer },
         ),
       );
+
       expect(sale1.points_earned).toBe(30); // floor(2000 / 65), tasa de Bronce
 
       // Segunda venta: ahora sí acumulado > $1,500 -> tasa de Plata.
@@ -4540,6 +4847,7 @@ describe("RPCs críticas de dinero y stock", () => {
           { customerId: customer },
         ),
       );
+
       expect(sale2.points_earned).toBe(10); // floor(500 / 50)
     });
 
@@ -4581,12 +4889,14 @@ describe("RPCs críticas de dinero y stock", () => {
         tier2Rate: 50,
         tier3Rate: 33,
       });
+
       const customer = await makeCustomer(
         db,
         company.id,
         "Cliente Oro Canjea",
         20,
       );
+
       await setYearSpend(customer, 6000); // Oro
 
       const result = await asUser(db, admin, () =>
@@ -4613,6 +4923,7 @@ describe("RPCs críticas de dinero y stock", () => {
       total: number;
       valid_until: string;
     }
+
     interface ConvertResult {
       sale_id: string;
       sale_number: string;
@@ -4640,6 +4951,7 @@ describe("RPCs críticas de dinero y stock", () => {
           qty: i.qty,
         })),
       );
+
       const { rows } = await asUser(db, userId, () =>
         db.query<{ create_quote: QuoteResult }>(
           `select create_quote(
@@ -4660,6 +4972,7 @@ describe("RPCs críticas de dinero y stock", () => {
           ],
         ),
       );
+
       return rows[0].create_quote;
     }
 
@@ -4694,6 +5007,7 @@ describe("RPCs críticas de dinero y stock", () => {
           ],
         ),
       );
+
       return rows[0].convert_quote_to_sale;
     }
 
@@ -4708,12 +5022,14 @@ describe("RPCs críticas de dinero y stock", () => {
         "select stock from public.products where id = $1",
         [productId],
       );
+
       return Number(rows[0].stock);
     }
 
     it("crea una cotización sin validar ni tocar el stock (es una promesa de precio, no de inventario)", async () => {
       const company = await makeCompany(db, "Empresa Cotizacion Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -4736,6 +5052,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("un operador no puede crear cotizaciones", async () => {
       const company = await makeCompany(db, "Empresa Cotizacion Rol Test");
       const operador = await makeUser(db, company.id, "operador");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -4754,6 +5071,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("convertir respeta el precio YA CONGELADO aunque el precio del producto haya cambiado después", async () => {
       const company = await makeCompany(db, "Empresa Cotizacion Precio Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -4767,6 +5085,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const quote = await createQuote(admin, {
         items: [{ productId: product, qty: 3 }],
       });
+
       expect(quote.total).toBeCloseTo(300, 2);
 
       // El precio del producto sube DESPUÉS de cotizar.
@@ -4786,12 +5105,14 @@ describe("RPCs críticas de dinero y stock", () => {
         "select unit_price from public.sale_items where sale_id = $1",
         [result.sale_id],
       );
+
       expect(Number(rows[0].unit_price)).toBeCloseTo(100, 2);
     });
 
     it("no se puede convertir una cotización vencida", async () => {
       const company = await makeCompany(db, "Empresa Cotizacion Vencida Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -4801,6 +5122,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         10,
       );
+
       const quote = await createQuote(admin, {
         items: [{ productId: product, qty: 1 }],
       });
@@ -4822,6 +5144,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("no se puede convertir dos veces la misma cotización", async () => {
       const company = await makeCompany(db, "Empresa Cotizacion Doble Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -4831,6 +5154,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         10,
       );
+
       const quote = await createQuote(admin, {
         items: [{ productId: product, qty: 1 }],
       });
@@ -4851,6 +5175,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("rechazar una cotización pendiente le impide convertirse después", async () => {
       const company = await makeCompany(db, "Empresa Cotizacion Rechazo Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -4860,6 +5185,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         10,
       );
+
       const quote = await createQuote(admin, {
         items: [{ productId: product, qty: 1 }],
       });
@@ -4884,7 +5210,9 @@ describe("RPCs críticas de dinero y stock", () => {
         db,
         "Empresa Cotizacion Sin Stock Test",
       );
+
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -4894,6 +5222,7 @@ describe("RPCs críticas de dinero y stock", () => {
         10,
         2,
       );
+
       const quote = await createQuote(admin, {
         items: [{ productId: product, qty: 5 }], // se permitió al cotizar
       });
@@ -4910,10 +5239,12 @@ describe("RPCs críticas de dinero y stock", () => {
     it("una cotización con un producto tipo Servicio se convierte sin tocar stock", async () => {
       const company = await makeCompany(db, "Empresa Cotizacion Servicio Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const { rows } = await db.query<{ id: string }>(
         "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,$4,'und','service') returning id",
         [company.id, "Instalación", 500, 100],
       );
+
       const service = rows[0].id;
 
       const quote = await createQuote(admin, {
@@ -4924,18 +5255,21 @@ describe("RPCs críticas de dinero y stock", () => {
         quoteId: quote.quote_id,
         locationId: company.loc1,
       });
+
       expect(result.total).toBeCloseTo(500, 2);
 
       const { rows: itemRows } = await db.query<{ cost: string }>(
         "select cost from public.sale_items where sale_id = $1",
         [result.sale_id],
       );
+
       expect(Number(itemRows[0].cost)).toBeCloseTo(100, 2);
     });
 
     it("una cotización con un Combo descuenta cada pieza y recalcula el costo en vivo al convertir", async () => {
       const company = await makeCompany(db, "Empresa Cotizacion Combo Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const boligrafo = await makeProduct(
         db,
         company.id,
@@ -4945,10 +5279,12 @@ describe("RPCs críticas de dinero y stock", () => {
         5,
         100,
       );
+
       const { rows } = await db.query<{ id: string }>(
         "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,0,'und','combo') returning id",
         [company.id, "Caja de 12", 50],
       );
+
       const combo = rows[0].id;
       await db.query(
         "insert into public.product_combo_items (company_id, combo_product_id, component_product_id, qty) values ($1,$2,$3,$4)",
@@ -4958,6 +5294,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const quote = await createQuote(admin, {
         items: [{ productId: combo, qty: 2 }], // 2 cajas -> 24 bolígrafos
       });
+
       expect(quote.total).toBeCloseTo(100, 2); // 2 * 50
 
       // El costo del bolígrafo sube DESPUÉS de cotizar -- el costo del
@@ -4971,6 +5308,7 @@ describe("RPCs críticas de dinero y stock", () => {
         quoteId: quote.quote_id,
         locationId: company.loc1,
       });
+
       expect(result.total).toBeCloseTo(100, 2);
       expect(await getProductStock(boligrafo)).toBe(76); // 100 - 24
 
@@ -4978,6 +5316,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select cost from public.sale_items where sale_id = $1",
         [result.sale_id],
       );
+
       // costo de 1 caja = 12 * 3 (costo actual del bolígrafo) = 36
       expect(Number(itemRows[0].cost)).toBeCloseTo(36, 2);
     });
@@ -4987,11 +5326,14 @@ describe("RPCs críticas de dinero y stock", () => {
         db,
         "Empresa Cotizacion Combo Vacio Test",
       );
+
       const admin = await makeUser(db, company.id, "admin");
+
       const { rows } = await db.query<{ id: string }>(
         "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,0,'und','combo') returning id",
         [company.id, "Combo Vacío", 50],
       );
+
       const combo = rows[0].id;
 
       const quote = await createQuote(admin, {
@@ -5010,6 +5352,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const company = await makeCompany(db, "Empresa Cotizacion Comision Test");
       const admin = await makeUser(db, company.id, "admin");
       const cajero = await makeUser(db, company.id, "user");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -5019,6 +5362,7 @@ describe("RPCs críticas de dinero y stock", () => {
         100,
         10,
       );
+
       const customer = await makeCustomer(db, company.id, "Cliente Cotizacion");
       await setLoyaltySettings(db, company.id, {
         enabled: true,
@@ -5033,6 +5377,7 @@ describe("RPCs críticas de dinero y stock", () => {
         items: [{ productId: product, qty: 2 }],
         customerId: customer,
       });
+
       expect(quote.total).toBeCloseTo(200, 2);
 
       const result = await convertQuote(cajero, {
@@ -5050,6 +5395,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select commission_amount, created_by from public.sales where id = $1",
         [result.sale_id],
       );
+
       expect(Number(rows[0].commission_amount)).toBeCloseTo(20, 2); // 10% de 200
       expect(rows[0].created_by).toBe(cajero);
     });
@@ -5058,6 +5404,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const company = await makeCompany(db, "Empresa Cotizacion RLS Test");
       const cajeroA = await makeUser(db, company.id, "user");
       const cajeroB = await makeUser(db, company.id, "user");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -5073,6 +5420,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const seenByB = await asUser(db, cajeroB, () =>
         db.query("select id from public.quotes"),
       );
+
       expect(seenByB.rows.length).toBe(1);
     });
 
@@ -5081,12 +5429,15 @@ describe("RPCs críticas de dinero y stock", () => {
         db,
         "Empresa Cotizacion Cruzada A Test",
       );
+
       const companyB = await makeCompany(
         db,
         "Empresa Cotizacion Cruzada B Test",
       );
+
       const adminA = await makeUser(db, companyA.id, "admin");
       const adminB = await makeUser(db, companyB.id, "admin");
+
       const productA = await makeProduct(
         db,
         companyA.id,
@@ -5106,6 +5457,7 @@ describe("RPCs críticas de dinero y stock", () => {
           quote.quote_id,
         ]),
       );
+
       expect(seenByB.rows.length).toBe(0);
 
       await expect(
@@ -5127,12 +5479,14 @@ describe("RPCs críticas de dinero y stock", () => {
       paid_total: number;
       due_date: string;
     }
+
     interface PaymentResult {
       apartado_id: string;
       applied: number;
       paid_total: number;
       remaining: number;
     }
+
     interface CompleteResult {
       sale_id: string;
       sale_number: string;
@@ -5140,6 +5494,7 @@ describe("RPCs críticas de dinero y stock", () => {
       total: number;
       points_earned: number;
     }
+
     interface CancelResult {
       apartado_id: string;
       refunded: boolean;
@@ -5157,6 +5512,7 @@ describe("RPCs críticas de dinero y stock", () => {
           [openingAmount, locationId],
         ),
       );
+
       return rows[0].open_cash_session;
     }
 
@@ -5165,6 +5521,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select coalesce(sum(amount), 0) as total from public.cash_movements where cash_session_id = $1",
         [sessionId],
       );
+
       return Number(rows[0].total ?? 0);
     }
 
@@ -5173,6 +5530,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select stock from public.products where id = $1",
         [productId],
       );
+
       return Number(rows[0].stock);
     }
 
@@ -5197,6 +5555,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const itemsJson = JSON.stringify(
         params.items.map((i) => ({ product_id: i.productId, qty: i.qty })),
       );
+
       const { rows } = await asUser(db, userId, () =>
         db.query<{ create_apartado: ApartadoResult }>(
           `select create_apartado(
@@ -5217,6 +5576,7 @@ describe("RPCs críticas de dinero y stock", () => {
           ],
         ),
       );
+
       return rows[0].create_apartado;
     }
 
@@ -5238,6 +5598,7 @@ describe("RPCs críticas de dinero y stock", () => {
           ],
         ),
       );
+
       return rows[0].add_apartado_payment;
     }
 
@@ -5263,6 +5624,7 @@ describe("RPCs críticas de dinero y stock", () => {
           ],
         ),
       );
+
       return rows[0].complete_apartado;
     }
 
@@ -5279,6 +5641,7 @@ describe("RPCs críticas de dinero y stock", () => {
           [params.apartadoId, params.refundDeposit],
         ),
       );
+
       return rows[0].cancel_apartado;
     }
 
@@ -5286,6 +5649,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const company = await makeCompany(db, "Empresa Apartado Test");
       const admin = await makeUser(db, company.id, "admin");
       const cajero = await makeUser(db, company.id, "user");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -5295,8 +5659,10 @@ describe("RPCs críticas de dinero y stock", () => {
         100,
         10,
       );
+
       const customer = await makeCustomer(db, company.id, "Cliente Apartado");
       await setMinDeposit(company.id, 0); // sin mínimo, salvo que la prueba lo cambie
+
       return { company, admin, cajero, product, customer };
     }
 
@@ -5326,6 +5692,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select id, apartado_number, created_at, customer_id, customer_name, location_id, subtotal, tax, total, paid_total, due_date, status, notes, converted_sale_id, cancel_refunded from public.apartados where id = $1",
         [apartado.apartado_id],
       );
+
       expect(rows[0].customer_name).toBe("Cliente Apartado");
     });
 
@@ -5345,6 +5712,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("el anticipo mínimo se exige según el % configurado en la empresa", async () => {
       const { company, admin, product, customer } =
         await setupApartadoCompany();
+
       await setMinDeposit(company.id, 0.2); // 20%
 
       await expect(
@@ -5362,15 +5730,18 @@ describe("RPCs críticas de dinero y stock", () => {
         locationId: company.loc1,
         depositAmount: 40,
       });
+
       expect(apartado.paid_total).toBeCloseTo(40, 2);
     });
 
     it("no se pueden apartar productos con variantes (v1)", async () => {
       const { company, admin, customer } = await setupApartadoCompany();
+
       const { rows: variantRows } = await db.query<{ id: string }>(
         "insert into public.products (company_id, name, price, cost, unit, has_variants) values ($1,$2,$3,0,'und',true) returning id",
         [company.id, "Playera", 200],
       );
+
       await expect(
         createApartado(admin, {
           customerId: customer,
@@ -5384,6 +5755,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("el anticipo en efectivo entra al arqueo de quien lo cobra; en tarjeta no", async () => {
       const { company, admin, product, customer } =
         await setupApartadoCompany();
+
       const sessionId = await openCashSession(admin, company.loc1);
 
       await createApartado(admin, {
@@ -5409,6 +5781,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("un abono posterior topa al saldo pendiente y también entra al arqueo", async () => {
       const { company, admin, product, customer } =
         await setupApartadoCompany();
+
       const sessionId = await openCashSession(admin, company.loc1);
 
       const apartado = await createApartado(admin, {
@@ -5423,6 +5796,7 @@ describe("RPCs críticas de dinero y stock", () => {
         apartadoId: apartado.apartado_id,
         amount: 500,
       });
+
       expect(payment.applied).toBeCloseTo(150, 2);
       expect(payment.remaining).toBeCloseTo(0, 2);
       expect(await getCashMovementsSum(sessionId)).toBeCloseTo(200, 2); // 50 + 150
@@ -5447,6 +5821,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("completar un apartado ya pagado genera la venta SIN volver a descontar stock ni a contar el dinero en caja hoy", async () => {
       const { company, admin, product, customer } =
         await setupApartadoCompany();
+
       const sessionId = await openCashSession(admin, company.loc1);
 
       const apartado = await createApartado(admin, {
@@ -5455,6 +5830,7 @@ describe("RPCs críticas de dinero y stock", () => {
         locationId: company.loc1,
         depositAmount: 200, // pagado de una vez
       });
+
       expect(await getProductStock(product)).toBe(8); // 10 - 2, ya se había reservado
       const cashAfterDeposit = await getCashMovementsSum(sessionId);
       expect(cashAfterDeposit).toBeCloseTo(200, 2);
@@ -5462,6 +5838,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const result = await completeApartado(admin, {
         apartadoId: apartado.apartado_id,
       });
+
       expect(result.total).toBeCloseTo(200, 2);
       // El stock NO vuelve a moverse -- ya se descontó al crear el apartado.
       expect(await getProductStock(product)).toBe(8);
@@ -5477,6 +5854,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select kind, method, amount from public.sale_payments where sale_id = $1",
         [result.sale_id],
       );
+
       expect(paymentRows[0].kind).toBe("other"); // nunca 'cash', para no duplicar el arqueo
       expect(paymentRows[0].method).toBe("Apartado");
       expect(Number(paymentRows[0].amount)).toBeCloseTo(200, 2);
@@ -5485,6 +5863,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("completar con el pago final incluido en la misma llamada cierra el apartado de una vez", async () => {
       const { company, admin, product, customer } =
         await setupApartadoCompany();
+
       const sessionId = await openCashSession(admin, company.loc1);
 
       const apartado = await createApartado(admin, {
@@ -5498,6 +5877,7 @@ describe("RPCs críticas de dinero y stock", () => {
         apartadoId: apartado.apartado_id,
         finalPaymentAmount: 70,
       });
+
       expect(result.total).toBeCloseTo(100, 2);
       expect(await getCashMovementsSum(sessionId)).toBeCloseTo(100, 2); // 30 + 70, ambos abonos reales
 
@@ -5505,6 +5885,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select status, paid_total from public.apartados where id = $1",
         [apartado.apartado_id],
       );
+
       expect(rows[0].status).toBe("completado");
       expect(Number(rows[0].paid_total)).toBeCloseTo(100, 2);
     });
@@ -5512,6 +5893,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("completar un apartado gana puntos de lealtad sobre el total, como cualquier compra", async () => {
       const { company, admin, product, customer } =
         await setupApartadoCompany();
+
       await setLoyaltySettings(db, company.id, {
         enabled: true,
         pointValue: 1,
@@ -5524,9 +5906,11 @@ describe("RPCs críticas de dinero y stock", () => {
         locationId: company.loc1,
         depositAmount: 200,
       });
+
       const result = await completeApartado(admin, {
         apartadoId: apartado.apartado_id,
       });
+
       expect(result.points_earned).toBe(20); // floor(200/10)
       expect(await getCustomerLoyaltyPoints(db, customer)).toBe(20);
     });
@@ -5534,12 +5918,14 @@ describe("RPCs críticas de dinero y stock", () => {
     it("no se puede abonar ni completar un apartado ya cancelado o completado", async () => {
       const { company, admin, product, customer } =
         await setupApartadoCompany();
+
       const apartado = await createApartado(admin, {
         customerId: customer,
         items: [{ productId: product, qty: 1 }],
         locationId: company.loc1,
         depositAmount: 100,
       });
+
       await completeApartado(admin, { apartadoId: apartado.apartado_id });
 
       await expect(
@@ -5562,6 +5948,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("cancelar repone el stock de cada producto; sin reembolso no mueve caja", async () => {
       const { company, admin, product, customer } =
         await setupApartadoCompany();
+
       const sessionId = await openCashSession(admin, company.loc1);
 
       const apartado = await createApartado(admin, {
@@ -5570,12 +5957,14 @@ describe("RPCs críticas de dinero y stock", () => {
         locationId: company.loc1,
         depositAmount: 100,
       });
+
       expect(await getProductStock(product)).toBe(7);
 
       const result = await cancelApartado(admin, {
         apartadoId: apartado.apartado_id,
         refundDeposit: false,
       });
+
       expect(result.refunded).toBe(false);
       expect(await getProductStock(product)).toBe(10); // repuesto por completo
       expect(await getCashMovementsSum(sessionId)).toBeCloseTo(100, 2); // solo el anticipo, sin egreso
@@ -5584,6 +5973,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("cancelar con reembolso saca el anticipo de caja como egreso", async () => {
       const { company, admin, product, customer } =
         await setupApartadoCompany();
+
       const sessionId = await openCashSession(admin, company.loc1);
 
       const apartado = await createApartado(admin, {
@@ -5603,6 +5993,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("un cajero no puede cancelar un apartado (solo admin/finanzas)", async () => {
       const { company, cajero, product, customer } =
         await setupApartadoCompany();
+
       const apartado = await createApartado(cajero, {
         customerId: customer,
         items: [{ productId: product, qty: 1 }],
@@ -5621,6 +6012,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("todos en la empresa ven todos los apartados, no solo los que crearon", async () => {
       const { company, cajero, product, customer } =
         await setupApartadoCompany();
+
       const otroCajero = await makeUser(db, company.id, "user");
 
       await createApartado(cajero, {
@@ -5633,6 +6025,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const seenByOther = await asUser(db, otroCajero, () =>
         db.query("select id from public.apartados"),
       );
+
       expect(seenByOther.rows.length).toBe(1);
     });
 
@@ -5643,6 +6036,7 @@ describe("RPCs críticas de dinero y stock", () => {
         product: productA,
         customer: customerA,
       } = await setupApartadoCompany();
+
       const companyB = await makeCompany(db, "Empresa Apartado B Test");
       const adminB = await makeUser(db, companyB.id, "admin");
 
@@ -5658,6 +6052,7 @@ describe("RPCs críticas de dinero y stock", () => {
           apartado.apartado_id,
         ]),
       );
+
       expect(seenByB.rows.length).toBe(0);
 
       await expect(
@@ -5670,6 +6065,7 @@ describe("RPCs críticas de dinero y stock", () => {
 
     it("un combo en un apartado descuenta el stock de cada pieza (no del combo) y congela el costo", async () => {
       const { company, admin, customer } = await setupApartadoCompany();
+
       const boligrafo = await makeProduct(
         db,
         company.id,
@@ -5679,10 +6075,12 @@ describe("RPCs críticas de dinero y stock", () => {
         5,
         100,
       );
+
       const { rows } = await db.query<{ id: string }>(
         "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,0,'und','combo') returning id",
         [company.id, "Caja de 12 (apartado)", 50],
       );
+
       const combo = rows[0].id;
       await db.query(
         "insert into public.product_combo_items (company_id, combo_product_id, component_product_id, qty) values ($1,$2,$3,$4)",
@@ -5695,6 +6093,7 @@ describe("RPCs críticas de dinero y stock", () => {
         locationId: company.loc1,
         depositAmount: 0,
       });
+
       expect(apartado.total).toBeCloseTo(100, 2); // 2 * 50
       expect(await getProductStock(boligrafo)).toBe(76); // 100 - 24
       expect(await getProductStock(combo)).toBe(0); // el combo nunca tiene stock propio
@@ -5715,6 +6114,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select cost from public.sale_items where sale_id = $1",
         [result.sale_id],
       );
+
       // costo POR UNIDAD de combo, congelado = 12 * 2 (costo ORIGINAL del
       // bolígrafo) = 24 -- igual que sale_items.cost, no se multiplica por
       // la cantidad de combos apartados.
@@ -5723,10 +6123,12 @@ describe("RPCs críticas de dinero y stock", () => {
 
     it("un combo sin piezas configuradas no se puede apartar", async () => {
       const { company, admin, customer } = await setupApartadoCompany();
+
       const { rows } = await db.query<{ id: string }>(
         "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,0,'und','combo') returning id",
         [company.id, "Combo Vacío (apartado)", 50],
       );
+
       const combo = rows[0].id;
 
       await expect(
@@ -5741,6 +6143,7 @@ describe("RPCs críticas de dinero y stock", () => {
 
     it("cancelar un apartado con un combo repone el stock de cada pieza", async () => {
       const { company, admin, customer } = await setupApartadoCompany();
+
       const boligrafo = await makeProduct(
         db,
         company.id,
@@ -5750,10 +6153,12 @@ describe("RPCs críticas de dinero y stock", () => {
         5,
         100,
       );
+
       const { rows } = await db.query<{ id: string }>(
         "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,0,'und','combo') returning id",
         [company.id, "Caja de 12 (cancelar)", 50],
       );
+
       const combo = rows[0].id;
       await db.query(
         "insert into public.product_combo_items (company_id, combo_product_id, component_product_id, qty) values ($1,$2,$3,$4)",
@@ -5766,6 +6171,7 @@ describe("RPCs críticas de dinero y stock", () => {
         locationId: company.loc1,
         depositAmount: 0,
       });
+
       expect(await getProductStock(boligrafo)).toBe(76);
 
       await cancelApartado(admin, {
@@ -5777,10 +6183,12 @@ describe("RPCs críticas de dinero y stock", () => {
 
     it("un servicio no se puede apartar (sin stock que reservar)", async () => {
       const { company, admin, customer } = await setupApartadoCompany();
+
       const { rows } = await db.query<{ id: string }>(
         "insert into public.products (company_id, name, price, cost, unit, product_type) values ($1,$2,$3,$4,'und','service') returning id",
         [company.id, "Instalación (apartado)", 500, 100],
       );
+
       const service = rows[0].id;
 
       await expect(
@@ -5806,6 +6214,7 @@ describe("RPCs críticas de dinero y stock", () => {
           [openingAmount, locationId],
         ),
       );
+
       return rows[0].open_cash_session;
     }
 
@@ -5821,6 +6230,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const itemsJson = JSON.stringify(
         params.items.map((i) => ({ product_id: i.productId, qty: i.qty })),
       );
+
       const { rows } = await asUser(db, userId, () =>
         db.query<{ create_apartado: { apartado_id: string } }>(
           `select create_apartado(
@@ -5837,6 +6247,7 @@ describe("RPCs críticas de dinero y stock", () => {
           ],
         ),
       );
+
       return rows[0].create_apartado;
     }
 
@@ -5884,6 +6295,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select get_company_alerts() as get_company_alerts",
         ),
       );
+
       return rows[0].get_company_alerts;
     }
 
@@ -5905,6 +6317,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select actor_id, action, detail from public.audit_log where company_id = $1 and entity_type = $2 order by created_at desc",
         [companyId, entityType],
       );
+
       return rows;
     }
 
@@ -5944,12 +6357,14 @@ describe("RPCs críticas de dinero y stock", () => {
         20,
         50,
       );
+
       const apartado = await createApartado(admin, {
         customerId: customer,
         items: [{ productId: apartadoProduct, qty: 1 }],
         locationId: company.loc1,
         depositAmount: 0,
       });
+
       await db.query(
         "update public.apartados set due_date = current_date - interval '5 days' where id = $1",
         [apartado.apartado_id],
@@ -5965,6 +6380,7 @@ describe("RPCs críticas de dinero y stock", () => {
         20,
         50,
       );
+
       const { rows: quoteRows } = await asUser(db, admin, () =>
         db.query<{ create_quote: { quote_id: string } }>(
           `select create_quote(
@@ -5979,6 +6395,7 @@ describe("RPCs críticas de dinero y stock", () => {
           ],
         ),
       );
+
       const quoteId = quoteRows[0].create_quote.quote_id;
       await db.query(
         "update public.quotes set valid_until = current_date - interval '1 day' where id = $1",
@@ -6017,6 +6434,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("register_merma y delete_merma quedan en la bitácora universal", async () => {
       const company = await makeCompany(db, "Empresa Auditoria Merma Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -6026,6 +6444,7 @@ describe("RPCs críticas de dinero y stock", () => {
         20,
         50,
       );
+
       const { rows } = await asUser(db, admin, () =>
         db.query<{ register_merma: string }>(
           `select register_merma(
@@ -6037,6 +6456,7 @@ describe("RPCs críticas de dinero y stock", () => {
           [company.loc1, product],
         ),
       );
+
       const mermaId = rows[0].register_merma;
 
       let audit = await getAuditRows(company.id, "merma");
@@ -6063,6 +6483,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "update public.companies set apartado_min_deposit_pct = 0 where id = $1",
         [company.id],
       );
+
       const product = await makeProduct(
         db,
         company.id,
@@ -6083,6 +6504,7 @@ describe("RPCs críticas de dinero y stock", () => {
           ],
         ),
       );
+
       await asUser(db, admin, () =>
         db.query("select reject_quote($1)", [
           quoteRows[0].create_quote.quote_id,
@@ -6098,6 +6520,7 @@ describe("RPCs críticas de dinero y stock", () => {
         locationId: company.loc1,
         depositAmount: 0,
       });
+
       await cancelApartado(admin, {
         apartadoId: apartado.apartado_id,
         refundDeposit: false,
@@ -6110,6 +6533,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("cambiar el límite de crédito de un cliente queda en la bitácora, atribuido a quien lo hizo", async () => {
       const company = await makeCompany(db, "Empresa Auditoria Credito Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const customer = await makeCustomer(
         db,
         company.id,
@@ -6162,6 +6586,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const itemsJson = JSON.stringify(
         params.items.map((i) => ({ product_id: i.productId, qty: i.qty })),
       );
+
       const { rows } = await asUser(db, userId, () =>
         db.query<{ log_voided_sale: string }>(
           `select log_voided_sale(
@@ -6172,6 +6597,7 @@ describe("RPCs críticas de dinero y stock", () => {
           [itemsJson, params.locationId ?? null, params.reason ?? null],
         ),
       );
+
       return rows[0].log_voided_sale;
     }
 
@@ -6179,6 +6605,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const company = await makeCompany(db, "Empresa Venta Cancelada Test");
       const admin = await makeUser(db, company.id, "admin");
       const cajero = await makeUser(db, company.id, "user");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -6188,6 +6615,7 @@ describe("RPCs críticas de dinero y stock", () => {
         50,
         100,
       );
+
       return { company, admin, cajero, product };
     }
 
@@ -6209,6 +6637,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select total, item_count, reason, created_by from public.voided_sales where id = $1",
         [voidedId],
       );
+
       expect(Number(headerRows[0].total)).toBeCloseTo(100, 2); // 2 * 50
       expect(headerRows[0].item_count).toBe(1);
       expect(headerRows[0].reason).toBe("El cliente se arrepintió");
@@ -6222,6 +6651,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select product_name, qty, unit_price from public.voided_sale_items where voided_sale_id = $1",
         [voidedId],
       );
+
       expect(itemRows).toHaveLength(1);
       expect(itemRows[0].product_name).toBe("Producto Cancelado");
       expect(Number(itemRows[0].unit_price)).toBeCloseTo(50, 2);
@@ -6233,6 +6663,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select action, actor_id from public.audit_log where company_id = $1 and entity_type = 'voided_sale'",
         [company.id],
       );
+
       expect(auditRows).toHaveLength(1);
       expect(auditRows[0].action).toBe("cancelled");
       expect(auditRows[0].actor_id).toBe(cajero);
@@ -6253,16 +6684,19 @@ describe("RPCs críticas de dinero y stock", () => {
 
     it("un precio manipulado por el cliente se ignora -- siempre se recalcula server-side", async () => {
       const { cajero, product } = await setupVoidedSaleCompany();
+
       // El RPC solo acepta product_id/qty -- ni siquiera hay un campo de
       // precio que un cliente manipulado pueda mandar; esta prueba lo deja
       // explícito para que quede documentado el diseño.
       const voidedId = await logVoidedSaleAs(cajero, {
         items: [{ productId: product, qty: 1 }],
       });
+
       const { rows } = await db.query<{ total: string }>(
         "select total from public.voided_sales where id = $1",
         [voidedId],
       );
+
       expect(Number(rows[0].total)).toBeCloseTo(50, 2); // precio real del producto, no otro
     });
 
@@ -6276,6 +6710,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const seenByCajero = await asUser(db, cajero, () =>
         db.query("select id from public.voided_sales"),
       );
+
       expect(seenByCajero.rows).toHaveLength(0);
     });
 
@@ -6287,10 +6722,12 @@ describe("RPCs críticas de dinero y stock", () => {
         items: [{ productId: product, qty: 1 }],
         reason: "Reciente",
       });
+
       const vieja = await logVoidedSaleAs(cajero, {
         items: [{ productId: product, qty: 1 }],
         reason: "Vieja",
       });
+
       await db.query(
         "update public.voided_sales set created_at = now() - interval '5 days' where id = $1",
         [vieja],
@@ -6303,12 +6740,15 @@ describe("RPCs críticas de dinero y stock", () => {
           };
         }>("select get_company_alerts() as get_company_alerts"),
       );
+
       const ids = rows[0].get_company_alerts.ventas_canceladas.map((v) => v.id);
       expect(ids).toContain(reciente);
       expect(ids).not.toContain(vieja);
+
       const recienteAlert = rows[0].get_company_alerts.ventas_canceladas.find(
         (v) => v.id === reciente,
       );
+
       expect(recienteAlert?.cashier_name).toBeTruthy();
     });
   });
@@ -6323,6 +6763,7 @@ describe("RPCs críticas de dinero y stock", () => {
     async function expectInsertRejected(fn: () => Promise<unknown>) {
       await expect(fn()).rejects.toThrow();
     }
+
     async function expectNoOpUpdateOrDelete(
       fn: () => Promise<unknown>,
       verifyUnchanged: () => Promise<void>,
@@ -6334,6 +6775,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("una venta no se puede insertar/editar/borrar directo por REST (ni siendo admin) -- solo create_sale", async () => {
       const company = await makeCompany(db, "Empresa RLS Sales Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -6373,6 +6815,7 @@ describe("RPCs críticas de dinero y stock", () => {
             "select total from public.sales where id = $1",
             [sale.sale_id],
           );
+
           expect(Number(rows[0].total)).toBeCloseTo(100, 2);
         },
       );
@@ -6387,6 +6830,7 @@ describe("RPCs críticas de dinero y stock", () => {
             "select id from public.sales where id = $1",
             [sale.sale_id],
           );
+
           expect(rows).toHaveLength(1);
         },
       );
@@ -6395,6 +6839,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("sale_items/purchases/purchase_items/returns/stock_movements no aceptan INSERT directo por REST", async () => {
       const company = await makeCompany(db, "Empresa RLS Insert Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -6404,11 +6849,13 @@ describe("RPCs críticas de dinero y stock", () => {
         100,
         50,
       );
+
       const supplier = await (async () => {
         const { rows } = await db.query<{ id: string }>(
           "insert into public.suppliers (company_id, name) values ($1,'Proveedor RLS') returning id",
           [company.id],
         );
+
         return rows[0].id;
       })();
 
@@ -6461,6 +6908,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("stock_movements no se puede borrar directo por REST -- taparía un robo sin dejar rastro", async () => {
       const company = await makeCompany(db, "Empresa RLS StockMov Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -6470,10 +6918,12 @@ describe("RPCs críticas de dinero y stock", () => {
         100,
         50,
       );
+
       const { rows } = await db.query<{ id: string }>(
         "insert into public.stock_movements (company_id, product_id, movement_type, qty) values ($1,$2,'merma',-5) returning id",
         [company.id, product],
       );
+
       const movId = rows[0].id;
 
       await expectNoOpUpdateOrDelete(
@@ -6488,6 +6938,7 @@ describe("RPCs críticas de dinero y stock", () => {
             "select id from public.stock_movements where id = $1",
             [movId],
           );
+
           expect(after).toHaveLength(1);
         },
       );
@@ -6496,6 +6947,7 @@ describe("RPCs críticas de dinero y stock", () => {
     it("una caja abierta no se puede editar directo por REST (status/monto real) -- solo por el flujo de arqueo", async () => {
       const company = await makeCompany(db, "Empresa RLS CashSession Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const sessionId = await asUser(db, admin, () =>
         db
           .query<{
@@ -6523,6 +6975,7 @@ describe("RPCs críticas de dinero y stock", () => {
             "select real_amount, status from public.cash_sessions where id = $1",
             [sessionId],
           );
+
           expect(rows[0].status).toBe("open");
           expect(rows[0].real_amount).toBeNull();
         },
@@ -6532,10 +6985,12 @@ describe("RPCs críticas de dinero y stock", () => {
     it("un cajero no puede insertar/editar/borrar una merma directo por REST -- ni la suya propia", async () => {
       const company = await makeCompany(db, "Empresa RLS Merma Test");
       const cajero = await makeUser(db, company.id, "user");
+
       const { rows } = await db.query<{ id: string }>(
         "insert into public.mermas (company_id, location_id, estimated_loss, reason_category, employee_id, registered_by) values ($1,$2,10,'otro',$3,$3) returning id",
         [company.id, company.loc1, cajero],
       );
+
       const mermaId = rows[0].id;
 
       await expectInsertRejected(() =>
@@ -6560,6 +7015,7 @@ describe("RPCs críticas de dinero y stock", () => {
             "select estimated_loss from public.mermas where id = $1",
             [mermaId],
           );
+
           expect(Number(after[0].estimated_loss)).toBeCloseTo(10, 2);
         },
       );
@@ -6574,6 +7030,7 @@ describe("RPCs críticas de dinero y stock", () => {
             "select id from public.mermas where id = $1",
             [mermaId],
           );
+
           expect(after).toHaveLength(1);
         },
       );
@@ -6582,15 +7039,19 @@ describe("RPCs críticas de dinero y stock", () => {
     it("una cotización no se puede borrar directo por REST -- solo reject_quote/convert_quote_to_sale", async () => {
       const company = await makeCompany(db, "Empresa RLS Quote Test");
       const admin = await makeUser(db, company.id, "admin");
+
       const { rows: qRows } = await db.query<{ id: string }>(
         "insert into public.quotes (company_id, quote_number, customer_name, valid_until) values ($1,'COT-FALSA','Cliente', current_date + 1) returning id",
         [company.id],
       );
+
       const quoteId = qRows[0].id;
+
       const { rows: qiRows } = await db.query<{ id: string }>(
         "insert into public.quote_items (company_id, quote_id, product_name, qty, unit_price, total) values ($1,$2,'x',1,1,1) returning id",
         [company.id, quoteId],
       );
+
       const itemId = qiRows[0].id;
 
       await expectNoOpUpdateOrDelete(
@@ -6603,6 +7064,7 @@ describe("RPCs críticas de dinero y stock", () => {
             "select id from public.quotes where id = $1",
             [quoteId],
           );
+
           expect(rows).toHaveLength(1);
         },
       );
@@ -6617,6 +7079,7 @@ describe("RPCs críticas de dinero y stock", () => {
             "select id from public.quote_items where id = $1",
             [itemId],
           );
+
           expect(rows).toHaveLength(1);
         },
       );
@@ -6626,6 +7089,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const company = await makeCompany(db, "Empresa RLS Apartado Test");
       const admin = await makeUser(db, company.id, "admin");
       const customer = await makeCustomer(db, company.id, "Cliente RLS");
+
       const product = await makeProduct(
         db,
         company.id,
@@ -6635,10 +7099,12 @@ describe("RPCs críticas de dinero y stock", () => {
         50,
         30,
       );
+
       await db.query(
         "update public.companies set apartado_min_deposit_pct = 0 where id = $1",
         [company.id],
       );
+
       const { rows } = await asUser(db, admin, () =>
         db.query<{ create_apartado: { apartado_id: string } }>(
           `select create_apartado(
@@ -6652,6 +7118,7 @@ describe("RPCs críticas de dinero y stock", () => {
           ],
         ),
       );
+
       const apartadoId = rows[0].create_apartado.apartado_id;
       const stockAfterReserve = await getProductStockRls(product);
       expect(stockAfterReserve).toBe(27); // 30 - 3, reservado
@@ -6668,6 +7135,7 @@ describe("RPCs críticas de dinero y stock", () => {
             "select id from public.apartados where id = $1",
             [apartadoId],
           );
+
           expect(after).toHaveLength(1);
           // El stock sigue reservado -- no se "perdió" al intentar el borrado directo.
           expect(await getProductStockRls(product)).toBe(27);
@@ -6678,6 +7146,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select id from public.apartado_items where apartado_id = $1",
         [apartadoId],
       );
+
       await expectNoOpUpdateOrDelete(
         () =>
           asUser(db, admin, () =>
@@ -6690,6 +7159,7 @@ describe("RPCs críticas de dinero y stock", () => {
             "select id from public.apartado_items where id = $1",
             [itemRows[0].id],
           );
+
           expect(after).toHaveLength(1);
         },
       );
@@ -6700,6 +7170,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select stock from public.products where id = $1",
         [productId],
       );
+
       return Number(rows[0].stock);
     }
   });
@@ -6715,6 +7186,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select id, full_name from list_company_profile_names()",
         ),
       );
+
       const ids = rows.map((r) => r.id);
       expect(ids).toContain(admin);
       expect(ids).toContain(cajero);
@@ -6729,6 +7201,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const { rows } = await asUser(db, userA, () =>
         db.query<{ id: string }>("select id from list_company_profile_names()"),
       );
+
       const ids = rows.map((r) => r.id);
       expect(ids).toContain(userA);
       expect(ids).not.toContain(userB);
@@ -6748,6 +7221,7 @@ describe("RPCs críticas de dinero y stock", () => {
           admin,
         ]),
       );
+
       // La política de "profiles" (sin ampliar) sigue sin dejar ver la fila
       // completa de un compañero a un cajero -- list_company_profile_names()
       // es la única vía, y solo expone id+full_name.
@@ -6766,9 +7240,11 @@ describe("RPCs críticas de dinero y stock", () => {
         string,
         { open: boolean; from?: string; to?: string }
       > = {};
+
       for (let d = 1; d <= 7; d++) {
         week[d] = overrides[d] ?? { open: true, from: "09:00", to: "18:00" };
       }
+
       return week;
     }
 
@@ -6788,6 +7264,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select weekly_hours from public.locations where id = $1",
         [company.loc1],
       );
+
       expect(rows[0].weekly_hours).toEqual(week);
     });
 
@@ -6883,6 +7360,7 @@ describe("RPCs críticas de dinero y stock", () => {
       }>("select weekly_hours from public.locations where id = $1", [
         company.loc1,
       ]);
+
       expect(rows[0].weekly_hours["7"].open).toBe(false);
     });
   });
@@ -6912,6 +7390,7 @@ describe("RPCs críticas de dinero y stock", () => {
           overrides.profile_id ?? null,
         ],
       );
+
       return rows[0].id;
     }
 
@@ -6935,6 +7414,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select title from public.company_calendar_events where id = $1",
         [eventId],
       );
+
       expect(rows[0].title).toBe("Cierre por inventario (actualizado)");
 
       await asUser(db, admin, () =>
@@ -6942,10 +7422,12 @@ describe("RPCs críticas de dinero y stock", () => {
           eventId,
         ]),
       );
+
       const { rows: afterDelete } = await db.query(
         "select id from public.company_calendar_events where id = $1",
         [eventId],
       );
+
       expect(afterDelete).toHaveLength(0);
     });
 
@@ -6971,10 +7453,12 @@ describe("RPCs críticas de dinero y stock", () => {
           "delete from public.company_calendar_events where id = $1",
           [eventId],
         );
+
         const { rows: visible } = await db.query(
           "select id, title from public.company_calendar_events where id = $1",
           [eventId],
         );
+
         expect(visible).toHaveLength(1); // sigue ahí -- sí lo puede ver
         expect(visible[0].title).not.toBe("hackeado"); // pero no se editó
       });
@@ -6989,10 +7473,12 @@ describe("RPCs críticas de dinero y stock", () => {
       for (const userId of [finanzas, operador]) {
         await asUser(db, userId, async () => {
           await expect(insertEvent(company.id)).rejects.toThrow();
+
           const { rows } = await db.query(
             "select id from public.company_calendar_events where id = $1",
             [eventId],
           );
+
           expect(rows).toHaveLength(1);
         });
       }
@@ -7009,6 +7495,7 @@ describe("RPCs críticas de dinero y stock", () => {
           "select id from public.company_calendar_events where id = $1",
           [eventId],
         );
+
         expect(rows).toHaveLength(0);
 
         await expect(
@@ -7026,6 +7513,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select title from public.company_calendar_events where id = $1",
         [eventId],
       );
+
       expect(unchanged[0].title).not.toBe("ajeno");
     });
 
@@ -7060,6 +7548,7 @@ describe("RPCs críticas de dinero y stock", () => {
         db,
         "Empresa RLS Locations Cajero Test",
       );
+
       const cajero = await makeUser(db, company.id, "user");
 
       await asUser(db, cajero, () =>
@@ -7070,6 +7559,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select id from public.locations where id = $1",
         [company.loc2],
       );
+
       expect(rows).toHaveLength(1);
     });
 
@@ -7078,6 +7568,7 @@ describe("RPCs críticas de dinero y stock", () => {
         db,
         "Empresa RLS Locations Update Test",
       );
+
       const cajero = await makeUser(db, company.id, "user");
 
       await asUser(db, cajero, () =>
@@ -7091,6 +7582,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select name from public.locations where id = $1",
         [company.loc2],
       );
+
       expect(rows[0].name).toBe("Sucursal renombrada");
     });
 
@@ -7106,6 +7598,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select id from public.locations where id = $1",
         [company.loc2],
       );
+
       expect(rows).toHaveLength(0);
     });
 
@@ -7122,6 +7615,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select id from public.locations where id = $1",
         [companyA.loc2],
       );
+
       expect(rows).toHaveLength(1);
     });
   });
@@ -7149,6 +7643,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select credit_balance from public.customers where id=$1",
         [customer],
       );
+
       expect(Number(rows[0].credit_balance)).toBe(300);
     });
 
@@ -7170,6 +7665,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select loyalty_points from public.customers where id=$1",
         [customer],
       );
+
       expect(Number(rows[0].loyalty_points)).toBe(10);
     });
 
@@ -7191,6 +7687,7 @@ describe("RPCs críticas de dinero y stock", () => {
       }>("select name, credit_limit from public.customers where id=$1", [
         customer,
       ]);
+
       expect(rows[0].name).toBe("Cliente Renombrado");
       expect(Number(rows[0].credit_limit)).toBe(1000);
     });
@@ -7202,11 +7699,14 @@ describe("RPCs críticas de dinero y stock", () => {
         db,
         "Empresa RLS Suppliers Cajero Test",
       );
+
       const cajero = await makeUser(db, company.id, "user");
+
       const { rows: existing } = await db.query<{ id: string }>(
         "insert into public.suppliers (company_id, name) values ($1,'Proveedor Original') returning id",
         [company.id],
       );
+
       const supplierId = existing[0].id;
 
       await expect(
@@ -7233,6 +7733,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select name from public.suppliers where id = $1",
         [supplierId],
       );
+
       expect(rows).toHaveLength(1);
       expect(rows[0].name).toBe("Proveedor Original");
     });
@@ -7242,6 +7743,7 @@ describe("RPCs críticas de dinero y stock", () => {
         db,
         "Empresa RLS Suppliers Finanzas Test",
       );
+
       const finanzas = await makeUser(db, company.id, "finanzas");
       const operador = await makeUser(db, company.id, "operador");
 
@@ -7251,6 +7753,7 @@ describe("RPCs críticas de dinero y stock", () => {
           [company.id],
         ),
       );
+
       const supplierId = rows[0].id;
 
       await asUser(db, operador, () =>
@@ -7264,16 +7767,19 @@ describe("RPCs críticas de dinero y stock", () => {
         "select name from public.suppliers where id = $1",
         [supplierId],
       );
+
       expect(after[0].name).toBe("Proveedor Editado");
     });
 
     it("un cajero no puede crear/editar/borrar unidades directo por REST", async () => {
       const company = await makeCompany(db, "Empresa RLS Units Cajero Test");
       const cajero = await makeUser(db, company.id, "user");
+
       const { rows: existing } = await db.query<{ id: string }>(
         "insert into public.units (company_id, name) values ($1,'Pieza') returning id",
         [company.id],
       );
+
       const unitId = existing[0].id;
 
       await expect(
@@ -7293,6 +7799,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select id from public.units where id = $1",
         [unitId],
       );
+
       expect(rows).toHaveLength(1);
     });
 
@@ -7320,6 +7827,7 @@ describe("RPCs críticas de dinero y stock", () => {
           [company.id],
         ),
       );
+
       expect(rows).toHaveLength(1);
     });
   });
@@ -7351,6 +7859,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select id from public.companies where id=$1",
         [phantom.id],
       );
+
       expect(rows).toHaveLength(0);
     });
 
@@ -7366,6 +7875,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select company_id from public.phantom_company_cleanup_queue where company_id=$1",
         [phantom.id],
       );
+
       expect(rows).toHaveLength(0);
     });
 
@@ -7386,12 +7896,14 @@ describe("RPCs críticas de dinero y stock", () => {
         "select id from public.companies where id=$1",
         [reclaimed.id],
       );
+
       expect(rows).toHaveLength(1);
 
       const { rows: queueRows } = await db.query(
         "select company_id from public.phantom_company_cleanup_queue where company_id=$1",
         [reclaimed.id],
       );
+
       expect(queueRows).toHaveLength(0);
     });
 
@@ -7407,6 +7919,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select id from public.companies where id=$1",
         [untouched.id],
       );
+
       expect(rows).toHaveLength(1);
     });
   });
@@ -7439,6 +7952,7 @@ describe("RPCs críticas de dinero y stock", () => {
         "select plan_id from public.companies where id=$1",
         [companyA.id],
       );
+
       expect(rows[0].plan_id).toBe(plan);
     });
 
@@ -7446,6 +7960,7 @@ describe("RPCs críticas de dinero y stock", () => {
       const { rows } = await db.query<{ id: string }>(
         "select id from public.subscription_plans limit 1",
       );
+
       return rows[0].id;
     }
   });

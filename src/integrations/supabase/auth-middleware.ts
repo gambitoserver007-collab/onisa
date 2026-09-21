@@ -8,6 +8,7 @@ export const requireSupabaseAuth = createMiddleware({
   type: "function",
 }).server(async ({ next }) => {
   const SUPABASE_URL = process.env.SUPABASE_URL;
+
   const SUPABASE_ANON_KEY =
     process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
 
@@ -16,6 +17,7 @@ export const requireSupabaseAuth = createMiddleware({
       ...(!SUPABASE_URL ? ["SUPABASE_URL"] : []),
       ...(!SUPABASE_ANON_KEY ? ["SUPABASE_ANON_KEY"] : []),
     ];
+
     const message = `Missing Supabase environment variable(s): ${missing.join(", ")}. Configure Supabase environment variables.`;
     console.error(`[Supabase] ${message}`);
     throw new Error(message);
@@ -38,6 +40,7 @@ export const requireSupabaseAuth = createMiddleware({
   }
 
   const token = authHeader.replace("Bearer ", "");
+
   if (!token) {
     throw new Error("Unauthorized: No token provided");
   }
@@ -56,6 +59,7 @@ export const requireSupabaseAuth = createMiddleware({
   });
 
   const { data, error } = await supabase.auth.getClaims(token);
+
   if (error || !data?.claims) {
     throw new Error("Unauthorized: Invalid token");
   }

@@ -14,6 +14,7 @@ function createSupabaseAdminClient() {
       ...(!SUPABASE_URL ? ["SUPABASE_URL"] : []),
       ...(!SUPABASE_SERVICE_ROLE_KEY ? ["SUPABASE_SERVICE_ROLE_KEY"] : []),
     ];
+
     const message = `Missing Supabase environment variable(s): ${missing.join(", ")}. Configure Supabase environment variables.`;
     console.error(`[Supabase] ${message}`);
     throw new Error(message);
@@ -39,6 +40,7 @@ export const supabaseAdmin = new Proxy(
   {
     get(_, prop, receiver) {
       if (!_supabaseAdmin) _supabaseAdmin = createSupabaseAdminClient();
+
       return Reflect.get(_supabaseAdmin, prop, receiver);
     },
   },

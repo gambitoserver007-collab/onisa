@@ -11,21 +11,26 @@ type OAuthResult = {
   } | null;
   error: { message: string } | null;
 };
+
 type OAuthNs = {
   getAuthorizationDetails: (id: string) => Promise<OAuthResult>;
   approveAuthorization: (id: string) => Promise<OAuthResult>;
   denyAuthorization: (id: string) => Promise<OAuthResult>;
 };
+
 function getOAuthNs(): OAuthNs {
   const anyAuth = supabase.auth as unknown as { oauth?: OAuthNs };
+
   if (!anyAuth.oauth)
     throw new Error("supabase.auth.oauth no está disponible.");
+
   return anyAuth.oauth;
 }
 
 function safeRelative(next: string | undefined): string {
   if (!next || !next.startsWith("/") || next.startsWith("//"))
     return "/dashboard";
+
   return next;
 }
 
@@ -39,6 +44,7 @@ export const Route = createFileRoute("/.lovable/oauth/consent")({
     if (!search.authorization_id) throw new Error("Falta authorization_id");
     const { data } = await supabase.auth.getSession();
     const next = location.pathname + location.searchStr;
+
     if (!data.session) {
       throw redirect({ to: "/login", search: { next } });
     }
@@ -47,11 +53,15 @@ export const Route = createFileRoute("/.lovable/oauth/consent")({
     const authorizationId = new URLSearchParams(location.search).get(
       "authorization_id",
     )!;
+
     const { data, error } =
       await getOAuthNs().getAuthorizationDetails(authorizationId);
+
     if (error) throw error;
     const immediate = data?.redirect_url ?? data?.redirect_to;
+
     if (immediate && !data?.client) throw redirect({ href: immediate });
+
     return data;
   },
   component: Consent,
@@ -77,24 +87,32 @@ function Consent() {
   async function decide(approve: boolean) {
     setBusy(true);
     setError(null);
+
     try {
       const ns = getOAuthNs();
+
       const { data, error: err } = approve
         ? await ns.approveAuthorization(authorization_id)
         : await ns.denyAuthorization(authorization_id);
+
       if (err) {
         setBusy(false);
         setError(err.message);
+
         return;
       }
+
       const target = data?.redirect_url ?? data?.redirect_to;
+
       if (!target) {
         setBusy(false);
         setError(
           "El servidor de autorización no devolvió una URL de redirección.",
         );
+
         return;
       }
+
       window.location.href = target;
     } catch (e) {
       setBusy(false);

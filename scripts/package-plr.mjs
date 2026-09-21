@@ -36,13 +36,17 @@ const EXCLUDE_TOP = new Set([
 // Filtro para subniveles: nunca copiar .env(.local) ni logs aunque estén anidados.
 function keepNested(src) {
   const name = src.replace(/\\/g, "/").split("/").pop();
+
   if (name === ".env" || name === ".env.local" || name === ".dev.vars")
     return false;
+
   if (/\.log$/.test(name)) return false;
+
   return true;
 }
 
 if (existsSync(OUT)) rmSync(OUT, { recursive: true, force: true });
+
 mkdirSync(OUT, { recursive: true });
 
 for (const entry of readdirSync(".")) {
@@ -53,15 +57,22 @@ for (const entry of readdirSync(".")) {
 // Seguridad extra: borra cualquier .env que se haya colado.
 for (const f of [".env", ".env.local"]) {
   const p = join(OUT, f);
+
   if (existsSync(p)) rmSync(p, { force: true });
 }
 
 const top = readdirSync(OUT).sort().join(", ");
+
 console.log("\n[OK] Copia de entrega lista en  ./" + OUT);
+
 console.log("   - SIN .env / .env.local (sin tus claves de Supabase).");
+
 console.log("   - SIN node_modules, dist, .git, .lovable, .tanstack, logs.");
+
 console.log("   - El comprador crea su .env desde .env.example.");
+
 console.log("\nContenido (primer nivel): " + top);
+
 console.log(
   "\nSiguiente paso: comprime la carpeta ./" + OUT + " y entrega ese .zip.\n",
 );

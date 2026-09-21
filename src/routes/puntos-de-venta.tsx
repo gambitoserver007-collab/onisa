@@ -74,14 +74,17 @@ function PuntosDeVenta() {
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [managerName, setManagerName] = useState("");
+
   // Horario por día -- solo un admin lo edita (ver updateLocationWeeklyHours).
   // legacyOpeningHours no se muestra ni se edita aquí, solo se conserva tal
   // cual para no perder el valor viejo si alguien más lo sigue leyendo.
   const [weeklyHours, setWeeklyHours] =
     useState<WeeklyHours>(defaultWeeklyHours());
+
   const [legacyOpeningHours, setLegacyOpeningHours] = useState<string | null>(
     null,
   );
+
   const isAdmin = role === "admin";
 
   // Cajas (tills): catálogo de cajas físicas por sucursal -- Etapa 1 del
@@ -107,6 +110,7 @@ function PuntosDeVenta() {
 
   const reload = useCallback(async () => {
     setIsLoading(true);
+
     try {
       setLocations(await fetchLocations(session?.companyId));
     } catch (error) {
@@ -156,6 +160,7 @@ function PuntosDeVenta() {
   const toggleWeeklyHoursDay = (dayKey: string) => {
     setWeeklyHours((prev) => {
       const current = prev[dayKey];
+
       return {
         ...prev,
         [dayKey]: current?.open
@@ -183,10 +188,13 @@ function PuntosDeVenta() {
   const handleSave = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session) return;
     setIsSaving(true);
+
     try {
       const fields = {
         name,
@@ -200,7 +208,9 @@ function PuntosDeVenta() {
         // sucursal nunca se configuró con el horario por día).
         openingHours: legacyOpeningHours ?? undefined,
       };
+
       let locationId: string;
+
       if (editing) {
         await updateLocation(editing.id, {
           ...fields,
@@ -212,12 +222,14 @@ function PuntosDeVenta() {
         locationId = await createLocation(session, fields);
         toast.success("Sucursal creada.");
       }
+
       // El horario solo lo puede tocar un admin -- ver
       // update_location_weekly_hours (RLS/rol se valida también server-side,
       // esto solo evita mandar la llamada si ya sabemos que va a fallar).
       if (isAdmin) {
         await updateLocationWeeklyHours(locationId, weeklyHours);
       }
+
       setOpen(false);
       await reload();
       await refreshLocations(); // refresca el selector global + POS/Caja/Inventario
@@ -231,18 +243,23 @@ function PuntosDeVenta() {
   const handleToggle = async (location: Location, isActive: boolean) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     // No dejar al negocio sin sucursales activas (POS/Caja/Inventario quedarían inutilizables).
     if (!isActive && locations.filter((l) => l.isActive).length <= 1) {
       toast.error("Debe quedar al menos una sucursal activa.");
+
       return;
     }
+
     setLocations((current) =>
       current.map((item) =>
         item.id === location.id ? { ...item, isActive } : item,
       ),
     );
+
     try {
       await setLocationActive(location.id, isActive);
       await refreshLocations(); // refresca el selector global + POS/Caja/Inventario
@@ -254,6 +271,7 @@ function PuntosDeVenta() {
 
   const reloadTills = async (locationId: string) => {
     setTillsLoading(true);
+
     try {
       setTillsList(await fetchTills(locationId));
     } catch (error) {
@@ -286,10 +304,13 @@ function PuntosDeVenta() {
   const handleTillSave = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!session || !tillsFor) return;
     setTillSaving(true);
+
     try {
       if (editingTill) {
         await updateTill(editingTill.id, {
@@ -305,6 +326,7 @@ function PuntosDeVenta() {
         });
         toast.success("Caja creada.");
       }
+
       resetTillForm();
       await reloadTills(tillsFor.id);
     } catch (error) {
@@ -328,10 +350,13 @@ function PuntosDeVenta() {
   const handleTicketSave = async () => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!ticketFor) return;
     setTicketSaving(true);
+
     try {
       await updateLocationTicketSettings(ticketFor.id, {
         showLogo: tShowLogo,
@@ -357,14 +382,17 @@ function PuntosDeVenta() {
   const handleTillToggle = async (till: Till, isActive: boolean) => {
     if (isDemo) {
       blockDemoAction();
+
       return;
     }
+
     if (!tillsFor) return;
     setTillsList((current) =>
       current.map((item) =>
         item.id === till.id ? { ...item, isActive } : item,
       ),
     );
+
     try {
       await setTillActive(till.id, isActive);
     } catch (error) {
@@ -561,6 +589,7 @@ function PuntosDeVenta() {
               <div className="space-y-2 rounded-lg border p-3">
                 {WEEKLY_HOURS_DAYS.map((day) => {
                   const entry = weeklyHours[day.key] ?? { open: false };
+
                   return (
                     <div key={day.key} className="flex items-center gap-3">
                       <span className="w-20 shrink-0 text-sm font-medium">

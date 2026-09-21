@@ -24,10 +24,15 @@ import {
 } from "@/components/ui/tooltip";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
+
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
+
 const SIDEBAR_WIDTH = "16rem";
+
 const SIDEBAR_WIDTH_MOBILE = "18rem";
+
 const SIDEBAR_WIDTH_ICON = "3rem";
+
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
 
 type SidebarContextProps = {
@@ -44,6 +49,7 @@ const SidebarContext = React.createContext<SidebarContextProps | null>(null);
 
 function useSidebar() {
   const context = React.useContext(SidebarContext);
+
   if (!context) {
     throw new Error("useSidebar must be used within a SidebarProvider.");
   }
@@ -78,9 +84,11 @@ const SidebarProvider = React.forwardRef<
     // We use openProp and setOpenProp for control from outside the component.
     const [_open, _setOpen] = React.useState(defaultOpen);
     const open = openProp ?? _open;
+
     const setOpen = React.useCallback(
       (value: boolean | ((value: boolean) => boolean)) => {
         const openState = typeof value === "function" ? value(open) : value;
+
         if (setOpenProp) {
           setOpenProp(openState);
         } else {
@@ -113,6 +121,7 @@ const SidebarProvider = React.forwardRef<
       };
 
       window.addEventListener("keydown", handleKeyDown);
+
       return () => window.removeEventListener("keydown", handleKeyDown);
     }, [toggleSidebar]);
 
@@ -166,6 +175,7 @@ const SidebarProvider = React.forwardRef<
     );
   },
 );
+
 SidebarProvider.displayName = "SidebarProvider";
 
 const Sidebar = React.forwardRef<
@@ -273,6 +283,7 @@ const Sidebar = React.forwardRef<
     );
   },
 );
+
 Sidebar.displayName = "Sidebar";
 
 const SidebarTrigger = React.forwardRef<
@@ -299,6 +310,7 @@ const SidebarTrigger = React.forwardRef<
     </Button>
   );
 });
+
 SidebarTrigger.displayName = "SidebarTrigger";
 
 const SidebarRail = React.forwardRef<
@@ -328,6 +340,7 @@ const SidebarRail = React.forwardRef<
     />
   );
 });
+
 SidebarRail.displayName = "SidebarRail";
 
 const SidebarInset = React.forwardRef<
@@ -346,6 +359,7 @@ const SidebarInset = React.forwardRef<
     />
   );
 });
+
 SidebarInset.displayName = "SidebarInset";
 
 const SidebarInput = React.forwardRef<
@@ -364,6 +378,7 @@ const SidebarInput = React.forwardRef<
     />
   );
 });
+
 SidebarInput.displayName = "SidebarInput";
 
 const SidebarHeader = React.forwardRef<
@@ -379,6 +394,7 @@ const SidebarHeader = React.forwardRef<
     />
   );
 });
+
 SidebarHeader.displayName = "SidebarHeader";
 
 const SidebarFooter = React.forwardRef<
@@ -394,6 +410,7 @@ const SidebarFooter = React.forwardRef<
     />
   );
 });
+
 SidebarFooter.displayName = "SidebarFooter";
 
 const SidebarSeparator = React.forwardRef<
@@ -409,6 +426,7 @@ const SidebarSeparator = React.forwardRef<
     />
   );
 });
+
 SidebarSeparator.displayName = "SidebarSeparator";
 
 const SidebarContent = React.forwardRef<
@@ -427,6 +445,7 @@ const SidebarContent = React.forwardRef<
     />
   );
 });
+
 SidebarContent.displayName = "SidebarContent";
 
 const SidebarGroup = React.forwardRef<
@@ -442,6 +461,7 @@ const SidebarGroup = React.forwardRef<
     />
   );
 });
+
 SidebarGroup.displayName = "SidebarGroup";
 
 const SidebarGroupLabel = React.forwardRef<
@@ -463,6 +483,7 @@ const SidebarGroupLabel = React.forwardRef<
     />
   );
 });
+
 SidebarGroupLabel.displayName = "SidebarGroupLabel";
 
 const SidebarGroupAction = React.forwardRef<
@@ -486,6 +507,7 @@ const SidebarGroupAction = React.forwardRef<
     />
   );
 });
+
 SidebarGroupAction.displayName = "SidebarGroupAction";
 
 const SidebarGroupContent = React.forwardRef<
@@ -499,6 +521,7 @@ const SidebarGroupContent = React.forwardRef<
     {...props}
   />
 ));
+
 SidebarGroupContent.displayName = "SidebarGroupContent";
 
 const SidebarMenu = React.forwardRef<
@@ -512,6 +535,7 @@ const SidebarMenu = React.forwardRef<
     {...props}
   />
 ));
+
 SidebarMenu.displayName = "SidebarMenu";
 
 const SidebarMenuItem = React.forwardRef<
@@ -525,6 +549,7 @@ const SidebarMenuItem = React.forwardRef<
     {...props}
   />
 ));
+
 SidebarMenuItem.displayName = "SidebarMenuItem";
 
 const sidebarMenuButtonVariants = cva(
@@ -606,6 +631,7 @@ const SidebarMenuButton = React.forwardRef<
     );
   },
 );
+
 SidebarMenuButton.displayName = "SidebarMenuButton";
 
 const SidebarMenuAction = React.forwardRef<
@@ -637,6 +663,7 @@ const SidebarMenuAction = React.forwardRef<
     />
   );
 });
+
 SidebarMenuAction.displayName = "SidebarMenuAction";
 
 const SidebarMenuBadge = React.forwardRef<
@@ -658,6 +685,7 @@ const SidebarMenuBadge = React.forwardRef<
     {...props}
   />
 ));
+
 SidebarMenuBadge.displayName = "SidebarMenuBadge";
 
 const SidebarMenuSkeleton = React.forwardRef<
@@ -696,6 +724,7 @@ const SidebarMenuSkeleton = React.forwardRef<
     </div>
   );
 });
+
 SidebarMenuSkeleton.displayName = "SidebarMenuSkeleton";
 
 const SidebarMenuSub = React.forwardRef<
@@ -713,12 +742,14 @@ const SidebarMenuSub = React.forwardRef<
     {...props}
   />
 ));
+
 SidebarMenuSub.displayName = "SidebarMenuSub";
 
 const SidebarMenuSubItem = React.forwardRef<
   HTMLLIElement,
   React.ComponentProps<"li">
 >(({ ...props }, ref) => <li ref={ref} {...props} />);
+
 SidebarMenuSubItem.displayName = "SidebarMenuSubItem";
 
 const SidebarMenuSubButton = React.forwardRef<
@@ -749,6 +780,7 @@ const SidebarMenuSubButton = React.forwardRef<
     />
   );
 });
+
 SidebarMenuSubButton.displayName = "SidebarMenuSubButton";
 
 export {

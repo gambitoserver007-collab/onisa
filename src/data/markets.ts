@@ -21,7 +21,9 @@ export interface Market {
 }
 
 export const DEFAULT_MARKET_CODE = "MX";
+
 export const DEFAULT_BUSINESS_NAME = "Tienda Demo";
+
 export const DEFAULT_TAX_RATE = 0.18;
 
 // Fallback comprobantes when a store has none configured yet.

@@ -11,6 +11,8 @@ export type StockStatus = "out" | "low" | "ok";
 
 export function stockStatus(stock: number, threshold: number): StockStatus {
   if (stock <= 0) return "out";
+
   if (stock <= threshold) return "low";
+
   return "ok";
 }
