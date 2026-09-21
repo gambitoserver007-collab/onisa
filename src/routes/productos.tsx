@@ -136,7 +136,9 @@ function ProductosPage() {
         <TabsList className="h-auto flex-wrap">
           <TabsTrigger value="catalogo">Catálogo</TabsTrigger>
           <TabsTrigger value="conteo">Conteo físico</TabsTrigger>
-          <TabsTrigger value="importar">Importar desde Excel</TabsTrigger>
+          {canManage && (
+            <TabsTrigger value="importar">Importar desde Excel</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="catalogo" className="space-y-4">
@@ -326,9 +328,11 @@ function ProductosPage() {
           <PhysicalCountTab onChanged={() => reload()} />
         </TabsContent>
 
-        <TabsContent value="importar">
-          <ImportProductsTab onImported={() => reload()} />
-        </TabsContent>
+        {canManage && (
+          <TabsContent value="importar">
+            <ImportProductsTab onImported={() => reload()} />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Create / edit sheet (componente reutilizable) */}
