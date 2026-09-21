@@ -19,6 +19,23 @@ export default tseslint.config(
       "src/routes/\\[.mcp\\]/**",
       "src/routes/\\[.well-known\\]/**",
       "src/routes/mcp.ts",
+      // Plugin de Oxlint vendorizado (skill install-anti-slop) -- código de
+      // otro repo con sus propias convenciones de formato, no de este
+      // proyecto; no tiene caso lintearlo/formatearlo con las reglas de acá.
+      "tools/oxlint/anti-slop/**",
+      // Directorios de tooling de agentes de IA (instalados localmente por
+      // skills/CLIs de agentes, no código propio del proyecto).
+      ".agent/**",
+      ".agents/**",
+      ".claude/**",
+      ".codex/**",
+      ".continue/**",
+      ".cursor/**",
+      ".gemini/**",
+      ".opencode/**",
+      ".pi/**",
+      ".roo/**",
+      ".windsurf/**",
     ],
   },
   {
