@@ -5,11 +5,15 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useDemoSession } from "@/hooks/useDemoSession";
+import { blockDemoAction } from "@/lib/demoMode";
 import {
+  cancelSubscription,
+  createSubscription,
   fetchPlans,
   fetchPlanUsage,
   type PlanUsage,
@@ -35,9 +39,11 @@ const pct = (value: number, limit: number) =>
 
 function Suscripcion() {
   const { formatMoney } = useBusinessSettings();
-  const { session, isReady } = useDemoSession();
+  const { isDemo, session, isReady } = useDemoSession();
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [usage, setUsage] = useState<PlanUsage | null>(null);
+  const [subscribingId, setSubscribingId] = useState<string | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -57,6 +63,54 @@ function Suscripcion() {
     if (!isReady) return;
     void reload();
   }, [isReady, reload]);
+
+  const handleSubscribe = async (plan: SubscriptionPlan) => {
+    if (isDemo) {
+      blockDemoAction();
+
+      return;
+    }
+
+    setSubscribingId(plan.id);
+
+    try {
+      const { initPoint } = await createSubscription(plan.id);
+      window.location.href = initPoint;
+    } catch (error) {
+      toast.error(getErrorMessage(error, "No se pudo iniciar la suscripción."));
+      setSubscribingId(null);
+    }
+  };
+
+  const handleCancel = async () => {
+    if (isDemo) {
+      blockDemoAction();
+
+      return;
+    }
+
+    if (
+      !window.confirm(
+        "¿Cancelar tu suscripción? Perderás el acceso al plan pagado.",
+      )
+    ) {
+      return;
+    }
+
+    setIsCancelling(true);
+
+    try {
+      await cancelSubscription();
+      toast.success("Suscripción cancelada.");
+      await reload();
+    } catch (error) {
+      toast.error(
+        getErrorMessage(error, "No se pudo cancelar la suscripción."),
+      );
+    } finally {
+      setIsCancelling(false);
+    }
+  };
 
   // Current plan: the company's plan, or the cheapest (free) plan when on trial.
   const currentPlan = useMemo(() => {
@@ -201,13 +255,33 @@ function Suscripcion() {
                   <Check className="h-4 w-4 text-primary" />{" "}
                   {formatLimit(plan.salesLimit)} ventas/mes
                 </p>
-                {isCurrent ? (
+                {isCurrent && usage?.subscriptionStatus === "authorized" ? (
+                  <Button
+                    variant="outline"
+                    className="mt-3 w-full text-destructive hover:text-destructive"
+                    disabled={isCancelling}
+                    onClick={() => void handleCancel()}
+                  >
+                    {isCancelling ? "Cancelando..." : "Cancelar suscripción"}
+                  </Button>
+                ) : isCurrent ? (
                   <Badge
                     variant="secondary"
                     className="mt-3 w-full justify-center py-2"
                   >
                     Plan actual
                   </Badge>
+                ) : plan.price > 0 ? (
+                  <Button
+                    variant="brand"
+                    className="mt-3 w-full"
+                    disabled={subscribingId === plan.id}
+                    onClick={() => void handleSubscribe(plan)}
+                  >
+                    {subscribingId === plan.id
+                      ? "Redirigiendo..."
+                      : "Suscribirme"}
+                  </Button>
                 ) : (
                   <p className="mt-3 text-center text-xs text-muted-foreground">
                     Contacta al administrador de la plataforma para cambiar de

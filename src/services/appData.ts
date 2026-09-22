@@ -4911,12 +4911,16 @@ export interface PlanUsage {
   productsCount: number;
   salesThisMonth: number;
   usersCount: number;
+  /** Estado de la suscripción de pago (Mercado Pago), independiente de
+   * companies.subscription_status: null = nunca se ha intentado pagar. */
+  subscriptionStatus: "pending" | "authorized" | "paused" | "cancelled" | null;
 }
 
 export async function fetchPlanUsage(companyId?: string): Promise<PlanUsage> {
   let plan: SubscriptionPlan | null = null;
   let status = "trial";
   let expiresAt: string | null = null;
+  let subscriptionStatus: PlanUsage["subscriptionStatus"] = null;
 
   if (companyId) {
     const { data: company } = await supabase
@@ -4949,6 +4953,15 @@ export async function fetchPlanUsage(companyId?: string): Promise<PlanUsage> {
         };
       }
     }
+
+    const { data: subscriptionRow } = await supabase
+      .from("company_subscriptions")
+      .select("status")
+      .eq("company_id", companyId)
+      .maybeSingle();
+
+    subscriptionStatus =
+      (subscriptionRow?.status as PlanUsage["subscriptionStatus"]) ?? null;
   }
 
   const productsQuery = supabase
@@ -4989,7 +5002,50 @@ export async function fetchPlanUsage(companyId?: string): Promise<PlanUsage> {
     productsCount: productsCount ?? 0,
     salesThisMonth: salesThisMonth ?? 0,
     usersCount: usersCount ?? 0,
+    subscriptionStatus,
   };
+}
+
+/** Crea/reactiva la suscripción de pago (Mercado Pago) al plan elegido y
+ * regresa la URL de checkout a la que hay que redirigir para autorizar la
+ * tarjeta. La activación real del plan llega después, vía el webhook. */
+export async function createSubscription(
+  planId: string,
+): Promise<{ initPoint: string }> {
+  const { data, error } = await supabase.functions.invoke(
+    "mp-create-subscription",
+    { body: { plan_id: planId } },
+  );
+
+  if (error) {
+    throw new Error(
+      await invokeFunctionError(
+        error,
+        "No se pudo iniciar la suscripción. Verifica que la Edge Function 'mp-create-subscription' esté desplegada en Supabase.",
+      ),
+    );
+  }
+
+  if (!data?.init_point)
+    throw new Error("Mercado Pago no regresó una URL de pago.");
+
+  return { initPoint: data.init_point };
+}
+
+/** Cancela la suscripción de pago activa de la empresa que llama. */
+export async function cancelSubscription(): Promise<void> {
+  const { error } = await supabase.functions.invoke("mp-cancel-subscription", {
+    body: {},
+  });
+
+  if (error) {
+    throw new Error(
+      await invokeFunctionError(
+        error,
+        "No se pudo cancelar la suscripción. Verifica que la Edge Function 'mp-cancel-subscription' esté desplegada en Supabase.",
+      ),
+    );
+  }
 }
 
 // ---- Equipo (Usuarios) ----

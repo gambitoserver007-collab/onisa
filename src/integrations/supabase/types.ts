@@ -430,6 +430,98 @@ export type Database = {
           },
         ];
       };
+      company_subscriptions: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          current_period_end: string | null;
+          plan_id: string;
+          provider: string;
+          provider_payer_email: string | null;
+          provider_subscription_id: string;
+          status: string;
+          updated_at: string;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          current_period_end?: string | null;
+          plan_id: string;
+          provider?: string;
+          provider_payer_email?: string | null;
+          provider_subscription_id: string;
+          status?: string;
+          updated_at?: string;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          current_period_end?: string | null;
+          plan_id?: string;
+          provider?: string;
+          provider_payer_email?: string | null;
+          provider_subscription_id?: string;
+          status?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "company_subscriptions_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: true;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "company_subscriptions_plan_id_fkey";
+            columns: ["plan_id"];
+            isOneToOne: false;
+            referencedRelation: "subscription_plans";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      company_subscription_events: {
+        Row: {
+          company_id: string | null;
+          created_at: string;
+          id: string;
+          processed_at: string | null;
+          provider: string;
+          provider_event_type: string;
+          provider_resource_id: string;
+          raw_payload: Json;
+        };
+        Insert: {
+          company_id?: string | null;
+          created_at?: string;
+          id?: string;
+          processed_at?: string | null;
+          provider?: string;
+          provider_event_type: string;
+          provider_resource_id: string;
+          raw_payload?: Json;
+        };
+        Update: {
+          company_id?: string | null;
+          created_at?: string;
+          id?: string;
+          processed_at?: string | null;
+          provider?: string;
+          provider_event_type?: string;
+          provider_resource_id?: string;
+          raw_payload?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "company_subscription_events_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       country_payment_methods: {
         Row: {
           country_code: string;

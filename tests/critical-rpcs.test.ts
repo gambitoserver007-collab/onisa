@@ -7964,4 +7964,134 @@ describe("RPCs críticas de dinero y stock", () => {
       return rows[0].id;
     }
   });
+
+  describe("41. RLS de company_subscriptions/company_subscription_events: solo el service_role escribe (integración de Mercado Pago)", () => {
+    async function fetchAnyPlanId(): Promise<string> {
+      const { rows } = await db.query<{ id: string }>(
+        "select id from public.subscription_plans limit 1",
+      );
+
+      return rows[0].id;
+    }
+
+    it("un admin de la empresa puede leer la suscripción de su propia empresa", async () => {
+      const company = await makeCompany(db, "Empresa Suscripción Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const plan = await fetchAnyPlanId();
+      await db.query(
+        `insert into public.company_subscriptions
+           (company_id, plan_id, provider_subscription_id, status)
+         values ($1,$2,'mp-123','authorized')`,
+        [company.id, plan],
+      );
+
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{ status: string }>(
+          "select status from public.company_subscriptions where company_id=$1",
+          [company.id],
+        ),
+      );
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0].status).toBe("authorized");
+    });
+
+    it("un admin NO puede leer la suscripción de otra empresa", async () => {
+      const companyA = await makeCompany(db, "Empresa Suscripción A");
+      const companyB = await makeCompany(db, "Empresa Suscripción B");
+      const adminB = await makeUser(db, companyB.id, "admin");
+      const plan = await fetchAnyPlanId();
+      await db.query(
+        `insert into public.company_subscriptions
+           (company_id, plan_id, provider_subscription_id, status)
+         values ($1,$2,'mp-456','authorized')`,
+        [companyA.id, plan],
+      );
+
+      const { rows } = await asUser(db, adminB, () =>
+        db.query(
+          "select company_id from public.company_subscriptions where company_id=$1",
+          [companyA.id],
+        ),
+      );
+
+      expect(rows).toHaveLength(0);
+    });
+
+    it("ningún usuario autenticado puede insertar/editar company_subscriptions directo por REST", async () => {
+      const company = await makeCompany(db, "Empresa Suscripción Insert Test");
+      const admin = await makeUser(db, company.id, "admin");
+      const plan = await fetchAnyPlanId();
+
+      await expect(
+        asUser(db, admin, () =>
+          db.query(
+            `insert into public.company_subscriptions
+               (company_id, plan_id, provider_subscription_id, status)
+             values ($1,$2,'mp-789','authorized')`,
+            [company.id, plan],
+          ),
+        ),
+      ).rejects.toThrow();
+
+      await db.query(
+        `insert into public.company_subscriptions
+           (company_id, plan_id, provider_subscription_id, status)
+         values ($1,$2,'mp-999','pending')`,
+        [company.id, plan],
+      );
+
+      await expect(
+        asUser(db, admin, () =>
+          db.query(
+            "update public.company_subscriptions set status='authorized' where company_id=$1",
+            [company.id],
+          ),
+        ),
+      ).rejects.toThrow(); // no hay grant de update para authenticated -- ni RLS, permiso denegado antes
+
+      const { rows } = await db.query<{ status: string }>(
+        "select status from public.company_subscriptions where company_id=$1",
+        [company.id],
+      );
+      expect(rows[0].status).toBe("pending");
+    });
+
+    it("un admin no puede leer eventos de webhook de otra empresa", async () => {
+      const companyA = await makeCompany(db, "Empresa Eventos A");
+      const companyB = await makeCompany(db, "Empresa Eventos B");
+      const adminB = await makeUser(db, companyB.id, "admin");
+      await db.query(
+        `insert into public.company_subscription_events
+           (company_id, provider_event_type, provider_resource_id)
+         values ($1,'subscription_preapproval','evt-1')`,
+        [companyA.id],
+      );
+
+      const { rows } = await asUser(db, adminB, () =>
+        db.query(
+          "select id from public.company_subscription_events where company_id=$1",
+          [companyA.id],
+        ),
+      );
+
+      expect(rows).toHaveLength(0);
+    });
+
+    it("ningún usuario autenticado puede insertar company_subscription_events directo por REST", async () => {
+      const company = await makeCompany(db, "Empresa Eventos Insert Test");
+      const admin = await makeUser(db, company.id, "admin");
+
+      await expect(
+        asUser(db, admin, () =>
+          db.query(
+            `insert into public.company_subscription_events
+               (company_id, provider_event_type, provider_resource_id)
+             values ($1,'subscription_preapproval','evt-2')`,
+            [company.id],
+          ),
+        ),
+      ).rejects.toThrow();
+    });
+  });
 });

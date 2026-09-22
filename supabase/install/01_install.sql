@@ -11331,3 +11331,65 @@ $$;
 
 revoke execute on function public.cleanup_phantom_companies() from public, anon;
 grant execute on function public.cleanup_phantom_companies() to authenticated;
+
+-- ============================================================
+-- Suscripciones reales con Mercado Pago -- primera integración de cobro,
+-- reemplaza el bloqueo manual del hallazgo #11 (plan_id solo lo cambiaba
+-- el Super Admin porque no había pasarela de pago detrás). Estas dos
+-- tablas solo las escriben las Edge Functions (mp-create-subscription,
+-- mp-cancel-subscription, mp-webhook) con la service_role -- mismo
+-- criterio que customer_credit_payments: es dinero-equivalente, ninguna
+-- política de insert/update/delete para "authenticated".
+-- ============================================================
+create table if not exists public.company_subscriptions (
+  company_id uuid primary key references public.companies(id) on delete cascade,
+  plan_id uuid not null references public.subscription_plans(id),
+  provider text not null default 'mercadopago',
+  provider_subscription_id text not null,
+  provider_payer_email text,
+  status text not null default 'pending'
+    check (status in ('pending', 'authorized', 'paused', 'cancelled')),
+  current_period_end date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (provider, provider_subscription_id)
+);
+
+drop trigger if exists touch_company_subscriptions_updated_at on public.company_subscriptions;
+create trigger touch_company_subscriptions_updated_at
+  before update on public.company_subscriptions
+  for each row execute function public.touch_updated_at();
+
+grant select on public.company_subscriptions to authenticated;
+grant all on public.company_subscriptions to service_role;
+alter table public.company_subscriptions enable row level security;
+
+drop policy if exists "company_subscriptions select scoped" on public.company_subscriptions;
+create policy "company_subscriptions select scoped" on public.company_subscriptions
+  for select to authenticated
+  using (public.can_select_company(company_id, false));
+
+-- Bitácora de cada webhook de Mercado Pago recibido -- permite depurar y,
+-- sobre todo, no procesar dos veces el mismo evento (idempotencia).
+create table if not exists public.company_subscription_events (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid references public.companies(id) on delete set null,
+  provider text not null default 'mercadopago',
+  provider_event_type text not null,
+  provider_resource_id text not null,
+  raw_payload jsonb not null default '{}'::jsonb,
+  processed_at timestamptz,
+  created_at timestamptz not null default now(),
+  unique (provider, provider_event_type, provider_resource_id)
+);
+create index if not exists company_subscription_events_company_idx
+  on public.company_subscription_events(company_id, created_at desc);
+
+grant select on public.company_subscription_events to authenticated;
+grant all on public.company_subscription_events to service_role;
+alter table public.company_subscription_events enable row level security;
+
+drop policy if exists "company_subscription_events select scoped" on public.company_subscription_events;
+create policy "company_subscription_events select scoped" on public.company_subscription_events
+  for select to authenticated
+  using (company_id is not null and public.can_select_company(company_id, false));
