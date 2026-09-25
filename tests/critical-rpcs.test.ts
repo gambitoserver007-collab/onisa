@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import {
+  asAnon,
   asUser,
   authorizeCashSession,
   createSale,
@@ -8089,6 +8090,57 @@ describe("RPCs críticas de dinero y stock", () => {
                (company_id, provider_event_type, provider_resource_id)
              values ($1,'subscription_preapproval','evt-2')`,
             [company.id],
+          ),
+        ),
+      ).rejects.toThrow();
+    });
+  });
+
+  describe("42. Lectura pública de subscription_plans (sin sesión, para la landing)", () => {
+    it("un visitante sin sesión puede leer los planes activos y no-demo", async () => {
+      const plan = await makePlan(db, "Plan Landing Público", 100, 2, 200);
+
+      const { rows } = await asAnon(db, () =>
+        db.query<{ id: string; name: string }>(
+          "select id, name from public.subscription_plans where id=$1",
+          [plan],
+        ),
+      );
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0].name).toBe("Plan Landing Público");
+    });
+
+    it("un visitante sin sesión NO ve planes inactivos ni de datos demo", async () => {
+      const inactive = await makePlan(db, "Plan Inactivo", 100, 2, 200);
+      await db.query(
+        "update public.subscription_plans set is_active=false where id=$1",
+        [inactive],
+      );
+      const demo = await makePlan(db, "Plan Demo", 100, 2, 200);
+      await db.query(
+        "update public.subscription_plans set is_demo_data=true where id=$1",
+        [demo],
+      );
+
+      const { rows } = await asAnon(db, () =>
+        db.query<{ id: string }>(
+          "select id from public.subscription_plans where id in ($1,$2)",
+          [inactive, demo],
+        ),
+      );
+
+      expect(rows).toHaveLength(0);
+    });
+
+    it("un visitante sin sesión no puede insertar/editar planes", async () => {
+      const plan = await makePlan(db, "Plan Landing Escritura", 100, 2, 200);
+
+      await expect(
+        asAnon(db, () =>
+          db.query(
+            "update public.subscription_plans set price=999 where id=$1",
+            [plan],
           ),
         ),
       ).rejects.toThrow();

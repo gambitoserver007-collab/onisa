@@ -1,6 +1,46 @@
 import { useEffect, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import landingHtml from "./landing.html?raw";
+import { fetchPlans, type SubscriptionPlan } from "@/services/appData";
+
+const UNLIMITED = 1_000_000;
+const formatCount = (n: number) =>
+  n >= UNLIMITED ? "Ilimitado" : n.toLocaleString("es");
+
+const formatPrice = (price: number) =>
+  `$${price.toLocaleString("es-MX", {
+    minimumFractionDigits: price % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`;
+
+const limitsText = (plan: SubscriptionPlan) =>
+  `${formatCount(plan.productLimit)} productos, ${formatCount(plan.userLimit)} ${
+    plan.userLimit === 1 ? "usuario" : "usuarios"
+  } y ${formatCount(plan.salesLimit)} ventas/mes`;
+
+// Sustituye los precios/límites de respaldo (fijos en el HTML) por los
+// reales de subscription_plans, en el mismo orden (precio ascendente) en
+// que ya vienen las tarjetas estáticas. Si algo falla o no hay datos, se
+// deja el respaldo tal cual -- por eso nunca se lanza el error hacia afuera.
+function applyRealPlanPrices(root: HTMLElement, plans: SubscriptionPlan[]) {
+  const cards = root.querySelectorAll<HTMLElement>("#planes .plan");
+
+  plans.slice(0, cards.length).forEach((plan, i) => {
+    const card = cards[i];
+    const nameEl = card.querySelector("h3");
+    const priceEl = card.querySelector(".price");
+    const limitsEl = card.querySelector("ul li:first-child");
+
+    if (nameEl) nameEl.textContent = plan.name;
+    if (priceEl)
+      priceEl.innerHTML = `${formatPrice(plan.price)}<small>/mes</small>`;
+
+    if (limitsEl) {
+      const iconHtml = limitsEl.querySelector("svg")?.outerHTML ?? "";
+      limitsEl.innerHTML = `${iconHtml} ${limitsText(plan)}`;
+    }
+  });
+}
 
 /**
  * Página de ventas (landing) de Onisa.
@@ -81,6 +121,23 @@ export function LandingPage() {
 
     root.addEventListener("click", onClick);
     cleanups.push(() => root.removeEventListener("click", onClick));
+
+    // Precios reales: la landing arranca con los de respaldo (fijos en el
+    // HTML) y, si el fetch a subscription_plans llega a tiempo, los
+    // reemplaza -- así nunca se desincroniza de lo que se configura en
+    // /admin/planes.
+    let cancelled = false;
+
+    void fetchPlans()
+      .then((plans) => {
+        if (!cancelled) applyRealPlanPrices(root, plans);
+      })
+      .catch(() => {
+        // Sin conexión o error: se queda con los precios de respaldo.
+      });
+    cleanups.push(() => {
+      cancelled = true;
+    });
 
     return () => cleanups.forEach((fn) => fn());
   }, []);

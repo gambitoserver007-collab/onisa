@@ -82,6 +82,16 @@ export async function asUser<T>(
   }
 }
 
+export async function asAnon<T>(db: PGlite, fn: () => Promise<T>): Promise<T> {
+  await db.exec(`set role anon;`);
+
+  try {
+    return await fn();
+  } finally {
+    await db.exec(`reset role;`);
+  }
+}
+
 export interface TestCompany {
   id: string;
   loc1: string;

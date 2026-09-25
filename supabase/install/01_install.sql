@@ -845,6 +845,13 @@ drop policy if exists "plans select authenticated" on public.subscription_plans;
 create policy "plans select authenticated" on public.subscription_plans for select to authenticated
 using (case when public.current_user_is_demo() and public.current_user_role() = 'admin'::public.app_role then is_demo_data else true end);
 
+-- Lectura pública (sin sesión) de los planes activos, para que la landing
+-- muestre los mismos precios/límites reales que /admin/planes -- ninguna
+-- columna de esta tabla es sensible (nombre, precio, límites, is_active).
+drop policy if exists "plans select public" on public.subscription_plans;
+create policy "plans select public" on public.subscription_plans for select to anon
+using (is_active = true and is_demo_data = false);
+
 drop policy if exists "companies select scoped" on public.companies;
 create policy "companies select scoped" on public.companies for select to authenticated
 using (public.can_select_company(id, is_demo_data));
@@ -944,7 +951,7 @@ create trigger prevent_demo_returns_write before insert or update or delete on p
 
 -- GRANTs requeridos por Supabase Data API (PostgREST)
 grant usage on schema public to anon, authenticated, service_role;
-grant select on public.subscription_plans to authenticated;
+grant select on public.subscription_plans to authenticated, anon;
 grant all on public.subscription_plans to service_role;
 grant select, insert, update, delete on public.companies to authenticated;
 grant all on public.companies to service_role;
