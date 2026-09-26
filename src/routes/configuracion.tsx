@@ -58,6 +58,18 @@ export const Route = createFileRoute("/configuracion")({
   component: Configuracion,
 });
 
+// Sugerencia de link a partir del nombre del negocio -- nunca se guarda
+// sola, el admin siempre puede cambiarla antes de activar el catálogo.
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+}
+
 function Configuracion() {
   const { settings } = useBusinessSettings();
   const { isDemo, session, isReady } = useDemoSession();
@@ -138,7 +150,10 @@ function Configuracion() {
       .then((data) => {
         if (!active) return;
         setCatalogEnabled(data.enabled);
-        setCatalogSlug(data.slug ?? "");
+        // Si nunca se ha activado (sin slug guardado), se sugiere uno a
+        // partir del nombre del negocio -- el admin lo puede cambiar antes
+        // de guardar, nunca se guarda solo.
+        setCatalogSlug(data.slug ?? slugify(settings.businessName));
         setCatalogSavedSlug(data.slug);
       })
       .catch(() => {
@@ -148,6 +163,7 @@ function Configuracion() {
     return () => {
       active = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReady, session?.companyId]);
 
   const { activeMethods, addCustom, catalog, setStoreActive } =
@@ -405,6 +421,12 @@ function Configuracion() {
   const handleCatalogSave = async (nextEnabled: boolean) => {
     if (isDemo) {
       blockDemoAction();
+
+      return;
+    }
+
+    if (nextEnabled && !catalogSlug.trim()) {
+      toast.error("Escribe un link para tu catálogo antes de activarlo.");
 
       return;
     }
@@ -807,49 +829,47 @@ function Configuracion() {
                 onCheckedChange={(next) => void handleCatalogSave(next)}
               />
             </div>
-            {catalogEnabled && (
-              <div className="space-y-1">
-                <Label>Link de tu catálogo</Label>
-                <div className="flex gap-2">
-                  <Input
-                    value={catalogSlug}
-                    onChange={(event) =>
-                      setCatalogSlug(
-                        event.target.value
-                          .toLowerCase()
-                          .replace(/[^a-z0-9-]/g, "-"),
-                      )
-                    }
-                    placeholder="mi-tienda"
-                  />
+            <div className="space-y-1">
+              <Label>Link de tu catálogo</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={catalogSlug}
+                  onChange={(event) =>
+                    setCatalogSlug(
+                      event.target.value
+                        .toLowerCase()
+                        .replace(/[^a-z0-9-]/g, "-"),
+                    )
+                  }
+                  placeholder="mi-tienda"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={catalogSaving || !catalogSlug.trim()}
+                  onClick={() => void handleCatalogSave(true)}
+                >
+                  {catalogEnabled ? "Guardar" : "Activar"}
+                </Button>
+              </div>
+              {catalogUrl && (
+                <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs">
+                  <span className="truncate">{catalogUrl}</span>
                   <Button
                     type="button"
-                    variant="outline"
-                    disabled={catalogSaving || !catalogSlug.trim()}
-                    onClick={() => void handleCatalogSave(true)}
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void handleCopyCatalogUrl()}
                   >
-                    Guardar
+                    Copiar
                   </Button>
                 </div>
-                {catalogUrl && (
-                  <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs">
-                    <span className="truncate">{catalogUrl}</span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => void handleCopyCatalogUrl()}
-                    >
-                      Copiar
-                    </Button>
-                  </div>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  Minúsculas, números y guiones. Cada producto se puede ocultar
-                  del catálogo desde su ficha en Productos.
-                </p>
-              </div>
-            )}
+              )}
+              <p className="text-xs text-muted-foreground">
+                Minúsculas, números y guiones. Cada producto se puede ocultar
+                del catálogo desde su ficha en Productos.
+              </p>
+            </div>
           </CardContent>
         </Card>
         <Card className="shadow-card">
