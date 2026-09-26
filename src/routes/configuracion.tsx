@@ -16,6 +16,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,6 +50,8 @@ import {
   fetchTeam,
   deleteTeamUser,
   resetCompanyData,
+  fetchOnlineCatalogSettings,
+  setOnlineCatalog,
 } from "@/services/appData";
 
 export const Route = createFileRoute("/configuracion")({
@@ -121,6 +124,31 @@ function Configuracion() {
   const [customPaymentMethod, setCustomPaymentMethod] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const selectedMarket = getMarketByCountryCode(countryCode);
+
+  const [catalogEnabled, setCatalogEnabled] = useState(false);
+  const [catalogSlug, setCatalogSlug] = useState("");
+  const [catalogSavedSlug, setCatalogSavedSlug] = useState<string | null>(null);
+  const [catalogSaving, setCatalogSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isReady || !session?.companyId) return;
+    let active = true;
+
+    void fetchOnlineCatalogSettings(session.companyId)
+      .then((data) => {
+        if (!active) return;
+        setCatalogEnabled(data.enabled);
+        setCatalogSlug(data.slug ?? "");
+        setCatalogSavedSlug(data.slug);
+      })
+      .catch(() => {
+        /* keep defaults on error */
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isReady, session?.companyId]);
 
   const { activeMethods, addCustom, catalog, setStoreActive } =
     usePaymentMethods(countryCode);
@@ -371,6 +399,50 @@ function Configuracion() {
       );
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleCatalogSave = async (nextEnabled: boolean) => {
+    if (isDemo) {
+      blockDemoAction();
+
+      return;
+    }
+
+    setCatalogSaving(true);
+
+    try {
+      const savedSlug = await setOnlineCatalog(nextEnabled, catalogSlug);
+      setCatalogEnabled(nextEnabled);
+      setCatalogSavedSlug(savedSlug);
+      if (savedSlug) setCatalogSlug(savedSlug);
+      toast.success(
+        nextEnabled
+          ? "Catálogo en línea activado."
+          : "Catálogo en línea desactivado.",
+      );
+    } catch (error) {
+      toast.error(
+        getErrorMessage(error, "No se pudo guardar el catálogo en línea."),
+      );
+    } finally {
+      setCatalogSaving(false);
+    }
+  };
+
+  const catalogUrl =
+    catalogEnabled && catalogSavedSlug
+      ? `${window.location.origin}/tienda/${catalogSavedSlug}`
+      : null;
+
+  const handleCopyCatalogUrl = async () => {
+    if (!catalogUrl) return;
+
+    try {
+      await navigator.clipboard.writeText(catalogUrl);
+      toast.success("Link copiado.");
+    } catch {
+      toast.error("No se pudo copiar el link.");
     }
   };
 
@@ -711,6 +783,73 @@ function Configuracion() {
             >
               {isSaving ? "Guardando..." : "Guardar cambios"}
             </DemoGuardedButton>
+          </CardContent>
+        </Card>
+        <Card className="shadow-card">
+          <CardHeader>
+            <CardTitle className="text-base">Catálogo en línea</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between gap-3 rounded border p-3">
+              <div>
+                <p className="text-sm font-medium">
+                  Cotizaciones desde una página pública
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Cualquier visitante ve tus productos activos y manda una
+                  lista, sin crear cuenta. Tú la revisas después en “Solicitudes
+                  en línea”, con precio y stock del momento.
+                </p>
+              </div>
+              <Switch
+                checked={catalogEnabled}
+                disabled={catalogSaving}
+                onCheckedChange={(next) => void handleCatalogSave(next)}
+              />
+            </div>
+            {catalogEnabled && (
+              <div className="space-y-1">
+                <Label>Link de tu catálogo</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={catalogSlug}
+                    onChange={(event) =>
+                      setCatalogSlug(
+                        event.target.value
+                          .toLowerCase()
+                          .replace(/[^a-z0-9-]/g, "-"),
+                      )
+                    }
+                    placeholder="mi-tienda"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={catalogSaving || !catalogSlug.trim()}
+                    onClick={() => void handleCatalogSave(true)}
+                  >
+                    Guardar
+                  </Button>
+                </div>
+                {catalogUrl && (
+                  <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs">
+                    <span className="truncate">{catalogUrl}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void handleCopyCatalogUrl()}
+                    >
+                      Copiar
+                    </Button>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Minúsculas, números y guiones. Cada producto se puede ocultar
+                  del catálogo desde su ficha en Productos.
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
         <Card className="shadow-card">

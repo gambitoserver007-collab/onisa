@@ -315,8 +315,10 @@ export type Database = {
           loyalty_tier3_min_spend: number;
           loyalty_tiers_enabled: boolean;
           name: string;
+          online_catalog_enabled: boolean;
           phone: string | null;
           plan_id: string | null;
+          slug: string | null;
           subscription_status: string;
           tax_name: string;
           tax_rate: number;
@@ -351,8 +353,10 @@ export type Database = {
           loyalty_tier3_min_spend?: number;
           loyalty_tiers_enabled?: boolean;
           name: string;
+          online_catalog_enabled?: boolean;
           phone?: string | null;
           plan_id?: string | null;
+          slug?: string | null;
           subscription_status?: string;
           tax_name?: string;
           tax_rate?: number;
@@ -387,8 +391,10 @@ export type Database = {
           loyalty_tier3_min_spend?: number;
           loyalty_tiers_enabled?: boolean;
           name?: string;
+          online_catalog_enabled?: boolean;
           phone?: string | null;
           plan_id?: string | null;
+          slug?: string | null;
           subscription_status?: string;
           tax_name?: string;
           tax_rate?: number;
@@ -988,6 +994,115 @@ export type Database = {
             columns: ["registered_by"];
             isOneToOne: false;
             referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      quote_requests: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          customer_name: string;
+          email: string | null;
+          id: string;
+          notes: string | null;
+          phone: string | null;
+          resolved_at: string | null;
+          resolved_by: string | null;
+          resolved_quote_id: string | null;
+          status: string;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          customer_name: string;
+          email?: string | null;
+          id?: string;
+          notes?: string | null;
+          phone?: string | null;
+          resolved_at?: string | null;
+          resolved_by?: string | null;
+          resolved_quote_id?: string | null;
+          status?: string;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          customer_name?: string;
+          email?: string | null;
+          id?: string;
+          notes?: string | null;
+          phone?: string | null;
+          resolved_at?: string | null;
+          resolved_by?: string | null;
+          resolved_quote_id?: string | null;
+          status?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "quote_requests_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "quote_requests_resolved_quote_id_fkey";
+            columns: ["resolved_quote_id"];
+            isOneToOne: false;
+            referencedRelation: "quotes";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "quote_requests_resolved_by_fkey";
+            columns: ["resolved_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      quote_request_items: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          id: string;
+          product_id: string | null;
+          product_name: string;
+          quote_request_id: string;
+          qty: number;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          id?: string;
+          product_id?: string | null;
+          product_name: string;
+          quote_request_id: string;
+          qty: number;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          id?: string;
+          product_id?: string | null;
+          product_name?: string;
+          quote_request_id?: string;
+          qty?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "quote_request_items_quote_request_id_fkey";
+            columns: ["quote_request_id"];
+            isOneToOne: false;
+            referencedRelation: "quote_requests";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "quote_request_items_product_id_fkey";
+            columns: ["product_id"];
+            isOneToOne: false;
+            referencedRelation: "products";
             referencedColumns: ["id"];
           },
         ];
@@ -1662,11 +1777,13 @@ export type Database = {
           id: string;
           image_url: string | null;
           is_demo_data: boolean;
+          is_public_available: boolean;
           low_stock_threshold: number | null;
           name: string;
           price: number;
           price_includes_tax: boolean;
           product_type: string;
+          show_online: boolean;
           sku: string | null;
           stock: number;
           supplier_id: string | null;
@@ -1691,6 +1808,7 @@ export type Database = {
           price?: number;
           price_includes_tax?: boolean;
           product_type?: string;
+          show_online?: boolean;
           sku?: string | null;
           stock?: number;
           supplier_id?: string | null;
@@ -1715,6 +1833,7 @@ export type Database = {
           price?: number;
           price_includes_tax?: boolean;
           product_type?: string;
+          show_online?: boolean;
           sku?: string | null;
           stock?: number;
           supplier_id?: string | null;
@@ -3293,6 +3412,18 @@ export type Database = {
       };
       reject_quote: {
         Args: { p_quote_id: string };
+        Returns: undefined;
+      };
+      set_online_catalog: {
+        Args: { p_enabled: boolean; p_slug?: string };
+        Returns: string;
+      };
+      resolve_quote_request: {
+        Args: { p_request_id: string; p_quote_id: string };
+        Returns: undefined;
+      };
+      discard_quote_request: {
+        Args: { p_request_id: string };
         Returns: undefined;
       };
       convert_quote_to_sale: {

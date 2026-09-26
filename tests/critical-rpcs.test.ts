@@ -8146,4 +8146,259 @@ describe("RPCs críticas de dinero y stock", () => {
       ).rejects.toThrow();
     });
   });
+
+  describe("43. Catálogo público y solicitudes de cotización en línea", () => {
+    async function enableCatalog(
+      companyId: string,
+      slug: string,
+    ): Promise<void> {
+      await db.query(
+        "update public.companies set online_catalog_enabled=true, slug=$2 where id=$1",
+        [companyId, slug],
+      );
+    }
+
+    it("un visitante sin sesión lee una empresa con catálogo activado por su slug", async () => {
+      const company = await makeCompany(db, "Papelería Pública");
+      await enableCatalog(company.id, "papeleria-publica");
+
+      const { rows } = await asAnon(db, () =>
+        db.query<{ id: string; name: string }>(
+          "select id, name from public.companies where slug=$1",
+          ["papeleria-publica"],
+        ),
+      );
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe(company.id);
+    });
+
+    it("un visitante sin sesión NO ve una empresa con el catálogo desactivado", async () => {
+      const company = await makeCompany(db, "Papelería Privada");
+      await db.query(
+        "update public.companies set slug=$2, online_catalog_enabled=false where id=$1",
+        [company.id, "papeleria-privada"],
+      );
+
+      const { rows } = await asAnon(db, () =>
+        db.query("select id from public.companies where slug=$1", [
+          "papeleria-privada",
+        ]),
+      );
+
+      expect(rows).toHaveLength(0);
+    });
+
+    it("el catálogo público solo trae productos show_online/active de una empresa con el catálogo activado", async () => {
+      const company = await makeCompany(db, "Empresa Catálogo");
+      await enableCatalog(company.id, "empresa-catalogo");
+      const visible = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Cuaderno",
+        10,
+        20,
+        5,
+      );
+      const hidden = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Oculto",
+        10,
+        20,
+        5,
+      );
+      await db.query(
+        "update public.products set show_online=false where id=$1",
+        [hidden],
+      );
+      const inactive = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Inactivo",
+        10,
+        20,
+        5,
+      );
+      await db.query("update public.products set active=false where id=$1", [
+        inactive,
+      ]);
+
+      const { rows } = await asAnon(db, () =>
+        db.query<{ id: string }>(
+          "select id from public.products where company_id=$1",
+          [company.id],
+        ),
+      );
+
+      expect(rows.map((r) => r.id)).toEqual([visible]);
+    });
+
+    it("el catálogo público NO expone cost ni stock (solo columnas otorgadas a anon)", async () => {
+      const company = await makeCompany(db, "Empresa Columnas");
+      await enableCatalog(company.id, "empresa-columnas");
+      await makeProduct(db, company.id, company.loc1, "Lápiz", 5, 10, 3);
+
+      await expect(
+        asAnon(db, () =>
+          db.query("select cost from public.products where company_id=$1", [
+            company.id,
+          ]),
+        ),
+      ).rejects.toThrow();
+
+      await expect(
+        asAnon(db, () =>
+          db.query("select stock from public.products where company_id=$1", [
+            company.id,
+          ]),
+        ),
+      ).rejects.toThrow();
+    });
+
+    it("un visitante sin sesión no puede insertar directo en quote_requests", async () => {
+      const company = await makeCompany(db, "Empresa Inserción Anon");
+      await enableCatalog(company.id, "empresa-insercion-anon");
+
+      await expect(
+        asAnon(db, () =>
+          db.query(
+            "insert into public.quote_requests (company_id, customer_name) values ($1,'Cliente')",
+            [company.id],
+          ),
+        ),
+      ).rejects.toThrow();
+    });
+
+    it("set_online_catalog: solo el admin de la empresa lo activa, con slug válido y único", async () => {
+      const company = await makeCompany(db, "Empresa Slug");
+      const admin = await makeUser(db, company.id, "admin");
+      const cajero = await makeUser(db, company.id, "user");
+
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{ set_online_catalog: string }>(
+          "select public.set_online_catalog(true, 'empresa-slug-valido') as set_online_catalog",
+        ),
+      );
+      expect(rows[0].set_online_catalog).toBe("empresa-slug-valido");
+
+      await expect(
+        asUser(db, cajero, () =>
+          db.query("select public.set_online_catalog(true, 'otro-slug') as x"),
+        ),
+      ).rejects.toThrow();
+
+      await expect(
+        asUser(db, admin, () =>
+          db.query("select public.set_online_catalog(true, 'AB') as x"),
+        ),
+      ).rejects.toThrow();
+
+      const other = await makeCompany(db, "Empresa Slug Otra");
+      const otherAdmin = await makeUser(db, other.id, "admin");
+      await expect(
+        asUser(db, otherAdmin, () =>
+          db.query(
+            "select public.set_online_catalog(true, 'empresa-slug-valido') as x",
+          ),
+        ),
+      ).rejects.toThrow();
+    });
+
+    it("staff de la empresa ve sus quote_requests, no las de otra empresa", async () => {
+      const companyA = await makeCompany(db, "Empresa Solicitudes A");
+      const companyB = await makeCompany(db, "Empresa Solicitudes B");
+      const adminA = await makeUser(db, companyA.id, "admin");
+      const adminB = await makeUser(db, companyB.id, "admin");
+      await db.query(
+        "insert into public.quote_requests (company_id, customer_name, phone) values ($1,'Cliente A','555')",
+        [companyA.id],
+      );
+
+      const { rows: rowsA } = await asUser(db, adminA, () =>
+        db.query("select id from public.quote_requests where company_id=$1", [
+          companyA.id,
+        ]),
+      );
+      expect(rowsA).toHaveLength(1);
+
+      const { rows: rowsB } = await asUser(db, adminB, () =>
+        db.query("select id from public.quote_requests where company_id=$1", [
+          companyA.id,
+        ]),
+      );
+      expect(rowsB).toHaveLength(0);
+    });
+
+    it("resolve_quote_request amarra la solicitud a la cotización y ya no se puede volver a resolver", async () => {
+      const company = await makeCompany(db, "Empresa Resolver");
+      const admin = await makeUser(db, company.id, "admin");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Resolver",
+        5,
+        10,
+        20,
+      );
+      const { rows: reqRows } = await db.query<{ id: string }>(
+        "insert into public.quote_requests (company_id, customer_name) values ($1,'Cliente') returning id",
+        [company.id],
+      );
+      const requestId = reqRows[0].id;
+
+      const { rows: quoteRows } = await asUser(db, admin, () =>
+        db.query<{ create_quote: { quote_id: string } }>(
+          `select create_quote($1::jsonb) as create_quote`,
+          [JSON.stringify([{ product_id: product, qty: 1 }])],
+        ),
+      );
+      const quoteId = quoteRows[0].create_quote.quote_id;
+
+      await asUser(db, admin, () =>
+        db.query("select public.resolve_quote_request($1, $2)", [
+          requestId,
+          quoteId,
+        ]),
+      );
+
+      const { rows: after } = await db.query<{
+        status: string;
+        resolved_quote_id: string;
+      }>(
+        "select status, resolved_quote_id from public.quote_requests where id=$1",
+        [requestId],
+      );
+      expect(after[0].status).toBe("atendida");
+      expect(after[0].resolved_quote_id).toBe(quoteId);
+
+      await expect(
+        asUser(db, admin, () =>
+          db.query("select public.resolve_quote_request($1, $2)", [
+            requestId,
+            quoteId,
+          ]),
+        ),
+      ).rejects.toThrow();
+    });
+
+    it("discard_quote_request respeta el rol (operador no tiene acceso a cotizaciones)", async () => {
+      const company = await makeCompany(db, "Empresa Descartar");
+      const operador = await makeUser(db, company.id, "operador");
+      const { rows: reqRows } = await db.query<{ id: string }>(
+        "insert into public.quote_requests (company_id, customer_name) values ($1,'Cliente') returning id",
+        [company.id],
+      );
+
+      await expect(
+        asUser(db, operador, () =>
+          db.query("select public.discard_quote_request($1)", [reqRows[0].id]),
+        ),
+      ).rejects.toThrow();
+    });
+  });
 });

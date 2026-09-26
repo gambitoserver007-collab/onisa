@@ -11400,3 +11400,231 @@ drop policy if exists "company_subscription_events select scoped" on public.comp
 create policy "company_subscription_events select scoped" on public.company_subscription_events
   for select to authenticated
   using (company_id is not null and public.can_select_company(company_id, false));
+
+-- ============================================================
+-- Catálogo público + solicitudes de cotización en línea. Cualquier
+-- visitante SIN sesión (rol `anon`) puede ver el catálogo de una empresa
+-- que haya activado esto y mandar una lista como "solicitud" -- nunca un
+-- precio comprometido ni una venta real, solo algo que el staff revisa
+-- después con create_quote() (ya existente). Principio de todo este
+-- bloque: la ruta pública jamás comparte columnas sensibles (cost,
+-- stock exacto, proveedor) con el resto del sistema -- por eso son GRANTs
+-- de columna específica a `anon`, nunca `grant select on tabla to anon`
+-- a secas (RLS es por fila, no por columna).
+-- ============================================================
+
+alter table public.companies add column if not exists slug text;
+alter table public.companies add column if not exists online_catalog_enabled boolean not null default false;
+create unique index if not exists companies_slug_unique on public.companies (lower(slug)) where slug is not null;
+
+alter table public.products add column if not exists show_online boolean not null default true;
+alter table public.products add column if not exists is_public_available boolean
+  generated always as (stock > 0) stored;
+
+create index if not exists products_public_catalog_idx on public.products (company_id)
+  where show_online and active and deleted_at is null;
+
+-- online_catalog_enabled se otorga también -- no es sensible (es un
+-- interruptor booleano) y así las políticas de products/categories de
+-- abajo pueden evaluar su EXISTS(...) sin depender de si el rol que
+-- ejecuta la consulta tiene permiso de columna sobre ella.
+grant select (id, name, slug, locale, currency_code, online_catalog_enabled) on public.companies to anon;
+drop policy if exists "companies select public catalog" on public.companies;
+create policy "companies select public catalog" on public.companies for select to anon
+  using (online_catalog_enabled = true and slug is not null);
+
+-- active/deleted_at también se otorgan (no son sensibles) por la misma
+-- razón: el USING de la política los necesita evaluables para el rol anon.
+grant select (
+  id, company_id, category_id, name, price, image_url, unit, is_public_available,
+  show_online, active, deleted_at
+) on public.products to anon;
+drop policy if exists "products select public catalog" on public.products;
+create policy "products select public catalog" on public.products for select to anon
+  using (
+    show_online and active and deleted_at is null
+    and exists (
+      select 1 from public.companies c
+      where c.id = company_id and c.online_catalog_enabled = true
+    )
+  );
+
+grant select (id, company_id, name) on public.categories to anon;
+drop policy if exists "categories select public catalog" on public.categories;
+create policy "categories select public catalog" on public.categories for select to anon
+  using (
+    exists (
+      select 1 from public.companies c
+      where c.id = company_id and c.online_catalog_enabled = true
+    )
+  );
+
+-- quote_requests / quote_request_items: lo que un visitante público manda.
+-- Sin precios (el precio real solo existe hasta que el staff lo revisa) y
+-- sin columna is_demo_data -- estas filas siempre vienen de un visitante
+-- real vía la Edge Function create-quote-request, nunca del modo Prueba.
+create table if not exists public.quote_requests (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  customer_name text not null,
+  phone text,
+  email text,
+  notes text,
+  status text not null default 'nueva'
+    check (status in ('nueva', 'atendida', 'descartada')),
+  resolved_quote_id uuid references public.quotes(id) on delete set null,
+  resolved_by uuid references public.profiles(id) on delete set null,
+  resolved_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.quote_request_items (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  quote_request_id uuid not null references public.quote_requests(id) on delete cascade,
+  product_id uuid references public.products(id) on delete set null,
+  product_name text not null,
+  qty numeric(12,3) not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists quote_requests_company_idx
+  on public.quote_requests (company_id, status, created_at desc);
+create index if not exists quote_request_items_request_idx
+  on public.quote_request_items (quote_request_id);
+
+alter table public.quote_requests enable row level security;
+alter table public.quote_request_items enable row level security;
+
+drop policy if exists "quote_requests select scoped" on public.quote_requests;
+create policy "quote_requests select scoped" on public.quote_requests for select to authenticated
+  using (public.can_select_company(company_id, false));
+
+drop policy if exists "quote_request_items select scoped" on public.quote_request_items;
+create policy "quote_request_items select scoped" on public.quote_request_items for select to authenticated
+  using (public.can_select_company(company_id, false));
+
+grant select on public.quote_requests to authenticated;
+grant select on public.quote_request_items to authenticated;
+grant all on public.quote_requests to service_role;
+grant all on public.quote_request_items to service_role;
+
+-- Enciende/apaga el catálogo público y (re)asigna el slug -- solo el admin
+-- de la empresa, mismo criterio que can_admin_company (empresa activa/en
+-- prueba, no Modo de Prueba). Server-side para evitar condiciones de
+-- carrera en la unicidad del slug (dos pestañas guardando a la vez).
+create or replace function public.set_online_catalog(p_enabled boolean, p_slug text default null)
+returns text
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_slug text;
+begin
+  v_company_id := public.current_user_company_id();
+  if not public.can_admin_company(v_company_id) then
+    raise exception 'Solo el administrador de la empresa puede cambiar esto.';
+  end if;
+
+  if p_enabled then
+    v_slug := lower(btrim(coalesce(p_slug, '')));
+    if v_slug !~ '^[a-z0-9]([a-z0-9-]{1,38}[a-z0-9])?$' then
+      raise exception 'El link debe tener entre 3 y 40 caracteres: minusculas, numeros y guiones.';
+    end if;
+    if exists (
+      select 1 from public.companies
+      where lower(slug) = v_slug and id <> v_company_id
+    ) then
+      raise exception 'Ese link ya lo esta usando otra tienda, elige otro.';
+    end if;
+    update public.companies set slug = v_slug, online_catalog_enabled = true where id = v_company_id;
+  else
+    update public.companies set online_catalog_enabled = false where id = v_company_id;
+    select slug into v_slug from public.companies where id = v_company_id;
+  end if;
+
+  perform public.log_audit(v_company_id, 'company', v_company_id, 'online_catalog_toggled',
+    jsonb_build_object('enabled', p_enabled, 'slug', v_slug));
+
+  return v_slug;
+end;
+$$;
+
+revoke execute on function public.set_online_catalog(boolean, text) from public, anon;
+grant execute on function public.set_online_catalog(boolean, text) to authenticated;
+
+-- Convierte una solicitud pública en cotización formal: el staff ya llamó
+-- create_quote() con precios/stock de HOY (los de la solicitud eran solo
+-- una lista de deseos, nunca un precio prometido), esta función solo
+-- amarra la solicitud ya atendida a la cotización resultante.
+create or replace function public.resolve_quote_request(p_request_id uuid, p_quote_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_role public.app_role;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+  v_company_id := public.current_user_company_id();
+  v_role := public.current_user_role();
+  if v_role not in ('admin', 'finanzas', 'user') then
+    raise exception 'No tienes permiso para atender solicitudes de cotizacion.';
+  end if;
+
+  perform 1 from public.quotes where id = p_quote_id and company_id = v_company_id;
+  if not found then raise exception 'Cotizacion invalida.'; end if;
+
+  update public.quote_requests
+    set status = 'atendida', resolved_quote_id = p_quote_id, resolved_by = auth.uid(), resolved_at = now()
+  where id = p_request_id and company_id = v_company_id and status = 'nueva';
+  if not found then raise exception 'La solicitud no existe o ya fue atendida.'; end if;
+
+  perform public.log_audit(v_company_id, 'quote_request', p_request_id, 'resolved',
+    jsonb_build_object('quote_id', p_quote_id));
+end;
+$$;
+
+revoke execute on function public.resolve_quote_request(uuid, uuid) from public, anon;
+grant execute on function public.resolve_quote_request(uuid, uuid) to authenticated;
+
+-- Descarta una solicitud pública sin convertirla (ej. spam, o el cliente
+-- ya no responde). No toca stock ni dinero -- nunca los tocó.
+create or replace function public.discard_quote_request(p_request_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_company_id uuid;
+  v_role public.app_role;
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_is_demo() then
+    raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
+  end if;
+  v_company_id := public.current_user_company_id();
+  v_role := public.current_user_role();
+  if v_role not in ('admin', 'finanzas', 'user') then
+    raise exception 'No tienes permiso para atender solicitudes de cotizacion.';
+  end if;
+
+  update public.quote_requests
+    set status = 'descartada', resolved_by = auth.uid(), resolved_at = now()
+  where id = p_request_id and company_id = v_company_id and status = 'nueva';
+  if not found then raise exception 'La solicitud no existe o ya fue atendida.'; end if;
+
+  perform public.log_audit(v_company_id, 'quote_request', p_request_id, 'discarded', '{}'::jsonb);
+end;
+$$;
+
+revoke execute on function public.discard_quote_request(uuid) from public, anon;
+grant execute on function public.discard_quote_request(uuid) to authenticated;

@@ -40,6 +40,7 @@ import {
   AlertTriangle,
   History,
   CalendarDays,
+  Inbox,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logout } from "@/lib/demoAuth";
@@ -91,6 +92,11 @@ const sections: { title: string; items: Item[] }[] = [
     items: [
       { to: "/ventas", label: "Ventas", icon: Receipt },
       { to: "/cotizaciones", label: "Cotizaciones", icon: FileText },
+      {
+        to: "/cotizaciones/solicitudes",
+        label: "Solicitudes en línea",
+        icon: Inbox,
+      },
       { to: "/apartados", label: "Apartados", icon: PackageCheck },
       { to: "/caja", label: "Caja", icon: Wallet },
       { to: "/mermas", label: "Mermas", icon: PackageX },

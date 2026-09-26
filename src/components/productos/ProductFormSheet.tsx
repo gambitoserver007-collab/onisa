@@ -139,6 +139,7 @@ export function ProductFormSheet({
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [priceIncludesTax, setPriceIncludesTax] = useState(true);
   const [lowStockThreshold, setLowStockThreshold] = useState("");
+  const [showOnline, setShowOnline] = useState(true);
   const barcodeRef = useRef<HTMLInputElement>(null);
   // Stock por punto de venta (multi-local).
   const [locations, setLocations] = useState<Location[]>([]);
@@ -241,6 +242,7 @@ export function ProductFormSheet({
     setImageUrl(null);
     setPriceIncludesTax(true);
     setLowStockThreshold("");
+    setShowOnline(true);
     initLocStock(null);
     setHasVariants(false);
     setAttrDefs([]);
@@ -290,6 +292,7 @@ export function ProductFormSheet({
           ? String(product.lowStockThreshold)
           : "",
       );
+      setShowOnline(product.showOnline ?? true);
       // Carga el stock por local que ya tiene el producto.
       setLocStockLoading(true);
       initLocStock(null);
@@ -532,6 +535,7 @@ export function ProductFormSheet({
         priceIncludesTax,
         imageUrl,
         lowStockThreshold: numLowStockThreshold,
+        showOnline,
         productType,
         comboItems: productType === "combo" ? comboItemsInput : undefined,
         locations:
@@ -847,6 +851,16 @@ export function ProductFormSheet({
               checked={priceIncludesTax}
               onCheckedChange={setPriceIncludesTax}
             />
+          </div>
+          <div className="flex items-center justify-between rounded-lg border p-3">
+            <div className="pr-3">
+              <Label>Visible en catálogo en línea</Label>
+              <p className="text-xs text-muted-foreground">
+                Apágalo para ocultar este producto del catálogo público (si lo
+                tienes activado en Configuración).
+              </p>
+            </div>
+            <Switch checked={showOnline} onCheckedChange={setShowOnline} />
           </div>
           <p className="border-t pt-3 text-xs font-bold uppercase tracking-wider text-primary">
             Inventario

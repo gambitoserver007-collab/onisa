@@ -108,6 +108,8 @@ export interface CreateProductInput {
   productType?: "standard" | "combo" | "service";
   /** Piezas del combo (solo cuando productType === 'combo'). */
   comboItems?: ComboComponentInput[];
+  /** Visible en el catálogo público en línea. Por defecto true (opt-out). */
+  showOnline?: boolean;
 }
 
 export interface CreateCustomerInput {
@@ -297,6 +299,7 @@ function mapProduct(
     lowStockThreshold:
       (row as { low_stock_threshold?: number | null }).low_stock_threshold ??
       null,
+    showOnline: (row as { show_online?: boolean | null }).show_online ?? true,
   };
 }
 
@@ -459,7 +462,7 @@ export async function fetchCompanyCatalog(
   const productsQuery = supabase
     .from("products")
     .select(
-      "id, company_id, category_id, supplier_id, name, barcode, sku, cost, price, stock, unit, image_url, price_includes_tax, has_variants, variant_attributes, low_stock_threshold, product_type, active, is_demo_data, created_at, updated_at, deleted_at",
+      "id, company_id, category_id, supplier_id, name, barcode, sku, cost, price, stock, unit, image_url, price_includes_tax, has_variants, variant_attributes, low_stock_threshold, product_type, show_online, active, is_demo_data, created_at, updated_at, deleted_at",
     )
     .is("deleted_at", null)
     .eq("active", true);
@@ -2120,6 +2123,9 @@ export async function createProduct(
       ...(input.lowStockThreshold !== undefined
         ? { low_stock_threshold: input.lowStockThreshold }
         : {}),
+      ...(input.showOnline !== undefined
+        ? { show_online: input.showOnline }
+        : {}),
       product_type: input.productType ?? "standard",
     } as never)
     .select("id")
@@ -2171,6 +2177,8 @@ export async function updateProduct(
 
   if (input.lowStockThreshold !== undefined)
     updates.low_stock_threshold = input.lowStockThreshold;
+
+  if (input.showOnline !== undefined) updates.show_online = input.showOnline;
 
   const { error } = await supabase
     .from("products")
@@ -4563,6 +4571,296 @@ export async function convertQuoteToSale(input: {
     pointsEarned: toNumber(result.points_earned),
     pointsRedeemed: toNumber(result.points_redeemed),
   };
+}
+
+// ---- Catálogo público (sin sesión) + solicitudes de cotización en línea ----
+
+export interface OnlineCatalogSettings {
+  enabled: boolean;
+  slug: string | null;
+}
+
+export async function fetchOnlineCatalogSettings(
+  companyId: string,
+): Promise<OnlineCatalogSettings> {
+  const { data, error } = await supabase
+    .from("companies")
+    .select("slug, online_catalog_enabled")
+    .eq("id", companyId)
+    .single();
+
+  if (error) throw error;
+
+  return {
+    enabled: data.online_catalog_enabled,
+    slug: data.slug,
+  };
+}
+
+/** Activa/desactiva el catálogo público y (re)asigna el slug -- valida
+ * formato y unicidad en el servidor (evita condiciones de carrera). Al
+ * apagar, `p_slug` se ignora. Regresa el slug final (o null si se apagó). */
+export async function setOnlineCatalog(
+  enabled: boolean,
+  slug?: string,
+): Promise<string | null> {
+  const { data, error } = await supabase.rpc("set_online_catalog", {
+    p_enabled: enabled,
+    p_slug: enabled ? (slug ?? "").trim().toLowerCase() : undefined,
+  });
+
+  if (error) throw error;
+
+  return (data as string | null) ?? null;
+}
+
+export interface PublicCompany {
+  id: string;
+  name: string;
+  locale: string;
+  currencyCode: string;
+}
+
+/** Lectura pública (rol `anon`, sin sesión): solo columnas no sensibles,
+ * solo empresas con el catálogo activado -- ver política RLS "companies
+ * select public catalog". */
+export async function fetchPublicCompanyBySlug(
+  slug: string,
+): Promise<PublicCompany | null> {
+  const { data, error } = await supabase
+    .from("companies")
+    .select("id, name, locale, currency_code")
+    .eq("slug", slug.trim().toLowerCase())
+    .maybeSingle();
+
+  if (error) throw error;
+
+  if (!data) return null;
+
+  return {
+    id: data.id,
+    name: data.name,
+    locale: data.locale,
+    currencyCode: data.currency_code,
+  };
+}
+
+export interface PublicCategory {
+  id: string;
+  name: string;
+}
+
+export async function fetchPublicCategories(
+  companyId: string,
+): Promise<PublicCategory[]> {
+  const { data, error } = await supabase
+    .from("categories")
+    .select("id, name")
+    .eq("company_id", companyId)
+    .order("name");
+
+  if (error) throw error;
+
+  return (data ?? []).map((row) => ({ id: row.id, name: row.name }));
+}
+
+export interface PublicCatalogProduct {
+  id: string;
+  categoryId: string | null;
+  name: string;
+  price: number;
+  imageUrl: string | null;
+  unit: string;
+  available: boolean;
+}
+
+/** Catálogo público paginado -- nunca trae `cost` ni `stock` exacto (esas
+ * columnas ni siquiera están otorgadas al rol `anon`, ver 01_install.sql).
+ * `available` viene de la columna generada `is_public_available`. */
+export async function fetchPublicCatalog(
+  companyId: string,
+  opts: {
+    categoryId?: string | null;
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  } = {},
+): Promise<{ products: PublicCatalogProduct[]; hasMore: boolean }> {
+  const pageSize = opts.pageSize ?? 24;
+  const page = opts.page ?? 0;
+
+  let q = supabase
+    .from("products")
+    .select(
+      "id, category_id, name, price, image_url, unit, is_public_available",
+    )
+    .eq("company_id", companyId)
+    .order("name")
+    .range(page * pageSize, page * pageSize + pageSize);
+
+  if (opts.categoryId) q = q.eq("category_id", opts.categoryId);
+
+  if (opts.search?.trim()) q = q.ilike("name", `%${opts.search.trim()}%`);
+
+  const { data, error } = await q;
+
+  if (error) throw error;
+  const rows = data ?? [];
+
+  return {
+    products: rows.slice(0, pageSize).map((row) => ({
+      id: row.id,
+      categoryId: row.category_id,
+      name: row.name,
+      price: toNumber(row.price),
+      imageUrl: row.image_url,
+      unit: row.unit,
+      available: row.is_public_available ?? true,
+    })),
+    hasMore: rows.length > pageSize,
+  };
+}
+
+export interface SubmitQuoteRequestInput {
+  companySlug: string;
+  customerName: string;
+  phone?: string;
+  email?: string;
+  notes?: string;
+  items: Array<{ productId: string; qty: number }>;
+  turnstileToken: string;
+}
+
+/** Envía la lista del visitante como solicitud -- pasa por la Edge Function
+ * pública `create-quote-request` (verifica Turnstile y revalida cada
+ * producto con service_role; nunca confía en nada que mande el cliente
+ * salvo la cantidad). Sin sesión, sin Bearer. */
+export async function submitQuoteRequest(
+  input: SubmitQuoteRequestInput,
+): Promise<void> {
+  const { error } = await supabase.functions.invoke("create-quote-request", {
+    body: {
+      company_slug: input.companySlug,
+      customer_name: input.customerName,
+      phone: input.phone || undefined,
+      email: input.email || undefined,
+      notes: input.notes || undefined,
+      items: input.items,
+      turnstile_token: input.turnstileToken,
+    },
+  });
+
+  if (error) {
+    throw new Error(
+      await invokeFunctionError(
+        error,
+        "No se pudo enviar tu solicitud. Intenta de nuevo en unos minutos.",
+      ),
+    );
+  }
+}
+
+export type QuoteRequestStatus = "nueva" | "atendida" | "descartada";
+
+export interface QuoteRequest {
+  id: string;
+  date: string;
+  customerName: string;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+  status: QuoteRequestStatus;
+  itemsLabel: string;
+}
+
+export interface QuoteRequestItem {
+  id: string;
+  productId: string | null;
+  productName: string;
+  qty: number;
+}
+
+function toQuoteRequestStatus(value: string): QuoteRequestStatus {
+  return value === "atendida" || value === "descartada" ? value : "nueva";
+}
+
+/** Solicitudes públicas pendientes de revisar por el staff (panel interno,
+ * requiere sesión -- distinto de `fetchPublicCatalog`). */
+export async function fetchQuoteRequests(companyId?: string): Promise<{
+  requests: QuoteRequest[];
+  itemsByRequest: Map<string, QuoteRequestItem[]>;
+}> {
+  let q = supabase
+    .from("quote_requests")
+    .select("id, created_at, customer_name, phone, email, notes, status")
+    .order("created_at", { ascending: false });
+
+  if (companyId) q = q.eq("company_id", companyId);
+
+  const { data, error } = await q;
+
+  if (error) throw error;
+  const rows = data ?? [];
+
+  const requestIds = rows.map((row) => row.id);
+  const itemsByRequest = new Map<string, QuoteRequestItem[]>();
+
+  if (requestIds.length) {
+    const { data: itemRows, error: itemsError } = await supabase
+      .from("quote_request_items")
+      .select("id, quote_request_id, product_id, product_name, qty")
+      .in("quote_request_id", requestIds);
+
+    if (itemsError) throw itemsError;
+
+    (itemRows ?? []).forEach((it) => {
+      const list = itemsByRequest.get(it.quote_request_id) ?? [];
+      list.push({
+        id: it.id,
+        productId: it.product_id,
+        productName: it.product_name,
+        qty: toNumber(it.qty),
+      });
+      itemsByRequest.set(it.quote_request_id, list);
+    });
+  }
+
+  const requests = rows.map((row) => ({
+    id: row.id,
+    date: normalizeDate(row.created_at),
+    customerName: row.customer_name,
+    phone: row.phone,
+    email: row.email,
+    notes: row.notes,
+    status: toQuoteRequestStatus(row.status),
+    itemsLabel: (itemsByRequest.get(row.id) ?? [])
+      .map((it) => `${it.qty} × ${it.productName}`)
+      .join(", "),
+  }));
+
+  return { requests, itemsByRequest };
+}
+
+/** Amarra una solicitud ya atendida a la cotización formal que el staff
+ * acaba de crear con createQuote() (con precios/stock de HOY). */
+export async function resolveQuoteRequest(
+  requestId: string,
+  quoteId: string,
+): Promise<void> {
+  const { error } = await supabase.rpc("resolve_quote_request", {
+    p_request_id: requestId,
+    p_quote_id: quoteId,
+  });
+
+  if (error) throw error;
+}
+
+export async function discardQuoteRequest(requestId: string): Promise<void> {
+  const { error } = await supabase.rpc("discard_quote_request", {
+    p_request_id: requestId,
+  });
+
+  if (error) throw error;
 }
 
 // ---- Apartados (stock reservado desde que se crea; se paga en abonos) ----

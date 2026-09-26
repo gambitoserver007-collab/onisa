@@ -92,6 +92,8 @@ export interface Product {
   variantAttributes?: string[];
   /** Umbral propio de alerta de stock bajo (unidades). null = usa el default de la empresa. */
   lowStockThreshold?: number | null;
+  /** Visible en el catálogo público en línea. */
+  showOnline?: boolean;
 }
 
 /** Una variante (SKU) de un producto: una combinación concreta de atributos. */
