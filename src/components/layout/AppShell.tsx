@@ -52,6 +52,7 @@ import {
 import { useDemoSession } from "@/hooks/useDemoSession";
 import { useAccessControl } from "@/hooks/useAccessControl";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
+import { fetchNewQuoteRequestsCount } from "@/services/appData";
 import { DemoBanner } from "./DemoBanner";
 import { LocationSwitcher } from "./LocationSwitcher";
 import { Button } from "@/components/ui/button";
@@ -161,11 +162,13 @@ function NavList({
   pathname,
   role,
   allowedSections,
+  badgeCounts,
   onClick,
 }: {
   pathname: string;
   role?: string | null;
   allowedSections?: string[] | null;
+  badgeCounts?: Record<string, number>;
   onClick?: () => void;
 }) {
   const visibleSections = sections
@@ -187,6 +190,7 @@ function NavList({
           <div className="flex flex-col gap-1">
             {s.items.map((it) => {
               const active = isActive(pathname, it.to);
+              const badge = badgeCounts?.[it.to];
 
               return (
                 <Link
@@ -202,8 +206,21 @@ function NavList({
                 >
                   <it.icon className="h-[18px] w-[18px] shrink-0" />
                   <span className="truncate">{it.label}</span>
-                  {active && (
-                    <span className="ml-auto h-1.5 w-1.5 rounded-full bg-sidebar-primary-foreground/80" />
+                  {badge ? (
+                    <span
+                      className={cn(
+                        "ml-auto grid h-5 min-w-5 shrink-0 place-items-center rounded-full px-1.5 text-[10px] font-bold",
+                        active
+                          ? "bg-white/25 text-sidebar-primary-foreground"
+                          : "bg-primary text-primary-foreground",
+                      )}
+                    >
+                      {badge > 99 ? "99+" : badge}
+                    </span>
+                  ) : (
+                    active && (
+                      <span className="ml-auto h-1.5 w-1.5 rounded-full bg-sidebar-primary-foreground/80" />
+                    )
                   )}
                 </Link>
               );
@@ -293,6 +310,35 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
   const desktopSidebarRef = useRef<HTMLDivElement | null>(null);
+
+  // Badge de "Solicitudes en línea" nuevas -- sin infraestructura de
+  // realtime todavía, así que se refresca al montar y cada minuto. Se omite
+  // en sesiones demo (no hay clientes reales mandando solicitudes).
+  const [newRequestsCount, setNewRequestsCount] = useState(0);
+  const canSeeRequests = canAccessPath(
+    role,
+    "/cotizaciones/solicitudes",
+    allowedSections,
+  );
+
+  useEffect(() => {
+    if (!session?.companyId || session.isDemo || !canSeeRequests) return;
+    let active = true;
+
+    const load = () => {
+      void fetchNewQuoteRequestsCount(session.companyId).then((count) => {
+        if (active) setNewRequestsCount(count);
+      });
+    };
+
+    load();
+    const interval = setInterval(load, 60_000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [session?.companyId, session?.isDemo, canSeeRequests]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -386,6 +432,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             pathname={pathname}
             role={role}
             allowedSections={allowedSections}
+            badgeCounts={{ "/cotizaciones/solicitudes": newRequestsCount }}
           />
           {canManagePlan && <UpgradeCard className="mt-auto" />}
         </div>
@@ -604,6 +651,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                   pathname={pathname}
                   role={role}
                   allowedSections={allowedSections}
+                  badgeCounts={{
+                    "/cotizaciones/solicitudes": newRequestsCount,
+                  }}
                   onClick={() => setOpen(false)}
                 />
                 {canManagePlan && (

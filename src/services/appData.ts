@@ -4789,6 +4789,23 @@ function toQuoteRequestStatus(value: string): QuoteRequestStatus {
 
 /** Solicitudes públicas pendientes de revisar por el staff (panel interno,
  * requiere sesión -- distinto de `fetchPublicCatalog`). */
+/** Solo el conteo de solicitudes "nueva" -- para el badge del menú, sin
+ * traer todas las filas (mismo criterio que fetchCompanyCounts). */
+export async function fetchNewQuoteRequestsCount(
+  companyId?: string,
+): Promise<number> {
+  let q = supabase
+    .from("quote_requests")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "nueva");
+
+  if (companyId) q = q.eq("company_id", companyId);
+
+  const { count } = await q;
+
+  return count ?? 0;
+}
+
 export async function fetchQuoteRequests(companyId?: string): Promise<{
   requests: QuoteRequest[];
   itemsByRequest: Map<string, QuoteRequestItem[]>;
