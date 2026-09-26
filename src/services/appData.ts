@@ -4745,7 +4745,10 @@ export async function submitQuoteRequest(
       phone: input.phone || undefined,
       email: input.email || undefined,
       notes: input.notes || undefined,
-      items: input.items,
+      items: input.items.map((item) => ({
+        product_id: item.productId,
+        qty: item.qty,
+      })),
       turnstile_token: input.turnstileToken,
     },
   });
