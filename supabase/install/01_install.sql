@@ -11725,3 +11725,36 @@ $$;
 
 revoke execute on function public.discard_quote_request(uuid) from public, anon;
 grant execute on function public.discard_quote_request(uuid) to authenticated;
+
+-- ============================================================
+-- Índices faltantes detectados en la auditoría de rendimiento 2026-09
+-- (Lote 4): tablas que crecen con cada venta/movimiento y que se filtran
+-- seguido por columnas que no tenían un índice compuesto que las cubriera.
+-- sales_company_date_idx y audit_log_company_idx ya existían (más arriba
+-- en este archivo) y ya cubrían sus casos -- estos son los que faltaban.
+-- ============================================================
+
+-- Ventas por sucursal (ventas.index.tsx, caja.tsx, dashboard) -- antes solo
+-- había índice por company_id, así que filtrar además por location_id no
+-- lo aprovechaba igual de bien.
+create index if not exists sales_company_location_date_idx
+  on public.sales(company_id, location_id, sale_date desc);
+
+-- Ventas por vendedor (dashboard del cajero, comisiones, "Ventas por
+-- empleado" en empleados.tsx).
+create index if not exists sales_company_created_by_date_idx
+  on public.sales(company_id, created_by, sale_date desc);
+
+-- Kardex y mermas por empleado (fetchStockMovements) filtran por empresa o
+-- por sucursal, no por producto -- el índice existente
+-- (product_id, created_at) no ayuda en esos casos.
+create index if not exists stock_movements_company_date_idx
+  on public.stock_movements(company_id, created_at desc);
+create index if not exists stock_movements_location_date_idx
+  on public.stock_movements(location_id, created_at desc);
+
+-- cash_movements.cash_session_id es una llave foránea sin índice --
+-- fetchCashMovements, compute_cash_session_expected y
+-- get_cash_session_cash_sales filtran por ella.
+create index if not exists cash_movements_session_idx
+  on public.cash_movements(cash_session_id);

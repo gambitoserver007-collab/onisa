@@ -3010,6 +3010,7 @@ export interface CompanyAuditLogEntry extends AuditLogEntry {
 }
 
 export async function fetchCompanyAuditLog(options?: {
+  companyId?: string;
   entityType?: string;
   limit?: number;
 }): Promise<CompanyAuditLogEntry[]> {
@@ -3018,6 +3019,15 @@ export async function fetchCompanyAuditLog(options?: {
     .select("id, actor_id, entity_type, entity_id, action, detail, created_at")
     .order("created_at", { ascending: false })
     .limit(options?.limit ?? 200);
+
+  // Antes dependía solo de RLS para filtrar por empresa -- Postgres tenía
+  // que revisar la bitácora de TODAS las empresas (evaluando la política
+  // fila por fila) para juntar las últimas 200, y empeoraba con cada
+  // empresa nueva en la plataforma. Con el filtro explícito sí puede usar
+  // el índice de company_id.
+  if (options?.companyId) {
+    query = query.eq("company_id", options.companyId);
+  }
 
   if (options?.entityType) {
     query = query.eq("entity_type", options.entityType);

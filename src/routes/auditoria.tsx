@@ -126,6 +126,7 @@ function AuditoriaPage() {
     setError(null);
     Promise.all([
       fetchCompanyAuditLog({
+        companyId: session.companyId,
         entityType: entityFilter === "all" ? undefined : entityFilter,
       }),
       fetchProfileNames(session.companyId),
