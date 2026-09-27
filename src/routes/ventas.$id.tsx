@@ -10,13 +10,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useCurrentLocation } from "@/hooks/useCurrentLocation";
 import { useDemoSession } from "@/hooks/useDemoSession";
-import { useSales } from "@/hooks/useSales";
 import {
   fetchCompanyProfile,
   fetchProfileNames,
+  fetchSaleById,
   fetchSaleLoyaltySummary,
+  getErrorMessage,
   type CompanyProfile,
 } from "@/services/appData";
+import type { Sale } from "@/types";
 
 export const Route = createFileRoute("/ventas/$id")({
   // "from=pos": se llegó aquí recién cobrando en el POS -- Volver/Imprimir
@@ -31,10 +33,12 @@ function VentaDetail() {
   const { from } = Route.useSearch();
   const navigate = useNavigate();
   const { formatMoney, settings } = useBusinessSettings();
-  const { session } = useDemoSession();
+  const { session, isReady } = useDemoSession();
   const { locations } = useCurrentLocation();
-  const { findSale, isLoading, error, source } = useSales();
-  const sale = findSale(id);
+
+  const [sale, setSale] = useState<Sale | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(
     null,
@@ -42,6 +46,34 @@ function VentaDetail() {
 
   const [cashierName, setCashierName] = useState<string | null>(null);
   const [loyalty, setLoyalty] = useState({ earned: 0, redeemed: 0 });
+
+  // Antes se cargaban TODAS las ventas de la empresa (useSales()) solo
+  // para encontrar esta una con .find() -- ahora se pide directo por
+  // folio/uuid (ver fetchSaleById).
+  useEffect(() => {
+    if (!isReady) return;
+    let active = true;
+    setIsLoading(true);
+
+    void fetchSaleById(id, session?.companyId)
+      .then((result) => {
+        if (!active) return;
+        setSale(result);
+        setError(null);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setSale(null);
+        setError(getErrorMessage(err, "No se pudo cargar la venta."));
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isReady, id, session?.companyId]);
 
   useEffect(() => {
     if (!session?.companyId) return;
@@ -84,9 +116,7 @@ function VentaDetail() {
   return (
     <AppShell>
       <div className="mx-auto max-w-md">
-        <FallbackNotice show={!!error && source === "demo-fallback"}>
-          No se pudo leer Supabase todavía. Mostrando ventas de prueba.
-        </FallbackNotice>
+        <FallbackNotice show={!!error}>{error}</FallbackNotice>
         {isLoading && (
           <Card>
             <CardContent className="p-6 text-center text-sm text-muted-foreground">

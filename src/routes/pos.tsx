@@ -1082,9 +1082,12 @@ function POS() {
       setPointsToRedeem(0);
       setSplitMode(false);
       setSplitPayments([]);
-      await reload();
-      await reloadLocationStock();
+      // El "éxito" y la navegación al ticket ya no esperan al catálogo
+      // completo (categorías/productos/clientes/proveedores, que no cambia
+      // por una venta) -- solo el stock de esta sucursal, que ya se
+      // muestra desde locationStock/variantStockByProduct, y sin bloquear.
       setSuccess({ amount, id: saleId });
+      void reloadLocationStock();
 
       if (sale?.promoDiscount && sale.promoDiscount > 0) {
         toast.success(

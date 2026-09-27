@@ -1204,17 +1204,43 @@ export async function fetchSalesAggregates(
   };
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Trae UNA venta directo (por folio o por uuid) -- antes hacía
+ * fetchSales(companyId) completo (TODO el historial de la empresa) y
+ * buscaba con .find() en JS, solo para ver el detalle de una venta. El id
+ * de la URL (Sale.id) puede ser el folio (sale_number, formato
+ * "V-YYYYMMDD-XXXXXX") o el uuid real (Sale.databaseId); se distinguen con
+ * una regex de uuid, nunca se intentan los dos a la vez. */
 export async function fetchSaleById(
   publicId: string,
   companyId?: string,
 ): Promise<Sale | null> {
-  const sales = await fetchSales(companyId);
+  let q = supabase
+    .from("sales")
+    .select(
+      "id, company_id, location_id, customer_id, sale_number, document_type, payment_method, customer_name, sale_date, subtotal, tax, total, status, created_by, commission_rate, commission_amount, is_demo_data, created_at, updated_at, deleted_at, sale_items(id, company_id, sale_id, product_id, product_name, variant_label, qty, unit_price, total, cost, is_demo_data, created_at)",
+    )
+    .is("deleted_at", null);
 
-  return (
-    sales.find(
-      (sale) => sale.id === publicId || sale.databaseId === publicId,
-    ) ?? null
-  );
+  if (companyId) q = q.eq("company_id", companyId);
+
+  q = UUID_RE.test(publicId)
+    ? q.eq("id", publicId)
+    : q.eq("sale_number", publicId);
+
+  const { data, error } = await q.maybeSingle();
+
+  if (error) throw error;
+
+  if (!data) return null;
+
+  const { sale_items, ...saleRow } = data as SaleRow & {
+    sale_items: SaleItemRow[];
+  };
+
+  return mapSale(saleRow as SaleRow, sale_items ?? []);
 }
 
 export interface SalePaymentLine {
