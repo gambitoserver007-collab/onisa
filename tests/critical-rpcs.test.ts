@@ -8607,4 +8607,297 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(Number(rows[0].count_month)).toBe(1);
     });
   });
+
+  describe("Lote 6: políticas RLS reescritas ((select auth.uid())/rol/empresa en vez de can_select_company) siguen aislando por empresa", () => {
+    // Estas pruebas hacen SELECT directo por id (sin filtrar por company_id
+    // en el propio query), a propósito: así el único filtro en juego es la
+    // política RLS reescrita, exactamente lo que hay que confirmar que no
+    // cambió de comportamiento al inlinear las funciones de sesión.
+    it("products: un admin no ve productos de otra empresa vía SELECT directo", async () => {
+      const companyA = await makeCompany(db, "Empresa Lote6 Productos A");
+      const companyB = await makeCompany(db, "Empresa Lote6 Productos B");
+      const adminA = await makeUser(db, companyA.id, "admin");
+      const adminB = await makeUser(db, companyB.id, "admin");
+      const prodB = await makeProduct(
+        db,
+        companyB.id,
+        companyB.loc1,
+        "Producto de B",
+        5,
+        10,
+        20,
+      );
+
+      const asA = await asUser(db, adminA, () =>
+        db.query("select id from public.products where id=$1", [prodB]),
+      );
+      expect(asA.rows).toHaveLength(0);
+
+      const asB = await asUser(db, adminB, () =>
+        db.query("select id from public.products where id=$1", [prodB]),
+      );
+      expect(asB.rows).toHaveLength(1);
+    });
+
+    it("sales y sale_items: un admin no ve ventas ni renglones de otra empresa vía SELECT directo", async () => {
+      const companyA = await makeCompany(db, "Empresa Lote6 Ventas A");
+      const companyB = await makeCompany(db, "Empresa Lote6 Ventas B");
+      const adminA = await makeUser(db, companyA.id, "admin");
+      const adminB = await makeUser(db, companyB.id, "admin");
+      const prodB = await makeProduct(
+        db,
+        companyB.id,
+        companyB.loc1,
+        "Producto de B",
+        5,
+        10,
+        20,
+      );
+
+      const saleB = await asUser(db, adminB, () =>
+        createSale(
+          db,
+          [{ product_id: prodB, qty: 1, unit_price: 10 }],
+          companyB.loc1,
+        ),
+      );
+
+      const { rows: itemsB } = await db.query<{ id: string }>(
+        "select id from public.sale_items where sale_id=$1",
+        [saleB.sale_id],
+      );
+
+      const asA_sale = await asUser(db, adminA, () =>
+        db.query("select id from public.sales where id=$1", [saleB.sale_id]),
+      );
+      expect(asA_sale.rows).toHaveLength(0);
+
+      const asA_item = await asUser(db, adminA, () =>
+        db.query("select id from public.sale_items where id=$1", [
+          itemsB[0].id,
+        ]),
+      );
+      expect(asA_item.rows).toHaveLength(0);
+
+      const asB_sale = await asUser(db, adminB, () =>
+        db.query("select id from public.sales where id=$1", [saleB.sale_id]),
+      );
+      expect(asB_sale.rows).toHaveLength(1);
+    });
+
+    it("stock_movements: un admin no ve movimientos de stock de otra empresa vía SELECT directo", async () => {
+      const companyA = await makeCompany(db, "Empresa Lote6 Stock A");
+      const companyB = await makeCompany(db, "Empresa Lote6 Stock B");
+      const adminA = await makeUser(db, companyA.id, "admin");
+      const adminB = await makeUser(db, companyB.id, "admin");
+      const prodB = await makeProduct(
+        db,
+        companyB.id,
+        companyB.loc1,
+        "Producto de B",
+        5,
+        10,
+        20,
+      );
+
+      await asUser(db, adminB, () =>
+        db.query("select adjust_stock($1, $2, 3, 'ajuste lote 6')", [
+          prodB,
+          companyB.loc1,
+        ]),
+      );
+
+      const { rows: movsB } = await db.query<{ id: string }>(
+        "select id from public.stock_movements where product_id=$1",
+        [prodB],
+      );
+      expect(movsB.length).toBeGreaterThan(0);
+
+      const asA = await asUser(db, adminA, () =>
+        db.query("select id from public.stock_movements where id=$1", [
+          movsB[0].id,
+        ]),
+      );
+      expect(asA.rows).toHaveLength(0);
+
+      const asB = await asUser(db, adminB, () =>
+        db.query("select id from public.stock_movements where id=$1", [
+          movsB[0].id,
+        ]),
+      );
+      expect(asB.rows).toHaveLength(1);
+    });
+
+    it("cash_sessions y cash_movements: un admin no ve la caja ni sus movimientos de otra empresa vía SELECT directo", async () => {
+      const companyA = await makeCompany(db, "Empresa Lote6 Caja A");
+      const companyB = await makeCompany(db, "Empresa Lote6 Caja B");
+      const adminA = await makeUser(db, companyA.id, "admin");
+      const adminB = await makeUser(db, companyB.id, "admin");
+
+      const { rows: openRows } = await asUser(db, adminB, () =>
+        db.query<{ open_cash_session: string }>(
+          "select open_cash_session(100, $1) as open_cash_session",
+          [companyB.loc1],
+        ),
+      );
+      const sessionB = openRows[0].open_cash_session;
+
+      let movementB = "";
+      await asUser(db, adminB, async () => {
+        const { rows } = await db.query<{ id: string }>(
+          `insert into public.cash_movements (company_id, cash_session_id, movement_type, concept, amount, location_id)
+           values ($1,$2,'ingreso','venta suelta lote 6',50,$3) returning id`,
+          [companyB.id, sessionB, companyB.loc1],
+        );
+        movementB = rows[0].id;
+      });
+
+      const asA_session = await asUser(db, adminA, () =>
+        db.query("select id from public.cash_sessions where id=$1", [sessionB]),
+      );
+      expect(asA_session.rows).toHaveLength(0);
+
+      const asA_movement = await asUser(db, adminA, () =>
+        db.query("select id from public.cash_movements where id=$1", [
+          movementB,
+        ]),
+      );
+      expect(asA_movement.rows).toHaveLength(0);
+
+      const asB_session = await asUser(db, adminB, () =>
+        db.query("select id from public.cash_sessions where id=$1", [sessionB]),
+      );
+      expect(asB_session.rows).toHaveLength(1);
+    });
+
+    it("purchases: un admin no ve compras de otra empresa vía SELECT directo", async () => {
+      const companyA = await makeCompany(db, "Empresa Lote6 Compras A");
+      const companyB = await makeCompany(db, "Empresa Lote6 Compras B");
+      const adminA = await makeUser(db, companyA.id, "admin");
+      const adminB = await makeUser(db, companyB.id, "admin");
+      const prodB = await makeProduct(
+        db,
+        companyB.id,
+        companyB.loc1,
+        "Producto de B",
+        5,
+        10,
+        20,
+      );
+
+      const { rows } = await asUser(db, adminB, () =>
+        db.query<{ create_purchase: string }>(
+          "select create_purchase(null, 'F-LOTE6', now(), $1, $2::jsonb) as create_purchase",
+          [
+            companyB.loc1,
+            JSON.stringify([{ product_id: prodB, qty: 5, unit_cost: 3 }]),
+          ],
+        ),
+      );
+      const purchaseB = rows[0].create_purchase;
+
+      const asA = await asUser(db, adminA, () =>
+        db.query("select id from public.purchases where id=$1", [purchaseB]),
+      );
+      expect(asA.rows).toHaveLength(0);
+
+      const asB = await asUser(db, adminB, () =>
+        db.query("select id from public.purchases where id=$1", [purchaseB]),
+      );
+      expect(asB.rows).toHaveLength(1);
+    });
+
+    it("returns: un admin no ve devoluciones de otra empresa vía SELECT directo", async () => {
+      const companyA = await makeCompany(db, "Empresa Lote6 Devoluciones A");
+      const companyB = await makeCompany(db, "Empresa Lote6 Devoluciones B");
+      const adminA = await makeUser(db, companyA.id, "admin");
+      const adminB = await makeUser(db, companyB.id, "admin");
+      const prodB = await makeProduct(
+        db,
+        companyB.id,
+        companyB.loc1,
+        "Producto de B",
+        5,
+        10,
+        20,
+      );
+
+      const saleB = await asUser(db, adminB, () =>
+        createSale(
+          db,
+          [{ product_id: prodB, qty: 2, unit_price: 10 }],
+          companyB.loc1,
+        ),
+      );
+
+      const { rows: itemsB } = await db.query<{
+        id: string;
+        unit_price: number;
+      }>("select id, unit_price from public.sale_items where sale_id=$1", [
+        saleB.sale_id,
+      ]);
+
+      const { rows } = await asUser(db, adminB, () =>
+        db.query<{ create_return: string }>(
+          "select create_return($1, 'Prueba lote 6', $2::jsonb, $3, false) as create_return",
+          [
+            saleB.sale_id,
+            JSON.stringify([
+              {
+                sale_item_id: itemsB[0].id,
+                qty: 1,
+                unit_price: itemsB[0].unit_price,
+              },
+            ]),
+            companyB.loc1,
+          ],
+        ),
+      );
+      const returnB = rows[0].create_return;
+
+      const asA = await asUser(db, adminA, () =>
+        db.query("select id from public.returns where id=$1", [returnB]),
+      );
+      expect(asA.rows).toHaveLength(0);
+
+      const asB = await asUser(db, adminB, () =>
+        db.query("select id from public.returns where id=$1", [returnB]),
+      );
+      expect(asB.rows).toHaveLength(1);
+    });
+
+    it("un platform admin sí puede leer filas de cualquier empresa (el bypass sigue funcionando)", async () => {
+      const companyA = await makeCompany(db, "Empresa Lote6 Platform A");
+      const prodA = await makeProduct(
+        db,
+        companyA.id,
+        companyA.loc1,
+        "Producto Platform",
+        5,
+        10,
+        20,
+      );
+      const platformAdmin = await makeUser(
+        db,
+        companyA.id,
+        "admin",
+        /* isPlatformAdmin */ true,
+      );
+      const otherCompanyAdmin = await makeUser(
+        db,
+        (await makeCompany(db, "Empresa Lote6 Platform B")).id,
+        "admin",
+      );
+
+      const asPlatform = await asUser(db, platformAdmin, () =>
+        db.query("select id from public.products where id=$1", [prodA]),
+      );
+      expect(asPlatform.rows).toHaveLength(1);
+
+      const asOther = await asUser(db, otherCompanyAdmin, () =>
+        db.query("select id from public.products where id=$1", [prodA]),
+      );
+      expect(asOther.rows).toHaveLength(0);
+    });
+  });
 });

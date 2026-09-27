@@ -11758,3 +11758,75 @@ create index if not exists stock_movements_location_date_idx
 -- get_cash_session_cash_sales filtran por ella.
 create index if not exists cash_movements_session_idx
   on public.cash_movements(cash_session_id);
+-- ============================================================
+-- Auditoría de rendimiento 2026-09 (Lote 6): políticas RLS de SELECT que
+-- recalculaban rol/empresa/modo-demo por cada fila evaluada.
+--
+-- can_select_company() (definición vigente más arriba en este archivo) es
+-- security definer -- Postgres nunca la "inlinea" en el plan, así que cada
+-- vez que una política la llama directo en su USING, hace su propio
+-- `select ... from profiles where id = auth.uid()` interno UNA VEZ POR
+-- FILA evaluada, no una vez por consulta.
+--
+-- El arreglo documentado por Supabase para este patrón es envolver las
+-- funciones que solo dependen de la sesión (auth.uid(), no de la fila) en
+-- `(select ...)`, para que el planner las evalúe una sola vez por consulta
+-- (initPlan) en vez de una vez por fila. Pero esto solo funciona si esas
+-- funciones quedan expuestas DIRECTO en el USING -- envolver la llamada a
+-- can_select_company(company_id, ...) en un (select ...) no sirve, porque
+-- company_id cambia por fila (deja de ser una subconsulta no correlacionada
+-- y el planner no puede convertirla en initPlan).
+--
+-- Por eso aquí se reescriben las políticas para llamar directo a
+-- (select auth.uid()), (select current_user_is_platform_admin()),
+-- (select current_user_is_demo()) y (select current_user_role()) --
+-- replicando EXACTAMENTE la misma lógica de can_select_company() (línea
+-- ~1282: bypass de platform admin, reglas de datos demo) en cada política,
+-- en vez de esconderla detrás de la función. company_id/is_demo_data se
+-- quedan como columnas sueltas (varían por fila, no se envuelven en
+-- select). user_can_access_location(location_id) se deja tal cual: también
+-- recibe un argumento que varía por fila, así que envolverla en select no
+-- ayudaría igual -- no forma parte de este cambio.
+--
+-- Verificado antes y después contra tests/critical-rpcs.test.ts (incluye
+-- baterías de aislamiento entre empresas ya existentes más las nuevas de
+-- este lote) para confirmar que el comportamiento no cambia, solo la
+-- velocidad.
+-- ============================================================
+
+drop policy if exists "products select scoped" on public.products;
+create policy "products select scoped" on public.products for select to authenticated
+using (
+  case
+    when (select auth.uid()) is null then false
+    when (select public.current_user_is_platform_admin()) then true
+    when (select public.current_user_is_demo()) and (select public.current_user_role()) = 'admin'::public.app_role
+      then coalesce(is_demo_data, false)
+    when (select public.current_user_is_demo())
+      then company_id = (select public.current_user_company_id()) and coalesce(is_demo_data, false)
+    else company_id = (select public.current_user_company_id())
+  end
+);
+
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'sales','sale_items','stock_movements',
+    'cash_sessions','cash_movements','purchases','returns'
+  ] loop
+    execute format('drop policy if exists "%s select scoped" on public.%I', t, t);
+    execute format(
+      'create policy "%s select scoped" on public.%I for select to authenticated using ('
+      || '(case '
+      || 'when (select auth.uid()) is null then false '
+      || 'when (select public.current_user_is_platform_admin()) then true '
+      || 'when (select public.current_user_is_demo()) and (select public.current_user_role()) = ''admin''::public.app_role '
+      || 'then coalesce(is_demo_data, false) '
+      || 'when (select public.current_user_is_demo()) '
+      || 'then company_id = (select public.current_user_company_id()) and coalesce(is_demo_data, false) '
+      || 'else company_id = (select public.current_user_company_id()) '
+      || 'end) and public.user_can_access_location(location_id))',
+      t, t);
+  end loop;
+end $$;
