@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { FallbackNotice } from "@/components/layout/FallbackNotice";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { ALL_LOCATIONS } from "@/lib/currentLocation";
+import { defaultDateRange } from "@/lib/dateRange";
 import { useCurrentLocation } from "@/hooks/useCurrentLocation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,27 +47,6 @@ import {
 } from "@/services/appData";
 
 export const Route = createFileRoute("/ventas/")({ component: VentasPage });
-
-function toDateInput(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-
-  return `${y}-${m}-${day}`;
-}
-
-// Por defecto los últimos 30 días -- antes se pedía TODO el historial de
-// ventas de la empresa sin límite (se cortaba en silencio a las 1000 filas
-// de PostgREST). El usuario puede ensanchar el rango con los inputs de
-// fecha si necesita ver más atrás.
-function defaultDateRange() {
-  const to = new Date();
-  const from = new Date();
-
-  from.setDate(from.getDate() - 29);
-
-  return { from: toDateInput(from), to: toDateInput(to) };
-}
 
 function VentasPage() {
   const { formatMoney, settings } = useBusinessSettings();

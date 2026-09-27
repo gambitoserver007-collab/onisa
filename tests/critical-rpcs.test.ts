@@ -8573,4 +8573,38 @@ describe("RPCs críticas de dinero y stock", () => {
       ).rejects.toThrow(/no autorizado/i);
     });
   });
+
+  describe("46. dashboard_sales_totals(): acotado al mes en curso (auditoría de rendimiento 2026-09)", () => {
+    it("cuenta hoy y este mes, pero no una venta del mes pasado", async () => {
+      const company = await makeCompany(db, "Empresa Dashboard Totales");
+      const admin = await makeUser(db, company.id, "admin");
+
+      // Se inserta directo (no vía create_sale) para poder fijar sale_date
+      // a mano, igual que otras pruebas de este archivo.
+      await db.query(
+        `insert into public.sales (company_id, location_id, sale_number, document_type, payment_method, customer_name, subtotal, tax, total, sale_date)
+         values ($1,$2,'V-HOY','Ticket','Efectivo','Cliente',100,0,100, now())`,
+        [company.id, company.loc1],
+      );
+      await db.query(
+        `insert into public.sales (company_id, location_id, sale_number, document_type, payment_method, customer_name, subtotal, tax, total, sale_date)
+         values ($1,$2,'V-MES-PASADO','Ticket','Efectivo','Cliente',500,0,500, now() - interval '2 months')`,
+        [company.id, company.loc1],
+      );
+
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{
+          total_today: string;
+          count_today: string;
+          total_month: string;
+          count_month: string;
+        }>("select * from public.dashboard_sales_totals()"),
+      );
+
+      expect(Number(rows[0].total_today)).toBe(100);
+      expect(Number(rows[0].count_today)).toBe(1);
+      expect(Number(rows[0].total_month)).toBe(100);
+      expect(Number(rows[0].count_month)).toBe(1);
+    });
+  });
 });

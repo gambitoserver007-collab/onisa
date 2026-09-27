@@ -2218,6 +2218,12 @@ language sql stable security definer set search_path = public as $$
       and s.deleted_at is null
       and (p_location_id is null or s.location_id = p_location_id)
       and public.user_can_access_location(s.location_id)
+      -- Auditoría de rendimiento 2026-09: solo hacen falta "hoy" y "este
+      -- mes", pero antes se leía TODO el historial de ventas de la
+      -- empresa para llegar a esos dos números. Se acota al mes en curso
+      -- (comparando directo contra la columna, sin envolverla en una
+      -- expresión, para que sí pueda usar el índice de sale_date).
+      and s.sale_date >= (date_trunc('month', now() at time zone p_tz) at time zone p_tz)
   ), today_ref as (
     select (now() at time zone p_tz)::date as today,
            date_trunc('month', (now() at time zone p_tz))::date as month_start
@@ -2252,8 +2258,12 @@ language sql stable security definer set search_path = public as $$
       and s.deleted_at is null
       and (p_location_id is null or s.location_id = p_location_id)
       and public.user_can_access_location(s.location_id)
-      and (s.sale_date at time zone p_tz)::date
-            >= ((now() at time zone p_tz)::date - (p_days - 1))
+      -- Mismo resultado que antes, pero comparando directo contra la
+      -- columna (sin envolverla en una expresión) para que sí pueda usar
+      -- el índice de sale_date -- ver dashboard_sales_totals arriba.
+      and s.sale_date >= (
+            ((now() at time zone p_tz)::date - (p_days - 1))::timestamp at time zone p_tz
+          )
     group by 1
   )
   select d.day, coalesce(a.total, 0)::numeric, coalesce(a.count, 0)::bigint
@@ -2279,6 +2289,10 @@ language sql stable security definer set search_path = public as $$
     and s.deleted_at is null
     and (p_location_id is null or s.location_id = p_location_id)
     and public.user_can_access_location(s.location_id)
+    -- p_from/p_to null a propósito significa "Todo el histórico" -- es un
+    -- preset real y deliberado de DateRangeSelect (dashboard.tsx/
+    -- reportes.tsx por defecto abren en "Hoy", acotado; este es el único
+    -- caso sin filtro, y es porque el usuario lo pidió así).
     and (p_from is null or s.sale_date >= p_from)
     and (p_to is null or s.sale_date < p_to)
   group by coalesce(c.name, 'Sin categoría')
@@ -2353,6 +2367,8 @@ language sql stable security definer set search_path = public as $$
     and s.deleted_at is null
     and (p_location_id is null or s.location_id = p_location_id)
     and public.user_can_access_location(s.location_id)
+    -- Mismo criterio que sales_by_category: null es "Todo el histórico",
+    -- un preset deliberado de DateRangeSelect, no un default accidental.
     and (p_from is null or s.sale_date >= p_from)
     and (p_to is null or s.sale_date < p_to)
   group by coalesce(sp.method, 'Otro')
@@ -2756,6 +2772,9 @@ as $$
     and s.deleted_at is null
     and (p_location_id is null or s.location_id = p_location_id)
     and public.user_can_access_location(s.location_id)
+    -- Mismo criterio que sales_by_category/sales_by_payment_method: null
+    -- es "Todo el histórico", un preset deliberado de DateRangeSelect
+    -- (ganancias.tsx por defecto abre en "Hoy", acotado).
     and (p_from is null or s.sale_date >= p_from)
     and (p_to   is null or s.sale_date <  p_to)
   group by si.product_id

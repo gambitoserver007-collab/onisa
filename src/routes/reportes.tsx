@@ -93,6 +93,9 @@ function Reportes() {
   const { session } = useDemoSession();
   const { currentLocationId } = useCurrentLocation();
   const { customers } = useCompanyCatalog();
+  // El valor real de arranque lo pone DateRangeSelect en su efecto de
+  // montaje (preset "Hoy" por defecto) -- este estado inicial nunca llega
+  // a pintarse.
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
