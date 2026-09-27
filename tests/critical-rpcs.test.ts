@@ -7908,7 +7908,7 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(queueRows).toHaveLength(0);
     });
 
-    it("no toca una empresa con cero perfiles que nunca se encoló (no es un barrido general)", async () => {
+    it("no toca de inmediato una empresa recién creada sin perfil aunque nunca se encoló (solo se barre pasada 1 hora)", async () => {
       const untouched = await makeCompany(db, "Empresa Sin Encolar Test");
 
       const platformAdmin = await makeUser(db, companyA.id, "admin", true);
@@ -7922,6 +7922,53 @@ describe("RPCs críticas de dinero y stock", () => {
       );
 
       expect(rows).toHaveLength(1);
+    });
+
+    it("barre una empresa fantasma vieja (>1h) sin perfil aunque nunca se haya encolado (registro público abandonado)", async () => {
+      const old = await makeCompany(db, "Empresa Registro Abandonado Test");
+      await db.query(
+        "update public.companies set created_at = now() - interval '2 hours' where id=$1",
+        [old.id],
+      );
+
+      const platformAdmin = await makeUser(db, companyA.id, "admin", true);
+      await asUser(db, platformAdmin, async () => {
+        await db.query("select cleanup_phantom_companies()");
+      });
+
+      const { rows } = await db.query(
+        "select id from public.companies where id=$1",
+        [old.id],
+      );
+
+      expect(rows).toHaveLength(0);
+    });
+
+    it("nunca barre una empresa demo ni una con plan asignado, aunque esté vieja y sin perfil", async () => {
+      const demo = await makeCompany(db, "Empresa Demo Vieja Test");
+      await db.query(
+        "update public.companies set created_at = now() - interval '2 hours', is_demo_data = true where id=$1",
+        [demo.id],
+      );
+
+      const plan = await makePlan(db, "Plan Vieja Test", 10, 1, 10);
+      const withPlan = await makeCompany(db, "Empresa Con Plan Vieja Test");
+      await db.query(
+        "update public.companies set created_at = now() - interval '2 hours', plan_id = $2 where id=$1",
+        [withPlan.id, plan],
+      );
+
+      const platformAdmin = await makeUser(db, companyA.id, "admin", true);
+      await asUser(db, platformAdmin, async () => {
+        await db.query("select cleanup_phantom_companies()");
+      });
+
+      const { rows } = await db.query(
+        "select id from public.companies where id = any($1)",
+        [[demo.id, withPlan.id]],
+      );
+
+      expect(rows).toHaveLength(2);
     });
   });
 

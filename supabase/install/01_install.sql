@@ -11295,11 +11295,21 @@ create table if not exists public.phantom_company_cleanup_queue (
 alter table public.phantom_company_cleanup_queue enable row level security;
 grant all on public.phantom_company_cleanup_queue to service_role;
 
--- Borra las empresas encoladas que de verdad siguen sin ningún perfil (si
--- alguna se reclamó de otra forma mientras tanto, se deja intacta y solo
--- se descarta de la cola). Se llama de forma oportunista desde el
--- frontend cuando el Super Admin abre /admin/empresas (mismo patrón, sin
--- depender de pg_cron, que ya usa expire_overdue_trials más arriba).
+-- Borra empresas fantasma sin ningún perfil. Dos fuentes de candidatas:
+-- 1) las encoladas por team-create-user/admin-create-company (como antes).
+-- 2) CUALQUIER empresa sin perfil y con más de 1 hora de creada, la haya
+--    encolado alguien o no -- se detectó (2026-09-26) que un registro
+--    público (/register) abandonado o purgado por Supabase Auth antes de
+--    confirmar el correo deja la empresa huérfana igual, pero nadie la
+--    encola porque no pasó por esos dos edge functions. El margen de 1
+--    hora es solo para nunca competir con un alta que está a medio hacer
+--    en ese instante (aunque el trigger crea empresa+perfil en la misma
+--    transacción, así que en la práctica nunca hay una ventana real).
+-- Nunca toca empresas demo ni con un plan ya asignado (nadie sin perfil
+-- debería tener ninguno de los dos, pero se excluyen por seguridad extra).
+-- Se llama de forma oportunista desde el frontend cuando el Super Admin
+-- abre /admin/empresas (mismo patrón, sin depender de pg_cron, que ya usa
+-- expire_overdue_trials más arriba).
 create or replace function public.cleanup_phantom_companies()
 returns integer
 language plpgsql
@@ -11319,6 +11329,15 @@ begin
     where not exists (
       select 1 from public.profiles p where p.company_id = q.company_id
     )
+    union
+    select c.id as company_id
+    from public.companies c
+    where not c.is_demo_data
+      and c.plan_id is null
+      and c.created_at < now() - interval '1 hour'
+      and not exists (
+        select 1 from public.profiles p where p.company_id = c.id
+      )
   )
   delete from public.companies c
   using candidatas
