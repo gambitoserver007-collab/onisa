@@ -867,48 +867,77 @@ export async function fetchCompanyAlerts(): Promise<CompanyAlerts> {
   };
 }
 
+const SALE_WITH_ITEMS_COLUMNS =
+  "id, company_id, location_id, customer_id, sale_number, document_type, payment_method, customer_name, sale_date, subtotal, tax, total, status, created_by, commission_rate, commission_amount, is_demo_data, created_at, updated_at, deleted_at, sale_items(id, company_id, sale_id, product_id, product_name, variant_label, qty, unit_price, total, cost, is_demo_data, created_at)";
+
+export interface FetchSalesOptions {
+  /** yyyy-mm-dd, inclusive. */
+  from?: string;
+  /** yyyy-mm-dd, inclusive. */
+  to?: string;
+  limit?: number;
+  /** Para paginar junto con `limit` (ver buildBackupExport). */
+  offset?: number;
+  createdBy?: string;
+}
+
+/** Historial de ventas -- SIEMPRE se llama con un rango de fecha razonable
+ * (ver useSales/ventas.index.tsx, que por defecto pide los últimos 30
+ * días); sin límite/rango esto crecía para siempre con el historial de la
+ * empresa y PostgREST lo cortaba en silencio a las 1000 filas. sale_items
+ * va embebido en la misma consulta (antes era un segundo viaje con
+ * `.in("sale_id", ...)` sobre TODOS los ids ya traídos). */
 export async function fetchSales(
   companyId?: string,
   locationId?: string,
+  opts: FetchSalesOptions = {},
 ): Promise<Sale[]> {
   let salesQuery = supabase
     .from("sales")
-    .select(
-      "id, company_id, location_id, customer_id, sale_number, document_type, payment_method, customer_name, sale_date, subtotal, tax, total, status, created_by, commission_rate, commission_amount, is_demo_data, created_at, updated_at, deleted_at",
-    )
+    .select(SALE_WITH_ITEMS_COLUMNS)
     .is("deleted_at", null);
 
   if (companyId) salesQuery = salesQuery.eq("company_id", companyId);
 
   if (locationId) salesQuery = salesQuery.eq("location_id", locationId);
 
-  const { data: salesRows, error: salesError } = await salesQuery.order(
-    "sale_date",
-    {
-      ascending: false,
-    },
-  );
+  if (opts.createdBy) salesQuery = salesQuery.eq("created_by", opts.createdBy);
 
-  if (salesError) throw salesError;
+  if (opts.from)
+    salesQuery = salesQuery.gte("sale_date", `${opts.from}T00:00:00`);
 
-  if (!salesRows?.length) return [];
+  if (opts.to) {
+    const toExclusive = new Date(
+      new Date(`${opts.to}T00:00:00`).getTime() + 24 * 60 * 60 * 1000,
+    ).toISOString();
 
-  const saleIds = salesRows.map((sale) => sale.id);
+    salesQuery = salesQuery.lt("sale_date", toExclusive);
+  }
 
-  const { data: itemRows, error: itemsError } = await supabase
-    .from("sale_items")
-    .select(
-      "id, company_id, sale_id, product_id, product_name, variant_label, qty, unit_price, total, cost, is_demo_data, created_at",
-    )
-    .in("sale_id", saleIds);
+  // El orden se invierte para paginar (offset) -- ascendente, para que una
+  // página nueva no se mueva por ventas nuevas que entraron mientras tanto
+  // (con desc, una venta nueva empuja todo lo demás una posición).
+  salesQuery = salesQuery.order("sale_date", {
+    ascending: opts.offset != null,
+  });
 
-  if (itemsError) throw itemsError;
+  if (opts.limit != null && opts.offset != null) {
+    salesQuery = salesQuery.range(opts.offset, opts.offset + opts.limit - 1);
+  } else if (opts.limit) {
+    salesQuery = salesQuery.limit(opts.limit);
+  }
 
-  const itemsBySale = groupSaleItemsBySale((itemRows ?? []) as SaleItemRow[]);
+  const { data, error } = await salesQuery;
 
-  return (salesRows as SaleRow[]).map((sale) =>
-    mapSale(sale, itemsBySale.get(sale.id) ?? []),
-  );
+  if (error) throw error;
+
+  return (data ?? []).map((row) => {
+    const { sale_items, ...saleRow } = row as SaleRow & {
+      sale_items: SaleItemRow[];
+    };
+
+    return mapSale(saleRow as SaleRow, sale_items ?? []);
+  });
 }
 
 /**
@@ -1219,9 +1248,7 @@ export async function fetchSaleById(
 ): Promise<Sale | null> {
   let q = supabase
     .from("sales")
-    .select(
-      "id, company_id, location_id, customer_id, sale_number, document_type, payment_method, customer_name, sale_date, subtotal, tax, total, status, created_by, commission_rate, commission_amount, is_demo_data, created_at, updated_at, deleted_at, sale_items(id, company_id, sale_id, product_id, product_name, variant_label, qty, unit_price, total, cost, is_demo_data, created_at)",
-    )
+    .select(SALE_WITH_ITEMS_COLUMNS)
     .is("deleted_at", null);
 
   if (companyId) q = q.eq("company_id", companyId);
@@ -2505,6 +2532,21 @@ export async function fetchCashMovements(
     amount: toNumber(row.amount),
     movementAt: row.movement_at,
   }));
+}
+
+/** Ventas en efectivo del turno en curso (para el estimado en vivo del
+ * arqueo) -- calculado en el servidor por sale_payments.kind='cash', no
+ * trayendo las ventas de la sucursal al navegador para sumarlas ahí. */
+export async function fetchCashSessionCashSales(
+  sessionId: string,
+): Promise<number> {
+  const { data, error } = await supabase.rpc("get_cash_session_cash_sales", {
+    p_session_id: sessionId,
+  });
+
+  if (error) throw error;
+
+  return toNumber(data);
 }
 
 export async function openCashSession(
@@ -4164,6 +4206,54 @@ export interface CreateReturnInput {
   locationId?: string | null;
   refundCash?: boolean;
   items: CreateReturnItemInput[];
+}
+
+export interface SaleSearchResult {
+  /** Folio (o uuid si no hay folio) -- lo que ve el usuario. */
+  id: string;
+  databaseId: string;
+  customerName: string;
+  date: string;
+  total: number;
+}
+
+/** Buscador de ventas para el selector de "Registrar devolución" -- antes
+ * ese diálogo cargaba TODO el historial de ventas de la empresa
+ * (fetchSales sin límite) para que un combo de cmdk filtrara en el
+ * navegador. Ahora busca en el servidor por folio o nombre de cliente
+ * (denormalizado en sales.customer_name, sin join), máximo 20 resultados. */
+export async function searchSalesForReturn(
+  companyId: string,
+  query: string,
+  limit = 20,
+): Promise<SaleSearchResult[]> {
+  // La coma y los paréntesis son sintaxis del formato or=... de PostgREST --
+  // se quitan para que una búsqueda con esos caracteres no rompa el filtro.
+  const term = query.trim().replace(/[,()]/g, "");
+
+  let q = supabase
+    .from("sales")
+    .select("id, sale_number, customer_name, sale_date, total")
+    .eq("company_id", companyId)
+    .is("deleted_at", null)
+    .order("sale_date", { ascending: false })
+    .limit(limit);
+
+  if (term) {
+    q = q.or(`sale_number.ilike.%${term}%,customer_name.ilike.%${term}%`);
+  }
+
+  const { data, error } = await q;
+
+  if (error) throw error;
+
+  return (data ?? []).map((row) => ({
+    id: row.sale_number || row.id,
+    databaseId: row.id,
+    customerName: row.customer_name,
+    date: normalizeDate(row.sale_date),
+    total: toNumber(row.total),
+  }));
 }
 
 export async function fetchReturns(companyId?: string): Promise<ReturnDoc[]> {
@@ -6366,10 +6456,36 @@ export async function deleteCalendarEvent(eventId: string): Promise<void> {
 
 // ---- Backup (export real) ----
 
+const BACKUP_SALES_PAGE_SIZE = 500;
+
+/** A diferencia del resto de las pantallas (que solo necesitan un rango
+ * reciente), un respaldo de verdad necesita TODO el historial -- así que
+ * en vez de un límite, aquí se pagina con .range() hasta agotar, en vez de
+ * una sola llamada sin límite (que PostgREST cortaba en silencio a las
+ * 1000 filas, dejando el respaldo incompleto sin avisar). */
+async function fetchAllSalesForBackup(companyId?: string): Promise<Sale[]> {
+  const all: Sale[] = [];
+  let offset = 0;
+
+  for (;;) {
+    const page = await fetchSales(companyId, undefined, {
+      limit: BACKUP_SALES_PAGE_SIZE,
+      offset,
+    });
+
+    all.push(...page);
+
+    if (page.length < BACKUP_SALES_PAGE_SIZE) break;
+    offset += BACKUP_SALES_PAGE_SIZE;
+  }
+
+  return all;
+}
+
 export async function buildBackupExport(companyId?: string) {
   const [catalog, sales] = await Promise.all([
     fetchCompanyCatalog(companyId),
-    fetchSales(companyId),
+    fetchAllSalesForBackup(companyId),
   ]);
 
   return {

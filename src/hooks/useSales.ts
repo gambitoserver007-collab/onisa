@@ -4,7 +4,11 @@ import { fetchSales, getErrorMessage } from "@/services/appData";
 import type { Sale } from "@/types";
 import { useDemoSession } from "./useDemoSession";
 
-export function useSales(locationId?: string) {
+/** `from`/`to` son obligatorios a propósito -- sin un rango, esto traía
+ * TODO el historial de ventas de la empresa (se cortaba en silencio a las
+ * 1000 filas de PostgREST). El llamador decide el rango (ventas.index.tsx
+ * usa los últimos 30 días por defecto, ajustable). */
+export function useSales(from: string, to: string, locationId?: string) {
   const { isReady, session } = useDemoSession();
 
   const sessionKey = session
@@ -30,7 +34,11 @@ export function useSales(locationId?: string) {
     setError(null);
 
     try {
-      const data = await fetchSales(session?.companyId, locationId);
+      const data = await fetchSales(session?.companyId, locationId, {
+        from,
+        to,
+      });
+
       setSales(data);
       setSource("supabase");
     } catch (loadError) {
@@ -40,21 +48,15 @@ export function useSales(locationId?: string) {
     } finally {
       setIsLoading(false);
     }
-  }, [session?.companyId, sessionKey, locationId]);
+  }, [session?.companyId, sessionKey, locationId, from, to]);
 
   useEffect(() => {
     if (!isReady) return;
     void reload();
   }, [isReady, reload]);
 
-  const findSale = useCallback(
-    (id: string) =>
-      sales.find((sale) => sale.id === id || sale.databaseId === id) ?? null,
-    [sales],
-  );
-
   return useMemo(
-    () => ({ sales, error, isLoading, source, reload, findSale }),
-    [error, findSale, isLoading, reload, sales, source],
+    () => ({ sales, error, isLoading, source, reload }),
+    [error, isLoading, reload, sales, source],
   );
 }

@@ -5553,6 +5553,58 @@ $$;
 
 revoke all on function public.compute_cash_session_expected(uuid) from public, anon, authenticated;
 
+-- Ventas en efectivo del turno en curso, para el estimado en vivo que ve
+-- admin/finanzas mientras la caja sigue abierta (auditoría de rendimiento
+-- 2026-09: antes el frontend traía TODAS las ventas de la sucursal --
+-- useSales() sin límite -- solo para sumar esto en el navegador). Misma
+-- consulta que ya usa compute_cash_session_expected() para su parte de
+-- efectivo (por sale_payments.kind, no por el texto del método -- una
+-- venta con pago dividido solo aporta su parte en efectivo), pero devuelta
+-- sola porque la pantalla la muestra como su propia fila, aparte del total
+-- esperado.
+create or replace function public.get_cash_session_cash_sales(p_session_id uuid)
+returns numeric
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_session public.cash_sessions%rowtype;
+  v_role public.app_role;
+  v_total numeric(12,2);
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+
+  select * into v_session from public.cash_sessions where id = p_session_id;
+  if not found then raise exception 'Caja no encontrada.'; end if;
+
+  if v_session.company_id <> public.current_user_company_id() then
+    raise exception 'No autorizado.';
+  end if;
+
+  v_role := public.current_user_role();
+  if v_role not in ('admin', 'finanzas') and v_session.opened_by <> auth.uid() then
+    raise exception 'No autorizado.';
+  end if;
+
+  select coalesce(sum(sp.amount), 0) into v_total
+  from public.sale_payments sp
+  join public.sales s on s.id = sp.sale_id
+  where s.company_id = v_session.company_id
+    and s.location_id = v_session.location_id
+    and s.till_id = v_session.till_id
+    and s.deleted_at is null
+    and sp.kind = 'cash'
+    and s.sale_date >= v_session.opened_at
+    and s.sale_date <= coalesce(v_session.count_cutoff_at, now());
+
+  return round(v_total, 2);
+end;
+$$;
+
+revoke execute on function public.get_cash_session_cash_sales(uuid) from public, anon;
+grant execute on function public.get_cash_session_cash_sales(uuid) to authenticated;
+
 -- El close_cash_session de un solo paso (Etapas 1-2) queda reemplazado por
 -- submit_till_count + finish_till_count + authorize_cash_session.
 drop function if exists public.close_cash_session(uuid, numeric);

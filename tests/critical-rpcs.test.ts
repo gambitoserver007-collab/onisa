@@ -8486,4 +8486,91 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(rows[0].open_cash_session).toBeTruthy();
     });
   });
+
+  describe("45. get_cash_session_cash_sales(): estimado de efectivo del turno, calculado en el servidor", () => {
+    it("suma solo las ventas en efectivo del turno, y respeta el rol/dueño de la sesión", async () => {
+      const company = await makeCompany(db, "Empresa Caja Efectivo");
+      const admin = await makeUser(db, company.id, "admin");
+      const cajero = await makeUser(db, company.id, "user");
+      const otroCajero = await makeUser(db, company.id, "user");
+      const product = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Caja",
+        5,
+        20,
+        100,
+      );
+
+      const { rows: sessionRows } = await asUser(db, cajero, () =>
+        db.query<{ open_cash_session: string }>(
+          "select open_cash_session(100, $1) as open_cash_session",
+          [company.loc1],
+        ),
+      );
+      const sessionId = sessionRows[0].open_cash_session;
+
+      await asUser(db, cajero, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 2, unit_price: 20 }],
+          company.loc1,
+        ),
+      );
+      // Venta con tarjeta -- no debe contar en el efectivo del turno.
+      await asUser(db, cajero, () =>
+        createSale(
+          db,
+          [{ product_id: product, qty: 1, unit_price: 20 }],
+          company.loc1,
+          undefined,
+          { paymentMethod: "Tarjeta", paymentKind: "card" },
+        ),
+      );
+
+      const { rows: cajeroRows } = await asUser(db, cajero, () =>
+        db.query<{ get_cash_session_cash_sales: string }>(
+          "select get_cash_session_cash_sales($1) as get_cash_session_cash_sales",
+          [sessionId],
+        ),
+      );
+      expect(Number(cajeroRows[0].get_cash_session_cash_sales)).toBe(40);
+
+      const { rows: adminRows } = await asUser(db, admin, () =>
+        db.query<{ get_cash_session_cash_sales: string }>(
+          "select get_cash_session_cash_sales($1) as get_cash_session_cash_sales",
+          [sessionId],
+        ),
+      );
+      expect(Number(adminRows[0].get_cash_session_cash_sales)).toBe(40);
+
+      await expect(
+        asUser(db, otroCajero, () =>
+          db.query("select get_cash_session_cash_sales($1)", [sessionId]),
+        ),
+      ).rejects.toThrow(/no autorizado/i);
+    });
+
+    it("un admin de otra empresa no puede consultarla", async () => {
+      const company = await makeCompany(db, "Empresa Caja Efectivo Aislada");
+      const cajero = await makeUser(db, company.id, "user");
+      const { rows } = await asUser(db, cajero, () =>
+        db.query<{ open_cash_session: string }>(
+          "select open_cash_session(0, $1) as open_cash_session",
+          [company.loc1],
+        ),
+      );
+      const sessionId = rows[0].open_cash_session;
+
+      const other = await makeCompany(db, "Empresa Caja Efectivo Otra");
+      const otherAdmin = await makeUser(db, other.id, "admin");
+
+      await expect(
+        asUser(db, otherAdmin, () =>
+          db.query("select get_cash_session_cash_sales($1)", [sessionId]),
+        ),
+      ).rejects.toThrow(/no autorizado/i);
+    });
+  });
 });

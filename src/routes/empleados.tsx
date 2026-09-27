@@ -104,7 +104,6 @@ function Empleados() {
   const [profileNames, setProfileNames] = useState<Record<string, string>>({});
   const [attendance, setAttendance] = useState<AttendanceEntry[]>([]);
   const [timeEvents, setTimeEvents] = useState<TimeEvent[]>([]);
-  const [sales, setSales] = useState<Sale[]>([]);
   const [movements, setMovements] = useState<StockMovementRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -115,27 +114,19 @@ function Empleados() {
     setIsLoading(true);
 
     try {
-      const [
-        teamData,
-        names,
-        attendanceData,
-        timeEventsData,
-        salesData,
-        movementsData,
-      ] = await Promise.all([
-        fetchTeam(session.companyId),
-        fetchProfileNames(session.companyId),
-        fetchAttendance(session.companyId),
-        fetchTimeEvents(session.companyId),
-        fetchSales(session.companyId),
-        fetchStockMovements(session.companyId),
-      ]);
+      const [teamData, names, attendanceData, timeEventsData, movementsData] =
+        await Promise.all([
+          fetchTeam(session.companyId),
+          fetchProfileNames(session.companyId),
+          fetchAttendance(session.companyId),
+          fetchTimeEvents(session.companyId),
+          fetchStockMovements(session.companyId),
+        ]);
 
       setTeam(teamData);
       setProfileNames(names);
       setAttendance(attendanceData);
       setTimeEvents(timeEventsData);
-      setSales(salesData);
       setMovements(movementsData);
     } catch (error) {
       toast.error(
@@ -342,14 +333,42 @@ function Empleados() {
 
   // ---- Ventas / Mermas por empleado ----
   const [salesEmployeeId, setSalesEmployeeId] = useState(ALL);
+  const [employeeSales, setEmployeeSales] = useState<Sale[]>([]);
+  const [employeeSalesLoading, setEmployeeSalesLoading] = useState(false);
 
-  const employeeSales = useMemo(
-    () =>
-      salesEmployeeId === ALL
-        ? []
-        : sales.filter((s) => s.createdBy === salesEmployeeId),
-    [sales, salesEmployeeId],
-  );
+  // Antes se traían TODAS las ventas de la empresa (sin límite) para poder
+  // filtrar por empleado en el navegador. Ahora solo se piden cuando se
+  // elige un empleado, ya filtradas por created_by en el servidor (últimos
+  // 200 tickets -- esta pantalla es para revisar desempeño reciente, no un
+  // reporte contable de todo el historial).
+  useEffect(() => {
+    if (salesEmployeeId === ALL || !session?.companyId) {
+      setEmployeeSales([]);
+
+      return;
+    }
+
+    let active = true;
+    setEmployeeSalesLoading(true);
+
+    void fetchSales(session.companyId, undefined, {
+      createdBy: salesEmployeeId,
+      limit: 200,
+    })
+      .then((data) => {
+        if (active) setEmployeeSales(data);
+      })
+      .catch(() => {
+        if (active) setEmployeeSales([]);
+      })
+      .finally(() => {
+        if (active) setEmployeeSalesLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [salesEmployeeId, session?.companyId]);
 
   const employeeSalesTotal = employeeSales.reduce((sum, s) => sum + s.total, 0);
 
@@ -751,7 +770,9 @@ function Empleados() {
                             colSpan={5}
                             className="text-center text-muted-foreground"
                           >
-                            Sin ventas registradas.
+                            {employeeSalesLoading
+                              ? "Cargando ventas..."
+                              : "Sin ventas registradas."}
                           </TableCell>
                         </TableRow>
                       )}

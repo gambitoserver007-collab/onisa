@@ -3276,6 +3276,10 @@ export type Database = {
         Args: { p_session_id: string };
         Returns: number;
       };
+      get_cash_session_cash_sales: {
+        Args: { p_session_id: string };
+        Returns: number;
+      };
       create_purchase: {
         Args: {
           p_date: string;

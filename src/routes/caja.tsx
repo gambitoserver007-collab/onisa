@@ -51,12 +51,12 @@ import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useCurrentLocation } from "@/hooks/useCurrentLocation";
 import { ALL_LOCATIONS } from "@/lib/currentLocation";
 import { useDemoSession } from "@/hooks/useDemoSession";
-import { useSales } from "@/hooks/useSales";
 import { blockDemoAction } from "@/lib/demoMode";
 import {
   createCashMovement,
   fetchCashClosings,
   fetchCashMovements,
+  fetchCashSessionCashSales,
   fetchOpenCashSession,
   fetchProfileNames,
   fetchSessionsNeedingSecondCount,
@@ -178,8 +178,8 @@ function Caja() {
     locations.length > 0 &&
     !locations.some((loc) => loc.id === cajaLocationId);
 
-  const { sales } = useSales(cajaLocationId ?? undefined);
   const companyId = session?.companyId;
+  const [cashSales, setCashSales] = useState(0);
 
   const [openSession, setOpenSession] = useState<CashSession | null>(null);
   const [movements, setMovements] = useState<CashMovement[]>([]);
@@ -291,23 +291,33 @@ function Caja() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.companyId, cajaLocationId]);
 
-  // Ventas en efectivo del TURNO: solo las hechas desde que se abrió la caja
-  // (compara la marca de tiempo exacta de la venta con la hora de apertura).
-  // Esto es solo un estimado en vivo para admin/finanzas mientras la caja
-  // sigue abierta -- el número que de verdad cuenta para el arqueo lo
-  // calcula el servidor al autorizar, nunca este cálculo del navegador.
-  const cashSales = useMemo(() => {
-    if (!openSession) return 0;
-    const openedAt = openSession.openedAt;
+  // Ventas en efectivo del TURNO, calculadas en el servidor (antes se
+  // traían TODAS las ventas de la sucursal al navegador -- useSales() sin
+  // límite -- solo para sumar esto). Esto es solo un estimado en vivo para
+  // admin/finanzas mientras la caja sigue abierta -- el número que de
+  // verdad cuenta para el arqueo lo calcula el servidor al autorizar,
+  // nunca este cálculo del navegador.
+  useEffect(() => {
+    if (!openSession) {
+      setCashSales(0);
 
-    return sales
-      .filter(
-        (sale) =>
-          sale.method === "Efectivo" &&
-          (sale.createdAt ?? sale.date) >= openedAt,
-      )
-      .reduce((sum, sale) => sum + sale.total, 0);
-  }, [sales, openSession]);
+      return;
+    }
+
+    let active = true;
+
+    void fetchCashSessionCashSales(openSession.id)
+      .then((total) => {
+        if (active) setCashSales(total);
+      })
+      .catch(() => {
+        if (active) setCashSales(0);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [openSession]);
 
   const ingresos = movements
     .filter((m) => m.amount > 0)

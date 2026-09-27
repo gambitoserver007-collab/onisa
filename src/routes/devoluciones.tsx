@@ -43,18 +43,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useDemoSession } from "@/hooks/useDemoSession";
-import { useCompanyCatalog } from "@/hooks/useCompanyCatalog";
 import { blockDemoAction } from "@/lib/demoMode";
 import {
   createReturn,
   fetchReturns,
-  fetchSales,
+  searchSalesForReturn,
   fetchSaleItemsForReturn,
   type ReturnDoc,
   type SaleItemForReturn,
+  type SaleSearchResult,
   getErrorMessage,
 } from "@/services/appData";
-import type { Sale } from "@/types";
 
 export const Route = createFileRoute("/devoluciones")({
   component: Devoluciones,
@@ -66,35 +65,30 @@ function Devoluciones() {
   const { formatMoney } = useBusinessSettings();
   const { isDemo, session, isReady } = useDemoSession();
   const [returns, setReturns] = useState<ReturnDoc[]>([]);
-  const [sales, setSales] = useState<Sale[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saleId, setSaleId] = useState<string>(NO_SALE);
+  const [selectedSaleLabel, setSelectedSaleLabel] = useState<string | null>(
+    null,
+  );
   const [reason, setReason] = useState("");
   const [refundCash, setRefundCash] = useState(true);
   const [saleItems, setSaleItems] = useState<SaleItemForReturn[]>([]);
   const [itemQtys, setItemQtys] = useState<Record<string, string>>({});
   const [loadingItems, setLoadingItems] = useState(false);
   const [salePickerOpen, setSalePickerOpen] = useState(false);
-  const { customers } = useCompanyCatalog();
-  // Documento/cédula por id de cliente, para buscar la venta por cédula.
-  const docByCustomerId = new Map(customers.map((c) => [c.id, c.doc]));
-
-  const selectedSale =
-    sales.find((s) => (s.databaseId ?? s.id) === saleId) ?? null;
+  const [saleSearch, setSaleSearch] = useState("");
+  const [saleResults, setSaleResults] = useState<SaleSearchResult[]>([]);
+  const [saleSearchLoading, setSaleSearchLoading] = useState(false);
 
   const reload = useCallback(async () => {
     setIsLoading(true);
 
     try {
-      const [returnsData, salesData] = await Promise.all([
-        fetchReturns(session?.companyId),
-        fetchSales(session?.companyId),
-      ]);
+      const returnsData = await fetchReturns(session?.companyId);
 
       setReturns(returnsData);
-      setSales(salesData);
     } catch (error) {
       toast.error(
         getErrorMessage(error, "No se pudieron cargar las devoluciones."),
@@ -108,6 +102,34 @@ function Devoluciones() {
     if (!isReady) return;
     void reload();
   }, [isReady, reload]);
+
+  // Busca en el servidor (folio o nombre de cliente) en vez de cargar TODO
+  // el historial de ventas de la empresa para filtrarlo en el navegador.
+  // Se abre el picker -> se ven las últimas 20; se escribe -> se busca tras
+  // una pausa breve para no mandar una consulta por cada tecla.
+  useEffect(() => {
+    if (!salePickerOpen || !session?.companyId) return;
+    let active = true;
+    setSaleSearchLoading(true);
+
+    const timer = setTimeout(() => {
+      void searchSalesForReturn(session.companyId!, saleSearch)
+        .then((results) => {
+          if (active) setSaleResults(results);
+        })
+        .catch(() => {
+          if (active) setSaleResults([]);
+        })
+        .finally(() => {
+          if (active) setSaleSearchLoading(false);
+        });
+    }, 250);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [salePickerOpen, saleSearch, session?.companyId]);
 
   useEffect(() => {
     if (saleId === NO_SALE) {
@@ -211,6 +233,8 @@ function Devoluciones() {
       });
       toast.success("Devolución registrada.");
       setSaleId(NO_SALE);
+      setSelectedSaleLabel(null);
+      setSaleSearch("");
       setReason("");
       setRefundCash(true);
       setItemQtys({});
@@ -258,9 +282,7 @@ function Devoluciones() {
                         className="w-full justify-between font-normal"
                       >
                         <span className="truncate">
-                          {selectedSale
-                            ? `${selectedSale.id} — ${selectedSale.customer}`
-                            : "Selecciona una venta"}
+                          {selectedSaleLabel ?? "Selecciona una venta"}
                         </span>
                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
@@ -269,32 +291,36 @@ function Devoluciones() {
                       className="w-[--radix-popover-trigger-width] p-0"
                       align="start"
                     >
-                      <Command>
-                        <CommandInput placeholder="Buscar por venta, cliente o cédula..." />
+                      <Command shouldFilter={false}>
+                        <CommandInput
+                          placeholder="Buscar por folio o cliente..."
+                          value={saleSearch}
+                          onValueChange={setSaleSearch}
+                        />
                         <CommandList>
-                          <CommandEmpty>Sin resultados.</CommandEmpty>
+                          <CommandEmpty>
+                            {saleSearchLoading
+                              ? "Buscando..."
+                              : "Sin resultados."}
+                          </CommandEmpty>
                           <CommandGroup>
-                            {sales.map((sale) => {
-                              const doc = sale.customerId
-                                ? (docByCustomerId.get(sale.customerId) ?? "")
-                                : "";
-
-                              return (
-                                <CommandItem
-                                  key={sale.databaseId ?? sale.id}
-                                  value={`${sale.id} ${sale.customer} ${doc}`}
-                                  onSelect={() => {
-                                    setSaleId(sale.databaseId ?? sale.id);
-                                    setSalePickerOpen(false);
-                                  }}
-                                >
-                                  <span className="truncate">
-                                    {sale.id} — {sale.customer}
-                                    {doc ? ` · ${doc}` : ""}
-                                  </span>
-                                </CommandItem>
-                              );
-                            })}
+                            {saleResults.map((sale) => (
+                              <CommandItem
+                                key={sale.databaseId}
+                                value={sale.databaseId}
+                                onSelect={() => {
+                                  setSaleId(sale.databaseId);
+                                  setSelectedSaleLabel(
+                                    `${sale.id} — ${sale.customerName}`,
+                                  );
+                                  setSalePickerOpen(false);
+                                }}
+                              >
+                                <span className="truncate">
+                                  {sale.id} — {sale.customerName}
+                                </span>
+                              </CommandItem>
+                            ))}
                           </CommandGroup>
                         </CommandList>
                       </Command>

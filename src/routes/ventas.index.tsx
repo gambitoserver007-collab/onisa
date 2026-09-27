@@ -4,7 +4,6 @@ import { Download, FileSpreadsheet, Plus, Receipt } from "lucide-react";
 import { toast } from "sonner";
 import {
   exportSalesToExcel,
-  filterSalesByDate,
   printReceipts,
   type TicketDisplaySettings,
 } from "@/lib/salesExport";
@@ -48,13 +47,39 @@ import {
 
 export const Route = createFileRoute("/ventas/")({ component: VentasPage });
 
+function toDateInput(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+
+  return `${y}-${m}-${day}`;
+}
+
+// Por defecto los últimos 30 días -- antes se pedía TODO el historial de
+// ventas de la empresa sin límite (se cortaba en silencio a las 1000 filas
+// de PostgREST). El usuario puede ensanchar el rango con los inputs de
+// fecha si necesita ver más atrás.
+function defaultDateRange() {
+  const to = new Date();
+  const from = new Date();
+
+  from.setDate(from.getDate() - 29);
+
+  return { from: toDateInput(from), to: toDateInput(to) };
+}
+
 function VentasPage() {
   const { formatMoney, settings } = useBusinessSettings();
   const { session } = useDemoSession();
   const { activeMethods } = usePaymentMethods(settings.countryCode);
   const { currentLocationId, locations } = useCurrentLocation();
 
+  const [from, setFrom] = useState(() => defaultDateRange().from);
+  const [to, setTo] = useState(() => defaultDateRange().to);
+
   const { sales, error, source, isLoading } = useSales(
+    from,
+    to,
     currentLocationId === ALL_LOCATIONS
       ? undefined
       : (currentLocationId ?? undefined),
@@ -146,8 +171,6 @@ function VentasPage() {
   const [method, setMethod] = useState("all");
   const [vendor, setVendor] = useState("all");
   const [turno, setTurno] = useState("all");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
 
   const methodOptions = useMemo(
     () =>
@@ -174,7 +197,10 @@ function VentasPage() {
     const activeTurno =
       turno === "all" ? null : turnos.find((t) => t.id === turno);
 
-    return filterSalesByDate(sales, from, to).filter((sale) => {
+    // El rango de fecha ya lo aplicó el servidor (useSales(from, to, ...)) --
+    // aquí solo quedan los filtros que no cambian qué se pide, solo qué se
+    // muestra de lo ya traído.
+    return sales.filter((sale) => {
       if (method !== "all" && sale.method !== method) return false;
 
       if (vendor !== "all" && sale.createdBy !== vendor) return false;
@@ -189,7 +215,7 @@ function VentasPage() {
 
       return true;
     });
-  }, [from, to, method, vendor, turno, turnos, sales]);
+  }, [method, vendor, turno, turnos, sales]);
 
   const exportSettings = {
     businessName: settings.businessName,
