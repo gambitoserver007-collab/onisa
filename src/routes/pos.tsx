@@ -33,6 +33,7 @@ import {
   fetchLocationStock,
   fetchLocationVariantStock,
   fetchOpenCashSession,
+  fetchAllActiveProductVariants,
   fetchProductVariants,
   fetchPromotions,
   getErrorMessage,
@@ -239,44 +240,46 @@ function POS() {
     void reloadLocationStock();
   }, [reloadLocationStock]);
 
-  // Índice de códigos de barras de variantes, para poder escanearlas en el POS.
+  // Índice de códigos de barras de variantes, para poder escanearlas en el
+  // POS -- antes pedía fetchProductVariants() UNA VEZ POR PRODUCTO con
+  // variantes (una tienda de ropa con 300 productos disparaba 300
+  // peticiones en cada carga del catálogo). Ahora es una sola consulta.
   useEffect(() => {
     const variantProducts = products.filter((p) => p.hasVariants);
 
-    if (!variantProducts.length) {
+    if (!variantProducts.length || !session?.companyId) {
       setVariantBarcodeIndex(new Map());
 
       return;
     }
 
+    const productById = new Map(variantProducts.map((p) => [p.id, p]));
     let active = true;
-    void Promise.all(
-      variantProducts.map((p) =>
-        fetchProductVariants(p.id)
-          .then((vs) => ({ p, vs }))
-          .catch(() => ({ p, vs: [] as ProductVariant[] })),
-      ),
-    ).then((results) => {
-      if (!active) return;
 
-      const idx = new Map<
-        string,
-        { product: Product; variant: ProductVariant }
-      >();
+    void fetchAllActiveProductVariants(session.companyId)
+      .catch(() => [] as ProductVariant[])
+      .then((variants) => {
+        if (!active) return;
 
-      for (const { p, vs } of results) {
-        for (const v of vs) {
-          if (v.barcode) idx.set(v.barcode.trim(), { product: p, variant: v });
+        const idx = new Map<
+          string,
+          { product: Product; variant: ProductVariant }
+        >();
+
+        for (const v of variants) {
+          const p = productById.get(v.productId);
+
+          if (p && v.barcode)
+            idx.set(v.barcode.trim(), { product: p, variant: v });
         }
-      }
 
-      setVariantBarcodeIndex(idx);
-    });
+        setVariantBarcodeIndex(idx);
+      });
 
     return () => {
       active = false;
     };
-  }, [products]);
+  }, [products, session?.companyId]);
 
   // Comprobantes configured for this store (fallback when none yet).
   const documentTypes = session?.documentTypes?.length

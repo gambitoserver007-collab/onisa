@@ -1682,6 +1682,43 @@ function variantLabel(attributes: Record<string, string>): string {
 }
 
 // Variantes activas de un producto.
+/** Todas las variantes activas de la empresa en una sola consulta -- para
+ * el índice de códigos de barras del POS, que antes pedía
+ * fetchProductVariants() UNA VEZ POR PRODUCTO con variantes (una tienda de
+ * ropa con 300 productos disparaba 300 peticiones en cada carga). */
+export async function fetchAllActiveProductVariants(
+  companyId: string,
+): Promise<ProductVariant[]> {
+  const { data, error } = await supabase
+    .from("product_variants")
+    .select(
+      "id, product_id, attributes, barcode, sku, price_override, cost_override",
+    )
+    .eq("company_id", companyId)
+    .eq("is_active", true)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+
+  return (data ?? []).map((row) => {
+    const attributes = (row.attributes ?? {}) as Record<string, string>;
+
+    return {
+      id: row.id,
+      productId: row.product_id,
+      attributes,
+      label: variantLabel(attributes),
+      barcode: row.barcode ?? undefined,
+      sku: row.sku ?? undefined,
+      priceOverride:
+        row.price_override == null ? null : toNumber(row.price_override),
+      costOverride:
+        row.cost_override == null ? null : toNumber(row.cost_override),
+    };
+  });
+}
+
 export async function fetchProductVariants(
   productId: string,
 ): Promise<ProductVariant[]> {
@@ -1764,6 +1801,34 @@ export async function fetchVariantLocations(
     locationId: row.location_id,
     stock: toNumber(row.stock),
   }));
+}
+
+/** Stock por sucursal de VARIAS variantes en una sola consulta -- antes el
+ * editor de producto pedía fetchVariantLocations() una por una, en
+ * cascada, al abrir un producto con variantes (una por cada talla/color). */
+export async function fetchVariantLocationsForVariants(
+  variantIds: string[],
+): Promise<Map<string, ProductLocationStock[]>> {
+  const byVariant = new Map<string, ProductLocationStock[]>();
+
+  if (variantIds.length === 0) return byVariant;
+
+  const { data, error } = await supabase
+    .from("product_variant_locations")
+    .select("product_variant_id, location_id, stock")
+    .in("product_variant_id", variantIds)
+    .eq("is_active", true);
+
+  if (error) throw error;
+
+  for (const row of data ?? []) {
+    const list = byVariant.get(row.product_variant_id) ?? [];
+
+    list.push({ locationId: row.location_id, stock: toNumber(row.stock) });
+    byVariant.set(row.product_variant_id, list);
+  }
+
+  return byVariant;
 }
 
 // Guarda las variantes de un producto en UNA sola transacción del servidor.
@@ -2706,54 +2771,101 @@ export async function authorizeCashSession(
   };
 }
 
-export async function fetchTillCounts(sessionId: string): Promise<TillCount[]> {
-  const { data: counts, error } = await supabase
-    .from("till_counts")
-    .select(
-      "id, count_number, counted_by, counted_at, counted_cash_total, card_total, transfer_total, other_total, manual_adjustment",
-    )
-    .eq("cash_session_id", sessionId)
-    .order("count_number", { ascending: true });
+const TILL_COUNT_COLS =
+  "id, cash_session_id, count_number, counted_by, counted_at, counted_cash_total, card_total, transfer_total, other_total, manual_adjustment";
 
-  if (error) throw error;
-  const countIds = (counts ?? []).map((c) => c.id);
-  let linesByCount: Record<string, TillCountLine[]> = {};
-
-  if (countIds.length) {
-    const { data: lines, error: linesError } = await supabase
-      .from("till_count_lines")
-      .select("till_count_id, denomination, quantity, subtotal")
-      .in("till_count_id", countIds);
-
-    if (linesError) throw linesError;
-    linesByCount = {};
-
-    for (const line of lines ?? []) {
-      const arr = (linesByCount[line.till_count_id] ??= []);
-      arr.push({
-        denomination: toNumber(line.denomination),
-        quantity: line.quantity,
-        subtotal: toNumber(line.subtotal),
-      });
-    }
-  }
-
-  return (counts ?? []).map((c) => ({
-    id: c.id,
+function mapTillCountRow(
+  c: Record<string, unknown>,
+  linesByCount: Record<string, TillCountLine[]>,
+): TillCount {
+  return {
+    id: c.id as string,
     countNumber: c.count_number === 2 ? 2 : 1,
-    countedBy: c.counted_by,
-    countedAt: c.counted_at,
+    countedBy: c.counted_by as string | null,
+    countedAt: c.counted_at as string,
     countedCashTotal: toNumber(c.counted_cash_total),
     cardTotal: toNumber(c.card_total),
     transferTotal: toNumber(c.transfer_total),
     otherTotal: toNumber(c.other_total),
-    manualAdjustment: toNumber(
-      (c as { manual_adjustment?: number }).manual_adjustment,
-    ),
-    lines: (linesByCount[c.id] ?? []).sort(
+    manualAdjustment: toNumber(c.manual_adjustment),
+    lines: (linesByCount[c.id as string] ?? []).sort(
       (a, b) => b.denomination - a.denomination,
     ),
-  }));
+  };
+}
+
+async function fetchTillCountLinesFor(
+  countIds: string[],
+): Promise<Record<string, TillCountLine[]>> {
+  if (!countIds.length) return {};
+
+  const { data: lines, error } = await supabase
+    .from("till_count_lines")
+    .select("till_count_id, denomination, quantity, subtotal")
+    .in("till_count_id", countIds);
+
+  if (error) throw error;
+  const linesByCount: Record<string, TillCountLine[]> = {};
+
+  for (const line of lines ?? []) {
+    const arr = (linesByCount[line.till_count_id] ??= []);
+
+    arr.push({
+      denomination: toNumber(line.denomination),
+      quantity: line.quantity,
+      subtotal: toNumber(line.subtotal),
+    });
+  }
+
+  return linesByCount;
+}
+
+export async function fetchTillCounts(sessionId: string): Promise<TillCount[]> {
+  const { data: counts, error } = await supabase
+    .from("till_counts")
+    .select(TILL_COUNT_COLS)
+    .eq("cash_session_id", sessionId)
+    .order("count_number", { ascending: true });
+
+  if (error) throw error;
+
+  const linesByCount = await fetchTillCountLinesFor(
+    (counts ?? []).map((c) => c.id),
+  );
+
+  return (counts ?? []).map((c) => mapTillCountRow(c, linesByCount));
+}
+
+/** Conteos de VARIAS cajas en una sola consulta -- ver
+ * fetchSessionsNeedingSecondCount, que antes pedía esto sesión por sesión
+ * en cascada. */
+export async function fetchTillCountsForSessions(
+  sessionIds: string[],
+): Promise<Map<string, TillCount[]>> {
+  const bySession = new Map<string, TillCount[]>();
+
+  if (!sessionIds.length) return bySession;
+
+  const { data: counts, error } = await supabase
+    .from("till_counts")
+    .select(TILL_COUNT_COLS)
+    .in("cash_session_id", sessionIds)
+    .order("count_number", { ascending: true });
+
+  if (error) throw error;
+
+  const linesByCount = await fetchTillCountLinesFor(
+    (counts ?? []).map((c) => c.id),
+  );
+
+  for (const c of counts ?? []) {
+    const list = bySession.get(c.cash_session_id) ?? [];
+
+    list.push(mapTillCountRow(c, linesByCount));
+    bySession.set(c.cash_session_id, list);
+  }
+
+  return bySession;
 }
 
 // Cajas abiertas por OTRA persona en esta sucursal que ya tienen su primer
@@ -2776,19 +2888,17 @@ export async function fetchSessionsNeedingSecondCount(
 
   if (error) throw error;
   const sessions = (data ?? []).map((row) => mapCashSession(row as never));
-  const matches: CashSession[] = [];
+  const countsBySession = await fetchTillCountsForSessions(
+    sessions.map((s) => s.id),
+  );
 
-  for (const s of sessions) {
-    const counts = await fetchTillCounts(s.id);
+  return sessions.filter((s) => {
+    const counts = countsBySession.get(s.id) ?? [];
     const count1 = counts.find((c) => c.countNumber === 1);
     const count2 = counts.find((c) => c.countNumber === 2);
 
-    if (count1 && !count2 && count1.countedBy !== excludeCountedBy) {
-      matches.push(s);
-    }
-  }
-
-  return matches;
+    return !!count1 && !count2 && count1.countedBy !== excludeCountedBy;
+  });
 }
 
 export interface PendingReviewSession extends CashSession {
@@ -4112,7 +4222,10 @@ export async function fetchPurchases(companyId?: string): Promise<Purchase[]> {
       "id, purchase_number, purchase_date, document_number, total, supplier_id",
     )
     .is("deleted_at", null)
-    .order("purchase_date", { ascending: false });
+    .order("purchase_date", { ascending: false })
+    // Auditoría de rendimiento 2026-09: sin límite, esto crecía para
+    // siempre con el historial de compras de la empresa.
+    .limit(300);
 
   const { data, error } = await (companyId
     ? query.eq("company_id", companyId)
@@ -4271,7 +4384,10 @@ export async function fetchReturns(companyId?: string): Promise<ReturnDoc[]> {
     .from("returns")
     .select("id, return_number, created_at, reason, total, status, sale_id")
     .is("deleted_at", null)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    // Auditoría de rendimiento 2026-09: sin límite, esto crecía para
+    // siempre con el historial de devoluciones de la empresa.
+    .limit(300);
 
   const { data, error } = await (companyId
     ? query.eq("company_id", companyId)
@@ -4532,7 +4648,10 @@ export async function fetchQuotes(
       "id, quote_number, created_at, customer_id, customer_name, location_id, subtotal, tax, total, valid_until, status, notes, converted_sale_id",
     )
     .is("deleted_at", null)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    // Auditoría de rendimiento 2026-09: sin límite (y sin rango de fecha
+    // por defecto en cotizaciones.tsx), esto crecía para siempre.
+    .limit(300);
 
   if (companyId) q = q.eq("company_id", companyId);
 
@@ -5129,7 +5248,10 @@ export async function fetchApartados(
       "id, apartado_number, created_at, customer_id, customer_name, location_id, subtotal, tax, total, paid_total, due_date, status, notes, converted_sale_id, cancel_refunded",
     )
     .is("deleted_at", null)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    // Auditoría de rendimiento 2026-09: sin límite, esto crecía para
+    // siempre con el historial de apartados de la empresa.
+    .limit(300);
 
   if (companyId) q = q.eq("company_id", companyId);
 
@@ -5361,62 +5483,31 @@ export interface PlanUsage {
 }
 
 export async function fetchPlanUsage(companyId?: string): Promise<PlanUsage> {
-  let plan: SubscriptionPlan | null = null;
-  let status = "trial";
-  let expiresAt: string | null = null;
-  let subscriptionStatus: PlanUsage["subscriptionStatus"] = null;
+  // Las 5 consultas de abajo son independientes entre sí (ninguna depende
+  // del resultado de otra) -- antes se pedían una tras otra en serie.
+  // El plan (subscription_plans) sí depende de company.plan_id, así que
+  // ese se resuelve después, en un segundo paso.
+  const companyQuery = companyId
+    ? supabase
+        .from("companies")
+        .select("plan_id, subscription_status, expires_at")
+        .eq("id", companyId)
+        .maybeSingle()
+    : Promise.resolve({ data: null });
 
-  if (companyId) {
-    const { data: company } = await supabase
-      .from("companies")
-      .select("plan_id, subscription_status, expires_at")
-      .eq("id", companyId)
-      .maybeSingle();
-
-    status = company?.subscription_status ?? "trial";
-    expiresAt = company?.expires_at ?? null;
-
-    if (company?.plan_id) {
-      const { data: planRow } = await supabase
-        .from("subscription_plans")
-        .select(
-          "id, name, price, product_limit, user_limit, monthly_sales_limit, is_active",
-        )
-        .eq("id", company.plan_id)
-        .maybeSingle();
-
-      if (planRow) {
-        plan = {
-          id: planRow.id,
-          name: planRow.name,
-          price: toNumber(planRow.price),
-          productLimit: toNumber(planRow.product_limit),
-          userLimit: toNumber(planRow.user_limit),
-          salesLimit: toNumber(planRow.monthly_sales_limit),
-          isActive: planRow.is_active,
-        };
-      }
-    }
-
-    const { data: subscriptionRow } = await supabase
-      .from("company_subscriptions")
-      .select("status")
-      .eq("company_id", companyId)
-      .maybeSingle();
-
-    subscriptionStatus =
-      (subscriptionRow?.status as PlanUsage["subscriptionStatus"]) ?? null;
-  }
+  const subscriptionQuery = companyId
+    ? supabase
+        .from("company_subscriptions")
+        .select("status")
+        .eq("company_id", companyId)
+        .maybeSingle()
+    : Promise.resolve({ data: null });
 
   const productsQuery = supabase
     .from("products")
     .select("id", { count: "exact", head: true })
     .is("deleted_at", null)
     .eq("active", true);
-
-  const { count: productsCount } = await (companyId
-    ? productsQuery.eq("company_id", companyId)
-    : productsQuery);
 
   const month = localDateKey(new Date()).slice(0, 7);
 
@@ -5426,27 +5517,58 @@ export async function fetchPlanUsage(companyId?: string): Promise<PlanUsage> {
     .is("deleted_at", null)
     .gte("sale_date", `${month}-01`);
 
-  const { count: salesThisMonth } = await (companyId
-    ? salesQuery.eq("company_id", companyId)
-    : salesQuery);
-
   const usersQuery = supabase
     .from("profiles")
     .select("id", { count: "exact", head: true })
     .eq("is_active", true);
 
-  const { count: usersCount } = await (companyId
-    ? usersQuery.eq("company_id", companyId)
-    : usersQuery);
+  const [
+    { data: company },
+    { data: subscriptionRow },
+    { count: productsCount },
+    { count: salesThisMonth },
+    { count: usersCount },
+  ] = await Promise.all([
+    companyQuery,
+    subscriptionQuery,
+    companyId ? productsQuery.eq("company_id", companyId) : productsQuery,
+    companyId ? salesQuery.eq("company_id", companyId) : salesQuery,
+    companyId ? usersQuery.eq("company_id", companyId) : usersQuery,
+  ]);
+
+  let plan: SubscriptionPlan | null = null;
+
+  if (company?.plan_id) {
+    const { data: planRow } = await supabase
+      .from("subscription_plans")
+      .select(
+        "id, name, price, product_limit, user_limit, monthly_sales_limit, is_active",
+      )
+      .eq("id", company.plan_id)
+      .maybeSingle();
+
+    if (planRow) {
+      plan = {
+        id: planRow.id,
+        name: planRow.name,
+        price: toNumber(planRow.price),
+        productLimit: toNumber(planRow.product_limit),
+        userLimit: toNumber(planRow.user_limit),
+        salesLimit: toNumber(planRow.monthly_sales_limit),
+        isActive: planRow.is_active,
+      };
+    }
+  }
 
   return {
     plan,
-    status,
-    expiresAt,
+    status: company?.subscription_status ?? "trial",
+    expiresAt: company?.expires_at ?? null,
     productsCount: productsCount ?? 0,
     salesThisMonth: salesThisMonth ?? 0,
     usersCount: usersCount ?? 0,
-    subscriptionStatus,
+    subscriptionStatus:
+      (subscriptionRow?.status as PlanUsage["subscriptionStatus"]) ?? null,
   };
 }
 
@@ -5712,59 +5834,67 @@ export async function fetchTeam(companyId?: string): Promise<TeamMember[]> {
     ),
   }));
 
-  // Accesos personalizados (columna nueva). Best-effort: si aún no existe, queda
-  // en null (= usar defaults del rol) para no romper.
-  try {
-    let secQuery = supabase.from("profiles").select("id, allowed_sections");
+  // Los dos bloques de abajo son independientes entre sí (cada uno llena
+  // un campo distinto de `members`) -- antes se pedían uno tras otro.
+  const loadAllowedSections = async () => {
+    // Accesos personalizados (columna nueva). Best-effort: si aún no existe,
+    // queda en null (= usar defaults del rol) para no romper.
+    try {
+      let secQuery = supabase.from("profiles").select("id, allowed_sections");
 
-    if (companyId) secQuery = secQuery.eq("company_id", companyId);
-    const { data: secs, error: secErr } = await secQuery;
+      if (companyId) secQuery = secQuery.eq("company_id", companyId);
+      const { data: secs, error: secErr } = await secQuery;
 
-    if (secErr) throw secErr;
-    const byId = new Map<string, string[] | null>();
+      if (secErr) throw secErr;
+      const byId = new Map<string, string[] | null>();
 
-    for (const row of secs ?? []) {
-      byId.set(
-        (row as { id: string }).id,
-        (row as { allowed_sections?: string[] | null }).allowed_sections ??
-          null,
-      );
+      for (const row of secs ?? []) {
+        byId.set(
+          (row as { id: string }).id,
+          (row as { allowed_sections?: string[] | null }).allowed_sections ??
+            null,
+        );
+      }
+
+      for (const member of members) {
+        member.allowedSections = byId.get(member.id) ?? null;
+      }
+    } catch {
+      /* columna aún no existe → defaults del rol */
     }
+  };
 
-    for (const member of members) {
-      member.allowedSections = byId.get(member.id) ?? null;
+  const loadLocationIds = async () => {
+    // Sucursales asignadas (tabla nueva). Best-effort: si aún no existe, se
+    // cae al campo único `location_id` para no romper.
+    try {
+      let plQuery = supabase
+        .from("profile_locations")
+        .select("profile_id, location_id");
+
+      if (companyId) plQuery = plQuery.eq("company_id", companyId);
+      const { data: pl, error: plErr } = await plQuery;
+
+      if (plErr) throw plErr;
+      const byProfile = new Map<string, string[]>();
+
+      for (const row of pl ?? []) {
+        const list = byProfile.get(row.profile_id) ?? [];
+        list.push(row.location_id);
+        byProfile.set(row.profile_id, list);
+      }
+
+      for (const member of members) {
+        member.locationIds = byProfile.get(member.id) ?? [];
+      }
+    } catch {
+      for (const member of members) {
+        member.locationIds = member.locationId ? [member.locationId] : [];
+      }
     }
-  } catch {
-    /* columna aún no existe → defaults del rol */
-  }
+  };
 
-  // Sucursales asignadas (tabla nueva). Best-effort: si aún no existe, se cae al
-  // campo único `location_id` para no romper.
-  try {
-    let plQuery = supabase
-      .from("profile_locations")
-      .select("profile_id, location_id");
-
-    if (companyId) plQuery = plQuery.eq("company_id", companyId);
-    const { data: pl, error: plErr } = await plQuery;
-
-    if (plErr) throw plErr;
-    const byProfile = new Map<string, string[]>();
-
-    for (const row of pl ?? []) {
-      const list = byProfile.get(row.profile_id) ?? [];
-      list.push(row.location_id);
-      byProfile.set(row.profile_id, list);
-    }
-
-    for (const member of members) {
-      member.locationIds = byProfile.get(member.id) ?? [];
-    }
-  } catch {
-    for (const member of members) {
-      member.locationIds = member.locationId ? [member.locationId] : [];
-    }
-  }
+  await Promise.all([loadAllowedSections(), loadLocationIds()]);
 
   return members;
 }
@@ -6139,7 +6269,11 @@ export async function fetchMermas(
       "id, location_id, product_id, quantity, unit_cost, estimated_loss, reason_category, notes, employee_id, registered_by, created_at, products(name)",
     )
     .is("deleted_at", null)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    // Auditoría de rendimiento 2026-09: sin límite, esto crecía para
+    // siempre con el historial de mermas de la empresa (sin un rango de
+    // fecha por defecto en mermas.tsx que lo acotara).
+    .limit(500);
 
   if (companyId) q = q.eq("company_id", companyId);
 

@@ -245,8 +245,12 @@ function Caja() {
         cajaLocationId ? fetchTills(cajaLocationId) : Promise.resolve([]),
       ]);
 
-      const mv = current ? await fetchCashMovements(current.id) : [];
-      const tc = current ? await fetchTillCounts(current.id) : [];
+      const [mv, tc] = current
+        ? await Promise.all([
+            fetchCashMovements(current.id),
+            fetchTillCounts(current.id),
+          ])
+        : [[], []];
       // Sin caja propia: busca si alguien más dejó una caja de esta
       // sucursal esperando un segundo conteo que yo pueda hacer.
       let help: CashSession | null = null;

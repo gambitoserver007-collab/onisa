@@ -34,7 +34,7 @@ import {
   fetchLocations,
   fetchProductLocations,
   fetchProductVariants,
-  fetchVariantLocations,
+  fetchVariantLocationsForVariants,
   fetchUnits,
   syncProductVariants,
   updateProduct,
@@ -310,14 +310,19 @@ export function ProductFormSheet({
       if (product.hasVariants) {
         void fetchProductVariants(product.id)
           .then(async (vs) => {
-            const rows: VariantRow[] = [];
-
-            for (const v of vs) {
-              const locs = await fetchVariantLocations(v.id);
+            // Antes se pedía el stock por sucursal variante por variante,
+            // en cascada (una petición por talla/color) -- ahora es una
+            // sola consulta para todas.
+            const locsByVariant = await fetchVariantLocationsForVariants(
+              vs.map((v) => v.id),
+            );
+            const rows: VariantRow[] = vs.map((v) => {
+              const locs = locsByVariant.get(v.id) ?? [];
               const locStockMap: Record<string, string> = {};
 
               for (const l of locs) locStockMap[l.locationId] = String(l.stock);
-              rows.push({
+
+              return {
                 id: v.id,
                 attributes: v.attributes,
                 label: v.label,
@@ -325,8 +330,8 @@ export function ProductFormSheet({
                 price: v.priceOverride != null ? String(v.priceOverride) : "",
                 cost: v.costOverride != null ? String(v.costOverride) : "",
                 locStock: locStockMap,
-              });
-            }
+              };
+            });
 
             const names =
               product.variantAttributes ?? Object.keys(vs[0]?.attributes ?? {});
