@@ -379,12 +379,29 @@ function Caja() {
       return;
     }
 
+    // El monto inicial es obligatorio (el servidor también lo exige) --
+    // antes un campo vacío se mandaba como $0 en silencio, dejando abrir la
+    // caja sin que nadie contara el efectivo con el que arranca.
+    if (openingAmount.trim() === "") {
+      toast.error("Ingresa el monto inicial de apertura de caja.");
+
+      return;
+    }
+
+    const parsedAmount = Number(openingAmount);
+
+    if (!Number.isFinite(parsedAmount) || parsedAmount < 0) {
+      toast.error("El monto inicial no es válido.");
+
+      return;
+    }
+
     setBusy(true);
 
     try {
       await openCashSession(
         session,
-        Number(openingAmount) || 0,
+        parsedAmount,
         cajaLocationId ?? undefined,
         openingTillId || undefined,
       );
@@ -733,7 +750,9 @@ function Caja() {
                   </div>
                 )}
                 <div className="space-y-1">
-                  <Label>Monto inicial</Label>
+                  <Label>
+                    Monto inicial <span className="text-destructive">*</span>
+                  </Label>
                   <Input
                     type="number"
                     min="0"
@@ -746,7 +765,7 @@ function Caja() {
                 <DemoGuardedButton
                   variant="brand"
                   className="w-full"
-                  disabled={busy}
+                  disabled={busy || openingAmount.trim() === ""}
                   onAllowedClick={handleOpen}
                 >
                   Abrir caja

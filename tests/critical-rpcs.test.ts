@@ -8448,4 +8448,42 @@ describe("RPCs críticas de dinero y stock", () => {
       ).rejects.toThrow();
     });
   });
+
+  describe("44. open_cash_session(): exige un monto inicial explícito", () => {
+    it("rechaza abrir caja sin monto (null)", async () => {
+      const company = await makeCompany(db, "Empresa Caja Sin Monto");
+      const admin = await makeUser(db, company.id, "admin");
+
+      await expect(
+        asUser(db, admin, () =>
+          db.query("select open_cash_session(null, $1)", [company.loc1]),
+        ),
+      ).rejects.toThrow(/ingresa el monto inicial/i);
+    });
+
+    it("rechaza un monto inicial negativo", async () => {
+      const company = await makeCompany(db, "Empresa Caja Monto Negativo");
+      const admin = await makeUser(db, company.id, "admin");
+
+      await expect(
+        asUser(db, admin, () =>
+          db.query("select open_cash_session(-50, $1)", [company.loc1]),
+        ),
+      ).rejects.toThrow(/no puede ser negativo/i);
+    });
+
+    it("permite abrir caja con $0 explícito (sí es un monto, solo que en cero)", async () => {
+      const company = await makeCompany(db, "Empresa Caja Monto Cero");
+      const admin = await makeUser(db, company.id, "admin");
+
+      const { rows } = await asUser(db, admin, () =>
+        db.query<{ open_cash_session: string }>(
+          "select open_cash_session(0, $1) as open_cash_session",
+          [company.loc1],
+        ),
+      );
+
+      expect(rows[0].open_cash_session).toBeTruthy();
+    });
+  });
 });

@@ -4960,6 +4960,13 @@ begin
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
   end if;
 
+  if p_opening_amount is null then
+    raise exception 'Ingresa el monto inicial de apertura de caja.';
+  end if;
+  if p_opening_amount < 0 then
+    raise exception 'El monto inicial no puede ser negativo.';
+  end if;
+
   v_location_id := p_location_id;
   if v_location_id is null then
     select location_id into v_location_id from public.profiles where id = auth.uid();
@@ -5002,7 +5009,7 @@ begin
   insert into public.cash_sessions
     (company_id, location_id, till_id, status, opening_amount, opened_by, opened_at)
   values
-    (v_company_id, v_location_id, v_till_id, 'open', greatest(coalesce(p_opening_amount,0), 0),
+    (v_company_id, v_location_id, v_till_id, 'open', p_opening_amount,
      auth.uid(), now())
   returning id into v_session_id;
 
