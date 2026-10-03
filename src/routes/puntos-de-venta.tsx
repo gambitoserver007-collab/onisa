@@ -106,6 +106,7 @@ function PuntosDeVenta() {
   const [tShowTaxBreakdown, setTShowTaxBreakdown] = useState(true);
   const [tShowLoyaltyPoints, setTShowLoyaltyPoints] = useState(true);
   const [tShowPaymentMethod, setTShowPaymentMethod] = useState(true);
+  const [tShowTill, setTShowTill] = useState(true);
   const [ticketSaving, setTicketSaving] = useState(false);
 
   const reload = useCallback(async () => {
@@ -341,6 +342,7 @@ function PuntosDeVenta() {
     setTShowLogo(location.ticketShowLogo);
     setTShowFiscalInfo(location.ticketShowFiscalInfo);
     setTShowCashierName(location.ticketShowCashierName);
+    setTShowTill(location.ticketShowTill);
     setTFooterText(location.ticketFooterText ?? "");
     setTShowTaxBreakdown(location.ticketShowTaxBreakdown);
     setTShowLoyaltyPoints(location.ticketShowLoyaltyPoints);
@@ -362,6 +364,7 @@ function PuntosDeVenta() {
         showLogo: tShowLogo,
         showFiscalInfo: tShowFiscalInfo,
         showCashierName: tShowCashierName,
+        showTill: tShowTill,
         footerText: tFooterText,
         showTaxBreakdown: tShowTaxBreakdown,
         showLoyaltyPoints: tShowLoyaltyPoints,
@@ -810,6 +813,10 @@ function PuntosDeVenta() {
                   checked={tShowCashierName}
                   onCheckedChange={setTShowCashierName}
                 />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="font-normal">Mostrar caja/turno</Label>
+                <Switch checked={tShowTill} onCheckedChange={setTShowTill} />
               </div>
             </div>
             <div className="space-y-3 border-t border-border/60 pt-3">

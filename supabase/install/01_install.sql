@@ -11949,3 +11949,10 @@ create policy "promotions write scoped" on public.promotions
   for all to authenticated
   using (public.can_manage_discounts(company_id))
   with check (public.can_manage_discounts(company_id));
+
+-- ============================================================
+-- Rediseño del ticket impreso 2026-10: agrega la caja/turno como dato
+-- opcional del ticket (junto a cajero/folio), igual patrón que las demás
+-- columnas ticket_show_* de locations.
+-- ============================================================
+alter table public.locations add column if not exists ticket_show_till boolean not null default true;

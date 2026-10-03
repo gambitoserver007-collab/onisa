@@ -346,6 +346,7 @@ function mapSale(row: SaleRow, items: SaleItemRow[]): Sale {
     customerId: row.customer_id ?? null,
     createdBy: (row as { created_by?: string | null }).created_by ?? null,
     locationId: (row as { location_id?: string | null }).location_id ?? null,
+    tillId: (row as { till_id?: string | null }).till_id ?? null,
     commissionRate:
       (row as { commission_rate?: number | string | null }).commission_rate ==
       null
@@ -868,7 +869,7 @@ export async function fetchCompanyAlerts(): Promise<CompanyAlerts> {
 }
 
 const SALE_WITH_ITEMS_COLUMNS =
-  "id, company_id, location_id, customer_id, sale_number, document_type, payment_method, customer_name, sale_date, subtotal, tax, total, status, created_by, commission_rate, commission_amount, is_demo_data, created_at, updated_at, deleted_at, sale_items(id, company_id, sale_id, product_id, product_name, variant_label, qty, unit_price, total, cost, is_demo_data, created_at)";
+  "id, company_id, location_id, till_id, customer_id, sale_number, document_type, payment_method, customer_name, sale_date, subtotal, tax, total, status, created_by, commission_rate, commission_amount, is_demo_data, created_at, updated_at, deleted_at, sale_items(id, company_id, sale_id, product_id, product_name, variant_label, qty, unit_price, total, cost, is_demo_data, created_at)";
 
 export interface FetchSalesOptions {
   /** yyyy-mm-dd, inclusive. */
@@ -3548,6 +3549,7 @@ export interface Location {
   ticketShowTaxBreakdown: boolean;
   ticketShowLoyaltyPoints: boolean;
   ticketShowPaymentMethod: boolean;
+  ticketShowTill: boolean;
 }
 
 export interface LocationInput {
@@ -3572,6 +3574,7 @@ export interface TicketSettingsInput {
   showTaxBreakdown: boolean;
   showLoyaltyPoints: boolean;
   showPaymentMethod: boolean;
+  showTill: boolean;
 }
 
 // `onlyActive` para selectores de operación (POS); el gestor pide todos.
@@ -3622,6 +3625,8 @@ export async function fetchLocations(
     ticketShowPaymentMethod:
       (row as { ticket_show_payment_method?: boolean | null })
         .ticket_show_payment_method ?? true,
+    ticketShowTill:
+      (row as { ticket_show_till?: boolean | null }).ticket_show_till ?? true,
   }));
 }
 
@@ -3642,6 +3647,7 @@ export async function updateLocationTicketSettings(
       ticket_show_tax_breakdown: input.showTaxBreakdown,
       ticket_show_loyalty_points: input.showLoyaltyPoints,
       ticket_show_payment_method: input.showPaymentMethod,
+      ticket_show_till: input.showTill,
       updated_at: new Date().toISOString(),
     } as never)
     .eq("id", locationId);

@@ -161,6 +161,8 @@ export interface Sale {
   commissionAmount?: number;
   /** Sucursal donde se hizo la venta (para aplicar su configuración de ticket). */
   locationId?: string | null;
+  /** Caja/turno donde se hizo la venta (para mostrarla en el ticket). */
+  tillId?: string | null;
   items: {
     productId: string;
     name: string;
