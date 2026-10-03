@@ -1,6 +1,9 @@
 // Role-based access for store team members.
 //
 //  - "admin"    = Administrador de tienda (dueño / encargado): acceso total a su tienda.
+//  - "gerente"  = Gerente: como admin en el día a día (ventas, caja, inventario,
+//                 promociones/descuentos, reportes), pero sin usuarios, sucursales,
+//                 suscripción, configuración ni respaldo -- eso es solo del dueño.
 //  - "finanzas" = Finanzas: reportes, caja, compras, ventas, devoluciones, contactos.
 //  - "user"     = Cajero/a: vender (POS), caja, ventas, devoluciones, clientes.
 //  - "operador" = Operador: inventario, productos, compras (operación de almacén).
@@ -12,10 +15,11 @@
 // El Super Admin de plataforma (dueño del SaaS) se maneja aparte con
 // `session.isSuperAdmin` y es el único que entra al panel /admin.
 
-export type StoreRole = "admin" | "finanzas" | "user" | "operador";
+export type StoreRole = "admin" | "gerente" | "finanzas" | "user" | "operador";
 
 export const STORE_ROLE_LABELS: Record<StoreRole, string> = {
   admin: "Administrador de tienda",
+  gerente: "Gerente",
   finanzas: "Finanzas",
   user: "Cajero",
   operador: "Operador",
@@ -24,6 +28,7 @@ export const STORE_ROLE_LABELS: Record<StoreRole, string> = {
 export function normalizeStoreRole(role?: string | null): StoreRole {
   if (
     role === "admin" ||
+    role === "gerente" ||
     role === "finanzas" ||
     role === "user" ||
     role === "operador"
@@ -73,8 +78,19 @@ export const GRANTABLE_SECTIONS: SectionDef[] = [
 const ALL_SECTION_KEYS = GRANTABLE_SECTIONS.map((s) => s.key);
 
 // Accesos que quedan PRE-MARCADOS al elegir cada rol (el dueño los puede ajustar).
+// Gerente: todo lo que puede otorgarse salvo lo exclusivo del dueño
+// (usuarios, sucursales, suscripción, configuración, respaldo).
+const OWNER_ONLY_SECTIONS = [
+  "/puntos-de-venta",
+  "/usuarios",
+  "/suscripcion",
+  "/configuracion",
+  "/backup",
+];
+
 export const ROLE_DEFAULT_SECTIONS: Record<StoreRole, string[]> = {
   admin: [...ALL_SECTION_KEYS],
+  gerente: ALL_SECTION_KEYS.filter((key) => !OWNER_ONLY_SECTIONS.includes(key)),
   finanzas: [
     "/dashboard",
     "/ventas",
@@ -125,50 +141,54 @@ export const ROLE_DEFAULT_SECTIONS: Record<StoreRole, string[]> = {
 // Qué roles pueden abrir cada ruta cuando NO hay accesos personalizados. El admin
 // de tienda siempre pasa (cortocircuito en canAccessPath).
 const ROUTE_ACCESS: Record<string, StoreRole[]> = {
-  "/dashboard": ["admin", "finanzas", "user", "operador"],
-  "/pos": ["admin", "user"],
-  "/ventas": ["admin", "finanzas", "user"],
-  "/cotizaciones": ["admin", "finanzas", "user"],
-  "/apartados": ["admin", "finanzas", "user"],
-  "/devoluciones": ["admin", "finanzas", "user"],
-  "/compras": ["admin", "finanzas", "operador"],
-  "/caja": ["admin", "finanzas", "user"],
+  "/dashboard": ["admin", "gerente", "finanzas", "user", "operador"],
+  "/pos": ["admin", "gerente", "user"],
+  "/ventas": ["admin", "gerente", "finanzas", "user"],
+  "/cotizaciones": ["admin", "gerente", "finanzas", "user"],
+  "/apartados": ["admin", "gerente", "finanzas", "user"],
+  "/devoluciones": ["admin", "gerente", "finanzas", "user"],
+  "/compras": ["admin", "gerente", "finanzas", "operador"],
+  "/caja": ["admin", "gerente", "finanzas", "user"],
   // Nota: no se agrega a GRANTABLE_SECTIONS (sin casilla propia en Usuarios)
   // a propósito -- por el prefix-match de allowedSections abajo, otorgar
   // "/caja" a un cajero también le abriría "/caja/revision" si esta ruta
   // tuviera su propia casilla independiente. Al no ser otorgable aparte,
-  // solo entra por ROUTE_ACCESS (admin/finanzas), nunca por un acceso
-  // personalizado mal entendido.
-  "/caja/revision": ["admin", "finanzas"],
+  // solo entra por ROUTE_ACCESS (admin/gerente/finanzas), nunca por un
+  // acceso personalizado mal entendido.
+  "/caja/revision": ["admin", "gerente", "finanzas"],
   // Mismo criterio que "/caja/revision" arriba: sin casilla propia en
   // GRANTABLE_SECTIONS, para no heredar acceso por el prefix-match de
   // "/caja".
-  "/caja/reportes": ["admin", "finanzas"],
-  "/mermas": ["admin", "finanzas", "user", "operador"],
+  "/caja/reportes": ["admin", "gerente", "finanzas"],
+  "/mermas": ["admin", "gerente", "finanzas", "user", "operador"],
   // Mismo criterio que "/caja/reportes": sin casilla propia en
   // GRANTABLE_SECTIONS, para no heredar acceso por el prefix-match de
   // "/mermas" -- el monitor agregado (quién comete más fallas, qué
   // sucursal pierde más) es solo para quien ve reportes, no para cualquier
   // cajero al que se le otorgue "/mermas" para registrar sus propias.
-  "/mermas/monitor": ["admin", "finanzas"],
-  "/promociones": ["admin"],
-  "/productos": ["admin", "finanzas", "user", "operador"],
-  "/inventario": ["admin", "finanzas", "user", "operador"],
-  "/categorias": ["admin", "operador"],
-  "/etiquetas": ["admin", "operador"],
-  "/clientes": ["admin", "finanzas", "user"],
-  "/proveedores": ["admin", "finanzas", "operador"],
-  "/reportes": ["admin", "finanzas"],
-  "/ganancias": ["admin", "finanzas"],
+  "/mermas/monitor": ["admin", "gerente", "finanzas"],
+  // Único rol de escritura al que se le pueden "asignar o autorizar"
+  // descuentos/promociones, junto con admin -- ver can_manage_discounts()
+  // en 01_install.sql. finanzas/cajero/operador solo pueden ver resultados
+  // (ventas, reportes), nunca crear ni editar una promoción.
+  "/promociones": ["admin", "gerente"],
+  "/productos": ["admin", "gerente", "finanzas", "user", "operador"],
+  "/inventario": ["admin", "gerente", "finanzas", "user", "operador"],
+  "/categorias": ["admin", "gerente", "operador"],
+  "/etiquetas": ["admin", "gerente", "operador"],
+  "/clientes": ["admin", "gerente", "finanzas", "user"],
+  "/proveedores": ["admin", "gerente", "finanzas", "operador"],
+  "/reportes": ["admin", "gerente", "finanzas"],
+  "/ganancias": ["admin", "gerente", "finanzas"],
   // Sin casilla propia en GRANTABLE_SECTIONS a propósito -- igual que
   // "/mermas/monitor" y "/caja/revision" arriba: mezclan datos financieros
   // sensibles (crédito de clientes, cajas, cambios de configuración) que
   // no son para otorgar sección por sección, solo para quien ya ve
   // reportes de la empresa completa.
-  "/alertas": ["admin", "finanzas"],
-  "/auditoria": ["admin", "finanzas"],
-  "/calendario": ["admin", "finanzas", "user", "operador"],
-  "/perfil": ["admin", "finanzas", "user", "operador"],
+  "/alertas": ["admin", "gerente", "finanzas"],
+  "/auditoria": ["admin", "gerente", "finanzas"],
+  "/calendario": ["admin", "gerente", "finanzas", "user", "operador"],
+  "/perfil": ["admin", "gerente", "finanzas", "user", "operador"],
   "/usuarios": ["admin"],
   "/empleados": ["admin"],
   "/puntos-de-venta": ["admin"],

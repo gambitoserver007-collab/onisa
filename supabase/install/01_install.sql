@@ -3422,6 +3422,17 @@ declare
   v_variant_label text;
   v_attr_key text; v_attr_val text; v_label_parts text[];
   v_session_id uuid;
+  -- Reversión de puntos de lealtad (auditoría 2026-10): si la venta
+  -- original otorgó puntos, una devolución (total o parcial) quita la
+  -- parte proporcional -- para que no queden "puntos fantasma" ganados
+  -- por mercancía que el cliente ya no se quedó.
+  v_sale_customer_id uuid;
+  v_sale_total numeric(12,2);
+  v_earned_points numeric;
+  v_already_clawed numeric;
+  v_cumulative_returned numeric(12,2);
+  v_target_clawback numeric;
+  v_this_clawback numeric;
 begin
   if auth.uid() is null then raise exception 'No autenticado.'; end if;
   if public.current_user_is_demo() then
@@ -3585,6 +3596,57 @@ begin
   end loop;
 
   update public.returns set total = v_total, updated_at = now() where id = v_return_id;
+
+  -- Reversión de puntos de lealtad: si la venta original otorgó puntos
+  -- (loyalty_ledger, type='earned'), se resta la parte proporcional de lo
+  -- devuelto hasta ahora (ESTA devolución + cualquier devolución previa
+  -- sobre la misma venta) contra el total original de la venta -- y de
+  -- eso solo se descuenta lo que aún no se le había quitado en una
+  -- devolución anterior, para que varias devoluciones parciales sobre la
+  -- misma venta no dupliquen ni se salten el ajuste.
+  select customer_id, total into v_sale_customer_id, v_sale_total
+    from public.sales where id = p_sale_id and company_id = v_company_id;
+
+  if v_sale_customer_id is not null and coalesce(v_sale_total, 0) > 0 then
+    select coalesce(sum(points), 0) into v_earned_points
+      from public.loyalty_ledger
+      where sale_id = p_sale_id and company_id = v_company_id and type = 'earned';
+
+    if v_earned_points > 0 then
+      select coalesce(sum(-points), 0) into v_already_clawed
+        from public.loyalty_ledger
+        where sale_id = p_sale_id and company_id = v_company_id
+          and type = 'adjustment' and points < 0;
+
+      -- Nota: se prorratea contra sale_items.total (el valor ORIGINAL de la
+      -- línea, con impuesto incluido) en vez de return_items.total -- esta
+      -- última se calcula sin el multiplicador de impuesto (ver el bucle de
+      -- arriba), así que una devolución completa nunca llegaría a sumar el
+      -- 100% del total de la venta si se usara esa columna, y la devolución
+      -- "completa" se quedaría corta en el descuento de puntos.
+      select coalesce(sum((si.total / nullif(si.qty, 0)) * ri.qty), 0) into v_cumulative_returned
+        from public.return_items ri
+        join public.sale_items si on si.id = ri.sale_item_id
+        where si.sale_id = p_sale_id and ri.company_id = v_company_id;
+
+      v_target_clawback := floor(v_earned_points * least(1, v_cumulative_returned / v_sale_total));
+      v_this_clawback := v_target_clawback - v_already_clawed;
+
+      if v_this_clawback > 0 then
+        insert into public.loyalty_ledger (company_id, customer_id, sale_id, points, type, created_by)
+        values (v_company_id, v_sale_customer_id, p_sale_id, -v_this_clawback, 'adjustment', auth.uid());
+
+        -- customers.loyalty_points está protegida por un trigger (auditoría
+        -- 2026-09, hallazgo #2) que bloquea el UPDATE directo salvo que la
+        -- RPC prenda este GUC justo antes -- mismo patrón que create_sale.
+        perform set_config('app.bypass_customer_credit_loyalty', 'true', true);
+        update public.customers
+          set loyalty_points = greatest(0, coalesce(loyalty_points, 0) - v_this_clawback),
+              updated_at = now()
+          where id = v_sale_customer_id and company_id = v_company_id;
+      end if;
+    end if;
+  end if;
 
   -- Cash refund: egreso con monto negativo
   if p_refund_cash and v_total > 0 then
@@ -11830,3 +11892,60 @@ begin
       t, t);
   end loop;
 end $$;
+
+-- ============================================================
+-- Auditoría 2026-10: autorización de descuentos. El dueño pidió un rol
+-- "gerente" -- hoy solo existían admin/finanzas/user/operador -- que,
+-- igual que admin, pueda crear/editar/desactivar promociones (la única
+-- forma de "descuento" que existe en el sistema: no hay un campo de
+-- descuento libre en el POS, todo sale de promociones automáticas o del
+-- canje de puntos de lealtad). Por qué no se reutiliza 'finanzas' para
+-- esto: finanzas es un rol de solo-consulta/operación (reportes, caja,
+-- compras) sin acceso de escritura a catálogo/promociones hoy, y mezclar
+-- ambos conceptos habría dado permiso de descuentos a alguien a quien
+-- nadie se lo pidió dar.
+--
+-- "Evitar revertir descuentos" ya está cubierto de raíz desde antes de
+-- esta auditoría: sales/sale_items no tienen NINGUNA política de
+-- escritura directa para "authenticated" (ver el bloque más arriba que
+-- hace `drop policy if exists "%s write scoped"` para sales/sale_items/
+-- purchases/cash_sessions/stock_movements/returns sin volver a crearla) --
+-- así que ni admin ni gerente pueden editar el descuento de una venta ya
+-- hecha por ningún camino salvo una RPC nueva que nadie pidió crear.
+alter type public.app_role add value if not exists 'gerente';
+
+create or replace function public.can_manage_discounts(p_company_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select auth.uid() is not null
+    and not public.current_user_is_demo()
+    and (
+      public.current_user_is_platform_admin()
+      or (
+        p_company_id = public.current_user_company_id()
+        and public.current_user_role()::text in ('admin', 'gerente')
+      )
+    )
+    and (
+      public.current_user_is_platform_admin()
+      or exists (
+        select 1 from public.companies c
+        where c.id = p_company_id
+          and c.subscription_status in ('active','trial')
+          and (c.expires_at is null or c.expires_at >= now())
+      )
+    );
+$$;
+
+revoke execute on function public.can_manage_discounts(uuid) from public, anon;
+grant execute on function public.can_manage_discounts(uuid) to authenticated, service_role;
+
+drop policy if exists "promotions write scoped" on public.promotions;
+create policy "promotions write scoped" on public.promotions
+  for all to authenticated
+  using (public.can_manage_discounts(company_id))
+  with check (public.can_manage_discounts(company_id));

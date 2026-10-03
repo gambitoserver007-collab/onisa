@@ -5643,7 +5643,7 @@ export interface CreateTeamUserInput {
   fullName: string;
   email: string;
   password: string;
-  role: "user" | "admin" | "finanzas" | "operador";
+  role: "user" | "admin" | "finanzas" | "operador" | "gerente";
   /** Sucursales asignadas. Vacío = todas las sucursales. */
   locationIds?: string[];
   /** Accesos personalizados (rutas del panel izquierdo). */
@@ -5716,7 +5716,7 @@ export async function createTeamUser(
 export interface UpdateTeamUserInput {
   userId: string;
   fullName?: string;
-  role?: "user" | "admin" | "finanzas" | "operador";
+  role?: "user" | "admin" | "finanzas" | "operador" | "gerente";
   isActive?: boolean;
   password?: string;
   /** undefined = no cambiar; lista (vacía = todas) = reemplaza las sucursales. */

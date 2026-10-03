@@ -360,6 +360,7 @@ function Usuarios() {
                       <SelectItem value="user">Cajero</SelectItem>
                       <SelectItem value="operador">Operador</SelectItem>
                       <SelectItem value="finanzas">Finanzas</SelectItem>
+                      <SelectItem value="gerente">Gerente</SelectItem>
                       <SelectItem value="admin">
                         Administrador de tienda
                       </SelectItem>
@@ -538,6 +539,7 @@ function Usuarios() {
                   <SelectItem value="user">Cajero</SelectItem>
                   <SelectItem value="operador">Operador</SelectItem>
                   <SelectItem value="finanzas">Finanzas</SelectItem>
+                  <SelectItem value="gerente">Gerente</SelectItem>
                   <SelectItem value="admin">Administrador de tienda</SelectItem>
                 </SelectContent>
               </Select>

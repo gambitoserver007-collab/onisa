@@ -8900,4 +8900,211 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(asOther.rows).toHaveLength(0);
     });
   });
+
+  describe("Auditoría 2026-10: puntos de lealtad al devolver + autorización de descuentos", () => {
+    it("create_return resta el 100% de los puntos ganados cuando se devuelve toda la venta", async () => {
+      const company = await makeCompany(db, "Empresa Lealtad Devolución Total");
+      const admin = await makeUser(db, company.id, "admin");
+      await setLoyaltySettings(db, company.id, {
+        enabled: true,
+        pointValue: 1,
+        earnRate: 10,
+      });
+      const customer = await makeCustomer(db, company.id, "Cliente Lealtad 1");
+      const producto = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Lealtad 1",
+        5,
+        100,
+        10,
+      );
+
+      const sale = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: producto, qty: 1, unit_price: 100 }],
+          company.loc1,
+          undefined,
+          { customerId: customer },
+        ),
+      );
+
+      const pointsAfterSale = await getCustomerLoyaltyPoints(db, customer);
+      expect(pointsAfterSale).toBeGreaterThan(0);
+
+      const { rows: items } = await db.query<{
+        id: string;
+        unit_price: number;
+      }>("select id, unit_price from public.sale_items where sale_id=$1", [
+        sale.sale_id,
+      ]);
+
+      await asUser(db, admin, () =>
+        db.query(
+          "select create_return($1, 'Devolución total', $2::jsonb, $3, false)",
+          [
+            sale.sale_id,
+            JSON.stringify([
+              { sale_item_id: items[0].id, qty: 1, unit_price: 999999 },
+            ]),
+            company.loc1,
+          ],
+        ),
+      );
+
+      const pointsAfterReturn = await getCustomerLoyaltyPoints(db, customer);
+      expect(pointsAfterReturn).toBe(0);
+    });
+
+    it("create_return prorratea los puntos en una devolución parcial y no duplica el ajuste en una segunda devolución parcial", async () => {
+      const company = await makeCompany(
+        db,
+        "Empresa Lealtad Devolución Parcial",
+      );
+      const admin = await makeUser(db, company.id, "admin");
+      await setLoyaltySettings(db, company.id, {
+        enabled: true,
+        pointValue: 1,
+        earnRate: 4,
+      });
+      const customer = await makeCustomer(db, company.id, "Cliente Lealtad 2");
+      const producto = await makeProduct(
+        db,
+        company.id,
+        company.loc1,
+        "Producto Lealtad 2",
+        5,
+        100,
+        10,
+      );
+
+      // qty=2 del mismo renglón -- así devolver 1 de 2 es exactamente la mitad
+      // del valor de la línea, sin importar el redondeo de impuesto.
+      const sale = await asUser(db, admin, () =>
+        createSale(
+          db,
+          [{ product_id: producto, qty: 2, unit_price: 100 }],
+          company.loc1,
+          undefined,
+          { customerId: customer },
+        ),
+      );
+
+      const pointsAfterSale = await getCustomerLoyaltyPoints(db, customer);
+      expect(pointsAfterSale).toBeGreaterThan(0);
+
+      const { rows: items } = await db.query<{ id: string }>(
+        "select id from public.sale_items where sale_id=$1",
+        [sale.sale_id],
+      );
+      const saleItemId = items[0].id;
+
+      // Primera devolución parcial: 1 de las 2 unidades.
+      await asUser(db, admin, () =>
+        db.query(
+          "select create_return($1, 'Devolución parcial 1', $2::jsonb, $3, false)",
+          [
+            sale.sale_id,
+            JSON.stringify([
+              { sale_item_id: saleItemId, qty: 1, unit_price: 999999 },
+            ]),
+            company.loc1,
+          ],
+        ),
+      );
+
+      const pointsAfterFirstReturn = await getCustomerLoyaltyPoints(
+        db,
+        customer,
+      );
+      expect(pointsAfterFirstReturn).toBe(Math.floor(pointsAfterSale / 2));
+
+      // Segunda devolución parcial: la unidad restante -- no debe volver a
+      // restar lo ya restado en la primera, solo el remanente.
+      await asUser(db, admin, () =>
+        db.query(
+          "select create_return($1, 'Devolución parcial 2', $2::jsonb, $3, false)",
+          [
+            sale.sale_id,
+            JSON.stringify([
+              { sale_item_id: saleItemId, qty: 1, unit_price: 999999 },
+            ]),
+            company.loc1,
+          ],
+        ),
+      );
+
+      const pointsAfterSecondReturn = await getCustomerLoyaltyPoints(
+        db,
+        customer,
+      );
+      expect(pointsAfterSecondReturn).toBe(0);
+    });
+
+    it("promociones: admin y gerente pueden crear/editar descuentos; cajero, operador y finanzas no", async () => {
+      const company = await makeCompany(db, "Empresa Autorización Descuentos");
+      const admin = await makeUser(db, company.id, "admin");
+      const gerente = await makeUser(db, company.id, "gerente");
+      const finanzas = await makeUser(db, company.id, "finanzas");
+      const cajero = await makeUser(db, company.id, "user");
+      const operador = await makeUser(db, company.id, "operador");
+
+      const asAdmin = await asUser(db, admin, () =>
+        db.query<{ id: string }>(
+          "insert into public.promotions (company_id, name, promotion_type) values ($1,'Promo admin','discount') returning id",
+          [company.id],
+        ),
+      );
+      expect(asAdmin.rows).toHaveLength(1);
+
+      const asGerente = await asUser(db, gerente, () =>
+        db.query<{ id: string }>(
+          "insert into public.promotions (company_id, name, promotion_type) values ($1,'Promo gerente','discount') returning id",
+          [company.id],
+        ),
+      );
+      expect(asGerente.rows).toHaveLength(1);
+
+      for (const [label, userId] of [
+        ["finanzas", finanzas],
+        ["cajero", cajero],
+        ["operador", operador],
+      ] as const) {
+        await expect(
+          asUser(db, userId, () =>
+            db.query(
+              "insert into public.promotions (company_id, name, promotion_type) values ($1,$2,'discount')",
+              [company.id, `Promo ${label}`],
+            ),
+          ),
+        ).rejects.toThrow();
+      }
+
+      const { rows: promos } = await db.query<{ name: string }>(
+        "select name from public.promotions where company_id=$1 order by name",
+        [company.id],
+      );
+      expect(promos.map((p) => p.name)).toEqual([
+        "Promo admin",
+        "Promo gerente",
+      ]);
+    });
+
+    it("promociones: un gerente de otra empresa no puede crear descuentos ajenos (aislamiento)", async () => {
+      const companyA = await makeCompany(db, "Empresa Descuentos A");
+      const companyB = await makeCompany(db, "Empresa Descuentos B");
+      const gerenteB = await makeUser(db, companyB.id, "gerente");
+
+      await expect(
+        asUser(db, gerenteB, () =>
+          db.query(
+            "insert into public.promotions (company_id, name, promotion_type) values ($1,'Promo ajena','discount')",
+            [companyA.id],
+          ),
+        ),
+      ).rejects.toThrow();
+    });
+  });
 });
