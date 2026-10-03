@@ -20,14 +20,10 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
       { auth: { persistSession: false, autoRefreshToken: false } },
     );
-    const token = (req.headers.get("Authorization") ?? "").replace(
-      /^Bearer\s+/i,
-      "",
-    );
+    const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
     if (!token) return json({ error: "No autenticado." }, 401);
     const { data: userRes, error: userErr } = await admin.auth.getUser(token);
-    if (userErr || !userRes?.user)
-      return json({ error: "No autenticado." }, 401);
+    if (userErr || !userRes?.user) return json({ error: "No autenticado." }, 401);
     const callerId = userRes.user.id;
 
     const body = await req.json().catch(() => ({}));
@@ -43,39 +39,31 @@ Deno.serve(async (req) => {
       allowed_sections,
       saas_panel,
     } = body ?? {};
-    if (!["update", "delete"].includes(action))
-      return json({ error: "Acción inválida." }, 400);
-    if (!target_user_id)
-      return json({ error: "Falta el usuario objetivo." }, 400);
+    if (!["update", "delete"].includes(action)) return json({ error: "Acción inválida." }, 400);
+    if (!target_user_id) return json({ error: "Falta el usuario objetivo." }, 400);
 
     const { data: caller, error: callerErr } = await admin
       .from("profiles")
       .select("role, company_id, is_demo, is_active, is_platform_admin")
       .eq("id", callerId)
       .maybeSingle();
-    if (callerErr || !caller)
-      return json({ error: "Perfil del llamador no encontrado." }, 403);
+    if (callerErr || !caller) return json({ error: "Perfil del llamador no encontrado." }, 403);
     if (!caller.is_active || caller.is_demo || caller.role !== "admin")
       return json({ error: "No autorizado para gestionar usuarios." }, 403);
 
     const { data: target, error: targetErr } = await admin
       .from("profiles")
-      .select(
-        "id, company_id, full_name, role, is_active, allowed_sections, location_id, is_platform_admin",
-      )
+      .select("id, company_id, full_name, role, is_active, allowed_sections, location_id, is_platform_admin")
       .eq("id", target_user_id)
       .maybeSingle();
-    if (targetErr || !target)
-      return json({ error: "Usuario no encontrado." }, 404);
+    if (targetErr || !target) return json({ error: "Usuario no encontrado." }, 404);
     if (target.company_id !== caller.company_id)
       return json({ error: "Ese usuario no pertenece a tu tienda." }, 403);
 
     const isSelf = target_user_id === callerId;
     if (action === "delete") {
-      if (isSelf)
-        return json({ error: "No puedes eliminar tu propia cuenta." }, 400);
-      const { error: delErr } =
-        await admin.auth.admin.deleteUser(target_user_id);
+      if (isSelf) return json({ error: "No puedes eliminar tu propia cuenta." }, 400);
+      const { error: delErr } = await admin.auth.admin.deleteUser(target_user_id);
       if (delErr) return json({ error: delErr.message }, 400);
       // Auditoría universal: quién dio de baja a quién. auth.uid() no sirve
       // aquí para atribuir el cambio (esta función corre con la service
@@ -93,18 +81,13 @@ Deno.serve(async (req) => {
     }
 
     const updates: Record<string, unknown> = {};
-    if (typeof full_name === "string" && full_name.trim())
-      updates.full_name = full_name.trim();
+    if (typeof full_name === "string" && full_name.trim()) updates.full_name = full_name.trim();
 
     let finalRole: string = target.role;
     if (role !== undefined) {
-      if (!VALID_ROLES.includes(role))
-        return json({ error: "Rol inválido." }, 400);
+      if (!VALID_ROLES.includes(role)) return json({ error: "Rol inválido." }, 400);
       if (isSelf && role !== "admin")
-        return json(
-          { error: "No puedes quitarte el rol de administrador a ti mismo." },
-          400,
-        );
+        return json({ error: "No puedes quitarte el rol de administrador a ti mismo." }, 400);
       updates.role = role;
       finalRole = role;
     }
@@ -117,13 +100,10 @@ Deno.serve(async (req) => {
     // Normalize location_ids (array preferred; fallback a single location_id)
     let locIds: string[] | undefined;
     if (Array.isArray(location_ids)) {
-      locIds = location_ids.filter(
-        (x: unknown) => typeof x === "string" && x.length > 0,
-      );
+      locIds = location_ids.filter((x: unknown) => typeof x === "string" && x.length > 0);
     } else if (location_id !== undefined) {
       if (location_id === null) locIds = [];
-      else if (typeof location_id === "string" && location_id.length > 0)
-        locIds = [location_id];
+      else if (typeof location_id === "string" && location_id.length > 0) locIds = [location_id];
     }
 
     if (locIds !== undefined && locIds.length > 0) {
@@ -132,11 +112,7 @@ Deno.serve(async (req) => {
         .select("id")
         .eq("company_id", caller.company_id)
         .in("id", locIds);
-      if (locsErr)
-        return json(
-          { error: "No se pudieron validar los puntos de venta." },
-          500,
-        );
+      if (locsErr) return json({ error: "No se pudieron validar los puntos de venta." }, 500);
       if (!locs || locs.length !== locIds.length)
         return json({ error: "Punto de venta inválido." }, 400);
     }
@@ -163,13 +139,7 @@ Deno.serve(async (req) => {
           const current = !!target.is_platform_admin;
           if (desired !== current) {
             if (!caller.is_platform_admin)
-              return json(
-                {
-                  error:
-                    "Solo un administrador de la plataforma puede modificar el acceso al Panel SaaS.",
-                },
-                403,
-              );
+              return json({ error: "Solo un administrador de la plataforma puede modificar el acceso al Panel SaaS." }, 403);
             updates.is_platform_admin = desired;
           }
         }
@@ -177,13 +147,7 @@ Deno.serve(async (req) => {
         // Demoting from admin to another role: revoke platform access if it was set.
         if (target.is_platform_admin) {
           if (!caller.is_platform_admin)
-            return json(
-              {
-                error:
-                  "Solo un administrador de la plataforma puede quitar el acceso al Panel SaaS.",
-              },
-              403,
-            );
+            return json({ error: "Solo un administrador de la plataforma puede quitar el acceso al Panel SaaS." }, 403);
           updates.is_platform_admin = false;
         }
       }
@@ -192,37 +156,24 @@ Deno.serve(async (req) => {
     // Auditoría universal: cambios de rol/permisos de usuario. Se compara
     // contra el valor previo de "target" para no registrar un "cambio" que
     // en realidad no mueve nada (ej. reenviar el mismo rol).
-    const sensitiveChanges: Record<
-      string,
-      { antes: unknown; despues: unknown }
-    > = {};
+    const sensitiveChanges: Record<string, { antes: unknown; despues: unknown }> = {};
     if ("role" in updates && updates.role !== target.role) {
       sensitiveChanges.role = { antes: target.role, despues: updates.role };
     }
     if ("is_active" in updates && updates.is_active !== target.is_active) {
-      sensitiveChanges.is_active = {
-        antes: target.is_active,
-        despues: updates.is_active,
-      };
+      sensitiveChanges.is_active = { antes: target.is_active, despues: updates.is_active };
     }
     if (
       "allowed_sections" in updates &&
-      JSON.stringify(updates.allowed_sections) !==
-        JSON.stringify(target.allowed_sections ?? null)
+      JSON.stringify(updates.allowed_sections) !== JSON.stringify(target.allowed_sections ?? null)
     ) {
       sensitiveChanges.allowed_sections = {
         antes: target.allowed_sections ?? null,
         despues: updates.allowed_sections,
       };
     }
-    if (
-      "location_id" in updates &&
-      updates.location_id !== target.location_id
-    ) {
-      sensitiveChanges.location_id = {
-        antes: target.location_id,
-        despues: updates.location_id,
-      };
+    if ("location_id" in updates && updates.location_id !== target.location_id) {
+      sensitiveChanges.location_id = { antes: target.location_id, despues: updates.location_id };
     }
 
     if (Object.keys(updates).length > 0) {
@@ -251,40 +202,23 @@ Deno.serve(async (req) => {
         .from("profile_locations")
         .delete()
         .eq("profile_id", target_user_id);
-      if (delErr)
-        return json(
-          { error: `No se pudo limpiar asignaciones: ${delErr.message}` },
-          500,
-        );
+      if (delErr) return json({ error: `No se pudo limpiar asignaciones: ${delErr.message}` }, 500);
       if (locIds.length > 0) {
         const rows = locIds.map((lid) => ({
           profile_id: target_user_id,
           location_id: lid,
           company_id: caller.company_id,
         }));
-        const { error: insErr } = await admin
-          .from("profile_locations")
-          .insert(rows);
+        const { error: insErr } = await admin.from("profile_locations").insert(rows);
         if (insErr)
-          return json(
-            {
-              error: `No se pudieron asignar puntos de venta: ${insErr.message}`,
-            },
-            500,
-          );
+          return json({ error: `No se pudieron asignar puntos de venta: ${insErr.message}` }, 500);
       }
     }
 
     if (typeof password === "string" && password.length > 0) {
       if (password.length < 6)
-        return json(
-          { error: "La contraseña debe tener al menos 6 caracteres." },
-          400,
-        );
-      const { error: pwErr } = await admin.auth.admin.updateUserById(
-        target_user_id,
-        { password },
-      );
+        return json({ error: "La contraseña debe tener al menos 6 caracteres." }, 400);
+      const { error: pwErr } = await admin.auth.admin.updateUserById(target_user_id, { password });
       if (pwErr) return json({ error: pwErr.message }, 400);
     }
     return json({ ok: true }, 200);

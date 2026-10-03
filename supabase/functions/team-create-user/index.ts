@@ -27,8 +27,7 @@ Deno.serve(async (req) => {
     if (!token) return json({ error: "No autenticado." }, 401);
 
     const { data: userRes, error: userErr } = await admin.auth.getUser(token);
-    if (userErr || !userRes?.user)
-      return json({ error: "No autenticado." }, 401);
+    if (userErr || !userRes?.user) return json({ error: "No autenticado." }, 401);
     const callerId = userRes.user.id;
 
     const body = await req.json().catch(() => ({}));
@@ -54,9 +53,7 @@ Deno.serve(async (req) => {
     // Normalize location_ids: prefer array; fall back to single location_id
     let locIds: string[] = [];
     if (Array.isArray(location_ids)) {
-      locIds = location_ids.filter(
-        (x: unknown) => typeof x === "string" && x.length > 0,
-      );
+      locIds = location_ids.filter((x: unknown) => typeof x === "string" && x.length > 0);
     } else if (typeof location_id === "string" && location_id.length > 0) {
       locIds = [location_id];
     }
@@ -67,11 +64,7 @@ Deno.serve(async (req) => {
         .select("id")
         .eq("company_id", company_id)
         .in("id", locIds);
-      if (locsErr)
-        return json(
-          { error: "No se pudieron validar los puntos de venta." },
-          500,
-        );
+      if (locsErr) return json({ error: "No se pudieron validar los puntos de venta." }, 500);
       if (!locs || locs.length !== locIds.length) {
         return json({ error: "Punto de venta inválido." }, 400);
       }
@@ -98,13 +91,7 @@ Deno.serve(async (req) => {
       return json({ error: "Perfil del llamador no encontrado." }, 403);
     }
     if (saas_panel === true && !callerProfile.is_platform_admin) {
-      return json(
-        {
-          error:
-            "Solo un administrador de la plataforma puede otorgar acceso al Panel SaaS.",
-        },
-        403,
-      );
+      return json({ error: "Solo un administrador de la plataforma puede otorgar acceso al Panel SaaS." }, 403);
     }
     if (
       !callerProfile.is_active ||
@@ -112,10 +99,7 @@ Deno.serve(async (req) => {
       callerProfile.role !== "admin" ||
       callerProfile.company_id !== company_id
     ) {
-      return json(
-        { error: "No autorizado para crear usuarios en esta empresa." },
-        403,
-      );
+      return json({ error: "No autorizado para crear usuarios en esta empresa." }, 403);
     }
 
     // Verificar límite del plan
@@ -124,8 +108,7 @@ Deno.serve(async (req) => {
       .select("id, plan_id")
       .eq("id", company_id)
       .maybeSingle();
-    if (companyErr || !company)
-      return json({ error: "Empresa no encontrada." }, 404);
+    if (companyErr || !company) return json({ error: "Empresa no encontrada." }, 404);
 
     let userLimit = 1;
     if (company.plan_id) {
@@ -142,11 +125,7 @@ Deno.serve(async (req) => {
       .select("id", { count: "exact", head: true })
       .eq("company_id", company_id)
       .eq("is_active", true);
-    if (countErr)
-      return json(
-        { error: "No se pudo verificar el límite de usuarios." },
-        500,
-      );
+    if (countErr) return json({ error: "No se pudo verificar el límite de usuarios." }, 500);
 
     if ((count ?? 0) >= userLimit) {
       return json(
@@ -158,13 +137,12 @@ Deno.serve(async (req) => {
     }
 
     // Crear usuario en Auth
-    const { data: created, error: createErr } =
-      await admin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: { full_name, company_id },
-      });
+    const { data: created, error: createErr } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name, company_id },
+    });
 
     if (createErr || !created?.user) {
       const msg = (createErr?.message ?? "").toLowerCase();
@@ -176,10 +154,7 @@ Deno.serve(async (req) => {
       ) {
         return json({ error: "Ya existe un usuario con ese correo." }, 409);
       }
-      return json(
-        { error: createErr?.message ?? "No se pudo crear el usuario." },
-        400,
-      );
+      return json({ error: createErr?.message ?? "No se pudo crear el usuario." }, 400);
     }
 
     const newUserId = created.user.id;
@@ -233,10 +208,7 @@ Deno.serve(async (req) => {
       .single();
 
     if (profileErr) {
-      return json(
-        { error: `Usuario creado pero falló el perfil: ${profileErr.message}` },
-        500,
-      );
+      return json({ error: `Usuario creado pero falló el perfil: ${profileErr.message}` }, 500);
     }
 
     if (phantomCompanyId && phantomCompanyId !== company_id) {
@@ -257,9 +229,7 @@ Deno.serve(async (req) => {
         .upsert(rows, { onConflict: "profile_id,location_id" });
       if (plErr) {
         return json(
-          {
-            error: `Usuario creado pero falló asignar puntos de venta: ${plErr.message}`,
-          },
+          { error: `Usuario creado pero falló asignar puntos de venta: ${plErr.message}` },
           500,
         );
       }
