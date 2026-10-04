@@ -3550,6 +3550,10 @@ export interface Location {
   ticketShowLoyaltyPoints: boolean;
   ticketShowPaymentMethod: boolean;
   ticketShowTill: boolean;
+  /** Ancho físico del rollo de papel térmico (58 o 80mm) -- define la regla
+   * CSS @page al imprimir, para que coincida con el papel real en vez de
+   * usar tamaño Carta/A4 por defecto. */
+  ticketWidthMm: 58 | 80;
 }
 
 export interface LocationInput {
@@ -3575,6 +3579,7 @@ export interface TicketSettingsInput {
   showLoyaltyPoints: boolean;
   showPaymentMethod: boolean;
   showTill: boolean;
+  widthMm: 58 | 80;
 }
 
 // `onlyActive` para selectores de operación (POS); el gestor pide todos.
@@ -3627,6 +3632,10 @@ export async function fetchLocations(
         .ticket_show_payment_method ?? true,
     ticketShowTill:
       (row as { ticket_show_till?: boolean | null }).ticket_show_till ?? true,
+    ticketWidthMm:
+      (row as { ticket_width_mm?: number | null }).ticket_width_mm === 58
+        ? 58
+        : 80,
   }));
 }
 
@@ -3648,6 +3657,7 @@ export async function updateLocationTicketSettings(
       ticket_show_loyalty_points: input.showLoyaltyPoints,
       ticket_show_payment_method: input.showPaymentMethod,
       ticket_show_till: input.showTill,
+      ticket_width_mm: input.widthMm,
       updated_at: new Date().toISOString(),
     } as never)
     .eq("id", locationId);

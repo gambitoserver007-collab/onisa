@@ -11956,3 +11956,15 @@ create policy "promotions write scoped" on public.promotions
 -- columnas ticket_show_* de locations.
 -- ============================================================
 alter table public.locations add column if not exists ticket_show_till boolean not null default true;
+
+-- ============================================================
+-- Ancho físico del papel térmico 2026-10: sin una regla @page que
+-- coincida con el papel real, el navegador imprime usando el tamaño
+-- Carta/A4 por defecto -- la impresora de tickets, configurada como
+-- rollo continuo, sigue alimentando papel hasta "llenar" esa página
+-- imaginaria (de ahí el ~1 metro desperdiciado), y el contenido sale
+-- recortado de los lados porque es más ancho que el papel real. 58/80mm
+-- son los dos anchos estándar de impresoras de tickets térmicas.
+-- ============================================================
+alter table public.locations add column if not exists ticket_width_mm integer not null default 80
+  check (ticket_width_mm in (58, 80));

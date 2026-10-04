@@ -17,6 +17,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -107,6 +114,7 @@ function PuntosDeVenta() {
   const [tShowLoyaltyPoints, setTShowLoyaltyPoints] = useState(true);
   const [tShowPaymentMethod, setTShowPaymentMethod] = useState(true);
   const [tShowTill, setTShowTill] = useState(true);
+  const [tWidthMm, setTWidthMm] = useState<58 | 80>(80);
   const [ticketSaving, setTicketSaving] = useState(false);
 
   const reload = useCallback(async () => {
@@ -343,6 +351,7 @@ function PuntosDeVenta() {
     setTShowFiscalInfo(location.ticketShowFiscalInfo);
     setTShowCashierName(location.ticketShowCashierName);
     setTShowTill(location.ticketShowTill);
+    setTWidthMm(location.ticketWidthMm);
     setTFooterText(location.ticketFooterText ?? "");
     setTShowTaxBreakdown(location.ticketShowTaxBreakdown);
     setTShowLoyaltyPoints(location.ticketShowLoyaltyPoints);
@@ -365,6 +374,7 @@ function PuntosDeVenta() {
         showFiscalInfo: tShowFiscalInfo,
         showCashierName: tShowCashierName,
         showTill: tShowTill,
+        widthMm: tWidthMm,
         footerText: tFooterText,
         showTaxBreakdown: tShowTaxBreakdown,
         showLoyaltyPoints: tShowLoyaltyPoints,
@@ -817,6 +827,26 @@ function PuntosDeVenta() {
               <div className="flex items-center justify-between gap-2">
                 <Label className="font-normal">Mostrar caja/turno</Label>
                 <Switch checked={tShowTill} onCheckedChange={setTShowTill} />
+              </div>
+              <div className="space-y-1">
+                <Label className="font-normal">Ancho del papel térmico</Label>
+                <Select
+                  value={String(tWidthMm)}
+                  onValueChange={(v) => setTWidthMm(v === "58" ? 58 : 80)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="58">58mm</SelectItem>
+                    <SelectItem value="80">80mm</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Debe coincidir con el rollo real de tu impresora de tickets.
+                  Si el ticket sale recortado de los lados o imprime de más sin
+                  cortar, prueba el otro ancho.
+                </p>
               </div>
             </div>
             <div className="space-y-3 border-t border-border/60 pt-3">

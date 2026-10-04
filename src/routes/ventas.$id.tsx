@@ -144,6 +144,7 @@ function VentaDetail() {
   const showPaymentMethod = ticketLocation?.ticketShowPaymentMethod ?? true;
   const showTill = ticketLocation?.ticketShowTill ?? true;
   const footerText = ticketLocation?.ticketFooterText ?? null;
+  const widthMm = ticketLocation?.ticketWidthMm ?? 80;
 
   const printDate = sale?.createdAt
     ? new Date(sale.createdAt).toLocaleDateString(settings.locale, {
@@ -346,8 +347,21 @@ function VentaDetail() {
                 tramados en vez de color plano (ver fotos del usuario,
                 2026-10). La tarjeta de arriba es solo para verla en
                 pantalla (print:hidden); esta es la que de verdad se manda
-                a la impresora. */}
-              <div className="hidden print:block mx-auto w-[300px] font-mono text-[11px] leading-snug text-black">
+                a la impresora.
+
+                @page fija el tamaño de página EXACTO al ancho real del
+                papel (58/80mm, configurable por sucursal) con alto "auto"
+                y sin margen del navegador -- sin esto, el navegador usa
+                Carta/A4 por defecto: el contenido sale recortado de los
+                lados (más ancho que el papel real) y la impresora, al
+                creer que la página mide ~28cm de alto, sigue alimentando
+                papel hasta "completarla" (de ahí el ~1 metro
+                desperdiciado sin cortar). */}
+              <style>{`@page { size: ${widthMm}mm auto; margin: 0; }`}</style>
+              <div
+                className="hidden print:block mx-auto font-mono text-[11px] leading-snug text-black"
+                style={{ width: `${widthMm}mm`, padding: "0 2mm" }}
+              >
                 <div className="text-center">
                   {showLogo && settings.logoUrl && (
                     <img
