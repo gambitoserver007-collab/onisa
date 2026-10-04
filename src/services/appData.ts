@@ -3554,6 +3554,9 @@ export interface Location {
    * CSS @page al imprimir, para que coincida con el papel real en vez de
    * usar tamaño Carta/A4 por defecto. */
   ticketWidthMm: 58 | 80;
+  /** Nombre de la impresora en QZ Tray para imprimir sin diálogo. null =
+   * seguir usando el diálogo normal del navegador (window.print()). */
+  ticketQzPrinterName: string | null;
 }
 
 export interface LocationInput {
@@ -3580,6 +3583,7 @@ export interface TicketSettingsInput {
   showPaymentMethod: boolean;
   showTill: boolean;
   widthMm: 58 | 80;
+  qzPrinterName: string | null;
 }
 
 // `onlyActive` para selectores de operación (POS); el gestor pide todos.
@@ -3636,6 +3640,9 @@ export async function fetchLocations(
       (row as { ticket_width_mm?: number | null }).ticket_width_mm === 58
         ? 58
         : 80,
+    ticketQzPrinterName:
+      (row as { ticket_qz_printer_name?: string | null })
+        .ticket_qz_printer_name ?? null,
   }));
 }
 
@@ -3658,6 +3665,7 @@ export async function updateLocationTicketSettings(
       ticket_show_payment_method: input.showPaymentMethod,
       ticket_show_till: input.showTill,
       ticket_width_mm: input.widthMm,
+      ticket_qz_printer_name: input.qzPrinterName?.trim() || null,
       updated_at: new Date().toISOString(),
     } as never)
     .eq("id", locationId);

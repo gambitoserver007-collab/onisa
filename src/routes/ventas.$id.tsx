@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Printer } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { DemoGuardedButton } from "@/components/demo/DemoGuardedButton";
 import { AppShell } from "@/components/layout/AppShell";
 import { FallbackNotice } from "@/components/layout/FallbackNotice";
@@ -10,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useCurrentLocation } from "@/hooks/useCurrentLocation";
 import { useDemoSession } from "@/hooks/useDemoSession";
+import { printReceiptViaQz } from "@/lib/qzPrint";
 import {
   fetchCompanyProfile,
   fetchProfileNames,
@@ -63,6 +65,7 @@ function VentaDetail() {
   const [cashierName, setCashierName] = useState<string | null>(null);
   const [tillName, setTillName] = useState<string | null>(null);
   const [loyalty, setLoyalty] = useState({ earned: 0, redeemed: 0 });
+  const [printing, setPrinting] = useState(false);
 
   // Antes se cargaban TODAS las ventas de la empresa (useSales()) solo
   // para encontrar esta una con .find() -- ahora se pide directo por
@@ -159,6 +162,62 @@ function VentaDetail() {
         minute: "2-digit",
       })
     : "";
+
+  const qzPrinterName = ticketLocation?.ticketQzPrinterName ?? null;
+
+  const handlePrint = async () => {
+    if (!sale) return;
+
+    if (qzPrinterName) {
+      setPrinting(true);
+      try {
+        await printReceiptViaQz(qzPrinterName, {
+          widthMm,
+          businessName: settings.businessName,
+          fiscalIdLabel: settings.fiscalIdLabel,
+          fiscalId: settings.sampleFiscalId,
+          address: companyProfile?.address ?? null,
+          phone: companyProfile?.phone ?? null,
+          taxName: settings.taxName,
+          date: printDate,
+          time: printTime,
+          cashierName,
+          tillName,
+          folio: sale.id,
+          customer: sale.customer,
+          documentType: sale.type,
+          paymentMethod: sale.method,
+          items: sale.items,
+          subtotal: sale.subtotal,
+          tax: sale.igv,
+          total: sale.total,
+          loyaltyEarned: loyalty.earned,
+          loyaltyRedeemed: loyalty.redeemed,
+          footerText,
+          formatMoney,
+          showFiscalInfo,
+          showCashierName,
+          showTill,
+          showTaxBreakdown,
+          showLoyaltyPoints,
+          showPaymentMethod,
+        });
+        toast.success(`Ticket enviado a ${qzPrinterName}.`);
+        if (from === "pos") navigate({ to: "/pos" });
+
+        return;
+      } catch {
+        toast.error(
+          `No se pudo imprimir en "${qzPrinterName}" (¿QZ Tray está corriendo?). Se abrirá el diálogo de impresión normal.`,
+        );
+      } finally {
+        setPrinting(false);
+      }
+    }
+
+    window.print();
+    if (from === "pos") navigate({ to: "/pos" });
+  };
 
   return (
     <AppShell>
@@ -484,13 +543,13 @@ function VentaDetail() {
               <DemoGuardedButton
                 variant="brand"
                 className="flex-1"
+                disabled={printing}
                 onAllowedClick={() => {
-                  window.print();
-
-                  if (from === "pos") navigate({ to: "/pos" });
+                  void handlePrint();
                 }}
               >
-                <Printer className="mr-1 h-4 w-4" /> Imprimir
+                <Printer className="mr-1 h-4 w-4" />{" "}
+                {printing ? "Imprimiendo..." : "Imprimir"}
               </DemoGuardedButton>
             </div>
           </>

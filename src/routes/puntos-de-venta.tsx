@@ -37,6 +37,7 @@ import {
 import { useDemoSession } from "@/hooks/useDemoSession";
 import { blockDemoAction } from "@/lib/demoMode";
 import { refreshLocations } from "@/lib/currentLocation";
+import { listQzPrinters } from "@/lib/qzPrint";
 import {
   createLocation,
   createTill,
@@ -115,6 +116,10 @@ function PuntosDeVenta() {
   const [tShowPaymentMethod, setTShowPaymentMethod] = useState(true);
   const [tShowTill, setTShowTill] = useState(true);
   const [tWidthMm, setTWidthMm] = useState<58 | 80>(80);
+  const [tQzPrinterName, setTQzPrinterName] = useState<string | null>(null);
+  const [qzPrinters, setQzPrinters] = useState<string[]>([]);
+  const [qzDetecting, setQzDetecting] = useState(false);
+  const [qzError, setQzError] = useState<string | null>(null);
   const [ticketSaving, setTicketSaving] = useState(false);
 
   const reload = useCallback(async () => {
@@ -352,10 +357,35 @@ function PuntosDeVenta() {
     setTShowCashierName(location.ticketShowCashierName);
     setTShowTill(location.ticketShowTill);
     setTWidthMm(location.ticketWidthMm);
+    setTQzPrinterName(location.ticketQzPrinterName);
+    setQzPrinters(
+      location.ticketQzPrinterName ? [location.ticketQzPrinterName] : [],
+    );
+    setQzError(null);
     setTFooterText(location.ticketFooterText ?? "");
     setTShowTaxBreakdown(location.ticketShowTaxBreakdown);
     setTShowLoyaltyPoints(location.ticketShowLoyaltyPoints);
     setTShowPaymentMethod(location.ticketShowPaymentMethod);
+  };
+
+  const handleDetectQzPrinters = async () => {
+    setQzDetecting(true);
+    setQzError(null);
+
+    try {
+      const printers = await listQzPrinters();
+
+      setQzPrinters(printers);
+      if (printers.length === 0) {
+        setQzError("QZ Tray está corriendo pero no ve ninguna impresora.");
+      }
+    } catch {
+      setQzError(
+        "No se encontró QZ Tray en esta PC. Instálalo desde qz.io/download y vuelve a intentar.",
+      );
+    } finally {
+      setQzDetecting(false);
+    }
   };
 
   const handleTicketSave = async () => {
@@ -375,6 +405,7 @@ function PuntosDeVenta() {
         showCashierName: tShowCashierName,
         showTill: tShowTill,
         widthMm: tWidthMm,
+        qzPrinterName: tQzPrinterName,
         footerText: tFooterText,
         showTaxBreakdown: tShowTaxBreakdown,
         showLoyaltyPoints: tShowLoyaltyPoints,
@@ -876,6 +907,59 @@ function PuntosDeVenta() {
                   onCheckedChange={setTShowPaymentMethod}
                 />
               </div>
+            </div>
+            <div className="space-y-3 border-t border-border/60 pt-3">
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground">
+                  Impresión automática (QZ Tray)
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Opcional: manda el ticket directo a la impresora, sin el
+                  diálogo de impresión del navegador. Requiere instalar{" "}
+                  <a
+                    href="https://qz.io/download"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  >
+                    QZ Tray
+                  </a>{" "}
+                  (gratis) en la PC del punto de venta. Déjalo en "Ninguna" para
+                  seguir usando el diálogo normal.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Select
+                  value={tQzPrinterName ?? "none"}
+                  onValueChange={(v) =>
+                    setTQzPrinterName(v === "none" ? null : v)
+                  }
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue placeholder="Ninguna" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">
+                      Ninguna (usar diálogo del navegador)
+                    </SelectItem>
+                    {qzPrinters.map((name) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={qzDetecting}
+                  onClick={handleDetectQzPrinters}
+                >
+                  {qzDetecting ? "Buscando..." : "Detectar"}
+                </Button>
+              </div>
+              {qzError && <p className="text-xs text-destructive">{qzError}</p>}
             </div>
             <div className="space-y-1 border-t border-border/60 pt-3">
               <Label>Pie de página</Label>

@@ -11968,3 +11968,10 @@ alter table public.locations add column if not exists ticket_show_till boolean n
 -- ============================================================
 alter table public.locations add column if not exists ticket_width_mm integer not null default 80
   check (ticket_width_mm in (58, 80));
+
+-- Nombre de la impresora (tal como la ve QZ Tray) a la que se manda el
+-- ticket en ESC/POS sin diálogo de impresión. null = seguir usando
+-- window.print() (diálogo normal del navegador), que es el default --
+-- esto es opt-in, requiere que el dueño instale QZ Tray en la PC del
+-- punto de venta (https://qz.io/download).
+alter table public.locations add column if not exists ticket_qz_printer_name text;
