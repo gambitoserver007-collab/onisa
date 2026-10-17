@@ -59,6 +59,11 @@ Deno.serve(async (req) => {
     if (targetErr || !target) return json({ error: "Usuario no encontrado." }, 404);
     if (target.company_id !== caller.company_id)
       return json({ error: "Ese usuario no pertenece a tu tienda." }, 403);
+    // Auditoría 2026-10 (puerta 4): un admin de empresa no puede tocar la
+    // cuenta de un Super Admin (cambiar contraseña, desactivar, borrar...) por
+    // compartir empresa con él; antes solo se protegían rol/saas_panel.
+    if (target.is_platform_admin && !caller.is_platform_admin)
+      return json({ error: "Solo un administrador de la plataforma puede gestionar esta cuenta." }, 403);
 
     const isSelf = target_user_id === callerId;
     if (action === "delete") {
@@ -95,6 +100,40 @@ Deno.serve(async (req) => {
       if (isSelf && is_active === false)
         return json({ error: "No puedes desactivar tu propia cuenta." }, 400);
       updates.is_active = !!is_active;
+
+      // Auditoría 2026-10 (puerta 11): el límite de usuarios del plan solo se
+      // revisaba al CREAR (team-create-user); reactivar a alguien sumaba un
+      // usuario activo sin pasar por esa revisión.
+      if (is_active === true && !target.is_active) {
+        const { data: company } = await admin
+          .from("companies")
+          .select("plan_id")
+          .eq("id", caller.company_id)
+          .maybeSingle();
+        let userLimit = 1;
+        if (company?.plan_id) {
+          const { data: plan } = await admin
+            .from("subscription_plans")
+            .select("user_limit")
+            .eq("id", company.plan_id)
+            .maybeSingle();
+          if (plan?.user_limit != null) userLimit = plan.user_limit;
+        }
+        const { count, error: countErr } = await admin
+          .from("profiles")
+          .select("id", { count: "exact", head: true })
+          .eq("company_id", caller.company_id)
+          .eq("is_active", true);
+        if (countErr) return json({ error: "No se pudo verificar el límite de usuarios." }, 500);
+        if ((count ?? 0) >= userLimit) {
+          return json(
+            {
+              error: `Se alcanzó el límite de usuarios del plan (${userLimit}). Actualiza el plan para reactivar usuarios.`,
+            },
+            409,
+          );
+        }
+      }
     }
 
     // Normalize location_ids (array preferred; fallback a single location_id)

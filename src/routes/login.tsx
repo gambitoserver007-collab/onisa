@@ -28,6 +28,7 @@ import { canAccessSaaS } from "@/lib/permissions";
 import type { DemoSession } from "@/types";
 import { getBusinessSettings } from "@/lib/businessSettings";
 import { detectCountryCode } from "@/lib/detectCountry";
+import { safeNext } from "@/lib/safeNext";
 import { fetchPlatformBranding } from "@/services/appData";
 
 export const Route = createFileRoute("/login")({
@@ -38,12 +39,6 @@ export const Route = createFileRoute("/login")({
   },
   component: LoginPage,
 });
-
-function safeNext(next: string | undefined): string | null {
-  if (!next || !next.startsWith("/") || next.startsWith("//")) return null;
-
-  return next;
-}
 
 const demoOptions = [
   {

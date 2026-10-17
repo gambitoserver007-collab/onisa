@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/table";
 import { DateRangeSelect } from "@/components/reports/DateRangeSelect";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
+import { csvCell } from "@/lib/csv";
 import { useCompanyCatalog } from "@/hooks/useCompanyCatalog";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import {
@@ -220,9 +221,7 @@ function Reportes() {
       ...data.salesLast7Days.map((d) => [d.day, d.total]),
     ];
 
-    const csv = rows
-      .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
-      .join("\n");
+    const csv = rows.map((r) => r.map((c) => csvCell(c)).join(",")).join("\n");
 
     const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);

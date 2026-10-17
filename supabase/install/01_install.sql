@@ -1253,12 +1253,12 @@ ALTER TYPE public.app_role ADD VALUE IF NOT EXISTS 'finanzas';
 ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS is_platform_admin boolean NOT NULL DEFAULT false;
 
--- 3) Mark the SaaS owner as platform admin
-UPDATE public.profiles p
-SET is_platform_admin = true, updated_at = now()
-FROM auth.users u
-WHERE p.id = u.id
-  AND lower(u.email) = 'owner@tiendaagil.test';
+-- 3) (Auditoría 2026-10, puerta 3) Aquí había un UPDATE que marcaba como
+-- Super Admin a cualquier perfil con el correo literal 'owner@tiendaagil.test'
+-- en CADA corrida de este instalador: quien lograra registrar ese correo
+-- antes de la siguiente corrida quedaba como Super Admin. Se eliminó. El
+-- Super Admin se crea una sola vez con public.bootstrap_owner_profile (solo
+-- service_role) -- ver scripts/create-owner-user.mjs.
 
 -- 4) Helper: is the current user a platform admin?
 CREATE OR REPLACE FUNCTION public.current_user_is_platform_admin()
@@ -3266,6 +3266,12 @@ begin
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
   end if;
+  -- Auditoría 2026-10 (puerta 7): igual que la ruta /compras de la UI y que
+  -- adjust_stock/transfer_stock, solo los roles de operación pueden registrar
+  -- compras (suman stock y reescriben el costo del producto).
+  if public.current_user_role()::text not in ('admin','gerente','finanzas','operador') then
+    raise exception 'No tienes permiso para registrar compras.';
+  end if;
   if p_items is null or jsonb_array_length(p_items) = 0 then
     raise exception 'Agrega al menos un producto a la compra.';
   end if;
@@ -3283,6 +3289,9 @@ begin
 
   perform 1 from public.locations where id = v_location_id and company_id = v_company_id;
   if not found then raise exception 'Sucursal invalida.'; end if;
+  if not public.user_can_access_location(v_location_id) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
 
   -- Pre-compute total + validar has_variants
   for v_item in select * from jsonb_array_elements(p_items) loop
@@ -3476,6 +3485,9 @@ begin
 
   perform 1 from public.locations where id = v_location_id and company_id = v_company_id;
   if not found then raise exception 'Sucursal invalida.'; end if;
+  if not public.user_can_access_location(v_location_id) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
 
   perform 1 from public.sales where id = p_sale_id and company_id = v_company_id and deleted_at is null;
   if not found then raise exception 'Venta no encontrada.'; end if;
@@ -3706,6 +3718,12 @@ begin
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
+  -- Auditoría 2026-10 (puerta 6): las variantes (precio, costo, stock por
+  -- sucursal) son parte del catálogo, que las políticas RLS y la UI reservan al
+  -- admin; esta RPC (SECURITY DEFINER) se saltaba esa regla para cualquier rol.
+  if not public.can_admin_company(v_company_id) then
+    raise exception 'Solo el administrador puede editar el catalogo.';
   end if;
 
   select * into v_product from public.products
@@ -4266,8 +4284,14 @@ begin
 
   perform 1 from public.locations where id = p_from_location and company_id = v_company_id;
   if not found then raise exception 'Sucursal origen invalida.'; end if;
+  if not public.user_can_access_location(p_from_location) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
   perform 1 from public.locations where id = p_to_location and company_id = v_company_id;
   if not found then raise exception 'Sucursal destino invalida.'; end if;
+  if not public.user_can_access_location(p_to_location) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
 
   if p_from_location < p_to_location then
     v_first := p_from_location; v_second := p_to_location;
@@ -5061,6 +5085,9 @@ begin
 
   perform 1 from public.locations where id = v_location_id and company_id = v_company_id;
   if not found then raise exception 'Sucursal invalida.'; end if;
+  if not public.user_can_access_location(v_location_id) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
 
   v_till_id := p_till_id;
   if v_till_id is not null then
@@ -8512,6 +8539,20 @@ begin
     raise exception 'No tienes permiso para modificar campos protegidos del perfil.';
   end if;
 
+  -- Auditoría 2026-10 (puerta 10): pin_hash y el horario (shift_*) son datos
+  -- que administra el admin de la empresa (set_employee_pin / pantalla de
+  -- empleados), pero la política "profiles update scoped" deja a cualquier
+  -- empleado actualizar SU PROPIA fila: podía escribirse un pin_hash a mano
+  -- (saltándose la validación de PIN duplicado) o moverse el horario para
+  -- no marcar retardo. Solo un admin puede cambiarlos.
+  if (new.pin_hash is distinct from old.pin_hash
+      or new.shift_start is distinct from old.shift_start
+      or new.shift_end is distinct from old.shift_end)
+     and coalesce(public.current_user_role()::text, '') <> 'admin'
+  then
+    raise exception 'Solo un administrador puede modificar el PIN y el horario del empleado.';
+  end if;
+
   return new;
 end;
 $$;
@@ -8691,6 +8732,11 @@ begin
   if v_location_id is null then select location_id into v_location_id from public.profiles where id = auth.uid(); end if;
   if v_location_id is null then select id into v_location_id from public.locations where company_id = v_company_id order by created_at limit 1; end if;
   if v_location_id is null then raise exception 'No hay punto de venta configurado.'; end if;
+  perform 1 from public.locations where id = v_location_id and company_id = v_company_id;
+  if not found then raise exception 'Sucursal invalida.'; end if;
+  if not public.user_can_access_location(v_location_id) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
 
   -- Resolución de caja (till_id): nunca bloquea la venta, solo intenta
   -- atribuirla correctamente para el arqueo. Prioridad: (1) la caja que
@@ -8731,6 +8777,15 @@ begin
   select coalesce(name,'Publico general') into v_customer_name from public.customers
     where id = p_customer_id and company_id = v_company_id and deleted_at is null;
   v_customer_name := coalesce(v_customer_name,'Publico general');
+  -- Auditoría 2026-10 (puerta 1): un p_customer_id que no pertenece a la
+  -- empresa de quien vende antes se aceptaba en silencio (nombre "Publico
+  -- general") y las ramas de lealtad/crédito terminaban escribiendo sobre el
+  -- cliente de OTRA empresa. Se rechaza de entrada.
+  if p_customer_id is not null and not exists (
+    select 1 from public.customers where id = p_customer_id and company_id = v_company_id
+  ) then
+    raise exception 'Cliente no encontrado.';
+  end if;
   v_sale_number := 'V-' || to_char(now(),'YYYYMMDD') || '-' || upper(substr(replace(gen_random_uuid()::text,'-',''),1,6));
   insert into public.sales (company_id, location_id, till_id, customer_id, sale_number, document_type, payment_method, customer_name, subtotal, tax, total, created_by, client_request_id)
   values (v_company_id, v_location_id, v_till_id, p_customer_id, v_sale_number, coalesce(p_document_type,'Ticket'), coalesce(p_payment_method,'Efectivo'), v_customer_name, 0,0,0, auth.uid(), p_client_request_id)
@@ -9005,7 +9060,7 @@ begin
           loyalty_year_spend = v_year_spend,
           loyalty_year_spend_year = v_current_year,
           updated_at = now()
-      where id = p_customer_id;
+      where id = p_customer_id and company_id = v_company_id;
   end if;
 
   -- Pago dividido / crédito: si el cajero manda un desglose, se valida que
@@ -9055,7 +9110,7 @@ begin
           end if;
           perform set_config('app.bypass_customer_credit_loyalty', 'true', true);
           update public.customers set credit_balance = coalesce(credit_balance,0) + v_payment_amount, updated_at = now()
-            where id = p_customer_id;
+            where id = p_customer_id and company_id = v_company_id;
         end if;
 
         insert into public.sale_payments (company_id, sale_id, method, amount, kind)
@@ -11975,3 +12030,62 @@ alter table public.locations add column if not exists ticket_width_mm integer no
 -- esto es opt-in, requiere que el dueño instale QZ Tray en la PC del
 -- punto de venta (https://qz.io/download).
 alter table public.locations add column if not exists ticket_qz_printer_name text;
+
+-- ============================================================
+-- Auditoría de seguridad 2026-10, puerta 2: product_locations solo validaba
+-- el company_id de la FILA, no que el producto/sucursal a los que apunta
+-- sean de esa misma empresa. Un admin de la empresa A podía insertar filas
+-- (company_id = A) sobre un producto de la empresa B; las RPC SECURITY
+-- DEFINER recalculan products.stock sumando product_locations por
+-- product_id, así que el stock total de B quedaba inflado/desfasado sin que
+-- B pudiera ver ni borrar esas filas. Ahora producto y sucursal deben
+-- pertenecer a la misma empresa que la fila.
+-- ============================================================
+drop policy if exists "product_locations write scoped" on public.product_locations;
+create policy "product_locations write scoped" on public.product_locations
+  for all to authenticated
+  using (public.can_admin_company(company_id))
+  with check (
+    public.can_admin_company(company_id)
+    and exists (
+      select 1 from public.products p
+      where p.id = product_locations.product_id and p.company_id = product_locations.company_id
+    )
+    and exists (
+      select 1 from public.locations l
+      where l.id = product_locations.location_id and l.company_id = product_locations.company_id
+    )
+  );
+
+-- ============================================================
+-- Auditoría de seguridad 2026-10, puerta 4: un admin de empresa podía
+-- borrar (por esta política RLS) el perfil de un Super Admin de su misma
+-- empresa. Solo un Super Admin puede borrar el perfil de otro Super Admin.
+-- (La edge function team-manage-user tiene la misma regla.)
+-- ============================================================
+drop policy if exists "profiles delete admin" on public.profiles;
+create policy "profiles delete admin"
+  on public.profiles
+  for delete
+  to authenticated
+  using (
+    public.current_user_is_platform_admin()
+    or (
+      company_id = public.current_user_company_id()
+      and public.current_user_role() = 'admin'::public.app_role
+      and not is_platform_admin
+    )
+  );
+
+-- ============================================================
+-- Auditoría de seguridad 2026-10, puerta 8: la política "customers write
+-- scoped" es "for all" para cualquier miembro de la empresa, y el trigger
+-- que protege credit_balance/loyalty_* solo mira UPDATE. Con un DELETE directo
+-- (PostgREST) cualquier cajero podía borrar un cliente con deuda; el
+-- ON DELETE CASCADE se llevaba sus pagos a crédito y su bitácora de lealtad,
+-- sin dejar rastro. La app nunca borra clientes de verdad (los archiva con
+-- deleted_at), así que se retira el permiso de DELETE directo a los usuarios;
+-- las RPC SECURITY DEFINER y los borrados en cascada de la empresa no
+-- dependen de este permiso.
+-- ============================================================
+revoke delete on public.customers from authenticated;

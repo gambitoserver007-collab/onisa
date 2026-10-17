@@ -27,6 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
+import { csvCell } from "@/lib/csv";
 import { useDemoSession } from "@/hooks/useDemoSession";
 import {
   fetchProfitReport,
@@ -119,9 +120,7 @@ function Ganancias() {
     ]);
 
     const csv = [header, ...body]
-      .map((line) =>
-        line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","),
-      )
+      .map((line) => line.map((cell) => csvCell(cell)).join(","))
       .join("\n");
 
     // Prepend a UTF-8 BOM (U+FEFF) so Excel reads the accents correctly.

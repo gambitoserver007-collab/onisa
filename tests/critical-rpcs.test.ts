@@ -239,7 +239,9 @@ describe("RPCs críticas de dinero y stock", () => {
         [prodA1],
       );
 
-      await asUser(db, cajeroA, async () => {
+      // Auditoría 2026-10 (puerta 7): create_purchase ya no acepta al cajero
+      // (la ruta /compras de la UI tampoco); lo llama el admin.
+      await asUser(db, adminA, async () => {
         await db.query(
           "select create_purchase(null, 'F-001', now(), $1, $2::jsonb)",
           [

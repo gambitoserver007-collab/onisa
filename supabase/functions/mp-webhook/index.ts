@@ -126,7 +126,13 @@ Deno.serve(async (req) => {
       .eq("provider_event_type", eventType)
       .eq("provider_resource_id", String(dataId))
       .maybeSingle();
-    if (existing?.processed_at) {
+    // Auditoría 2026-10 (puerta 12): Mercado Pago vuelve a avisar con el MISMO
+    // id de preapproval en cada cambio de estado (autorizada -> pausada ->
+    // cancelada); deduplicar por (tipo, id) descartaba todos los avisos después
+    // del primero. El estado se toma siempre del recurso re-consultado, así que
+    // reprocesar un preapproval es idempotente. Los pagos autorizados sí se
+    // deduplican (cada uno tiene su propio id y reprocesar extiende la vigencia).
+    if (existing?.processed_at && eventType !== "subscription_preapproval") {
       return json({ ok: true, already_processed: true }, 200);
     }
 
@@ -147,6 +153,12 @@ Deno.serve(async (req) => {
       });
       const resource = await resRes.json().catch(() => ({}));
 
+      // Auditoría 2026-10 (puerta 12): si Mercado Pago no respondió bien no se
+      // marca el evento como procesado y se responde 502 para que reintente.
+      if (!resRes.ok) {
+        return json({ error: "No se pudo consultar el recurso en Mercado Pago." }, 502);
+      }
+
       if (eventType === "subscription_preapproval" && resRes.ok) {
         companyId = resource.external_reference ?? null;
         const mpStatus: string = resource.status ?? "pending";
@@ -162,16 +174,29 @@ Deno.serve(async (req) => {
         if (companyId) {
           const { data: sub } = await admin
             .from("company_subscriptions")
-            .select("plan_id")
+            .select("plan_id, provider_subscription_id")
             .eq("company_id", companyId)
             .maybeSingle();
 
-          await admin
-            .from("company_subscriptions")
-            .update({ status, provider_subscription_id: String(dataId) })
-            .eq("company_id", companyId);
+          // Auditoría 2026-10 (puerta 5): mp-create-subscription sobrescribe
+          // plan_id y provider_subscription_id en cada llamada; sin esta
+          // comparación, autorizar un preapproval viejo (plan barato) activaba
+          // el plan guardado por el más reciente (plan caro). Solo cuenta el
+          // aviso del preapproval que corresponde al plan guardado.
+          const isCurrentPreapproval =
+            !sub?.provider_subscription_id ||
+            sub.provider_subscription_id === String(dataId);
 
-          if (status === "authorized" && sub?.plan_id) {
+          if (isCurrentPreapproval) {
+            await admin
+              .from("company_subscriptions")
+              .update({ status, provider_subscription_id: String(dataId) })
+              .eq("company_id", companyId);
+          }
+
+          if (!isCurrentPreapproval) {
+            // preapproval anterior reemplazado por otro más reciente: se ignora
+          } else if (status === "authorized" && sub?.plan_id) {
             const periodEnd = new Date();
             periodEnd.setMonth(periodEnd.getMonth() + 1);
             await admin
