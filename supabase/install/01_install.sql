@@ -8018,6 +8018,9 @@ begin
   if public.current_user_is_demo() then raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.'; end if;
   v_company_id := public.current_user_company_id();
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  -- Auditoría 2026-10 (2ª pasada): igual que create_sale/create_return y las demás
+  -- RPC de dinero y stock, una empresa suspendida o vencida no opera.
+  perform public.assert_company_can_operate(v_company_id);
   if p_amount is null or p_amount <= 0 then raise exception 'Ingresa un monto valido.'; end if;
 
   select credit_balance into v_balance
@@ -9415,6 +9418,9 @@ begin
 
   v_company_id := public.current_user_company_id();
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  -- Auditoría 2026-10 (2ª pasada): igual que create_sale/create_return y las demás
+  -- RPC de dinero y stock, una empresa suspendida o vencida no opera.
+  perform public.assert_company_can_operate(v_company_id);
 
   v_role := public.current_user_role();
 
@@ -9524,6 +9530,9 @@ begin
   end if;
 
   v_company_id := public.current_user_company_id();
+  -- Auditoría 2026-10 (2ª pasada): igual que create_sale/create_return y las demás
+  -- RPC de dinero y stock, una empresa suspendida o vencida no opera.
+  perform public.assert_company_can_operate(v_company_id);
   v_role := public.current_user_role();
   if v_role not in ('admin', 'finanzas') then
     raise exception 'Solo un administrador o finanzas puede eliminar una merma.';

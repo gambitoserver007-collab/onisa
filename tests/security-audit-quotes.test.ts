@@ -247,3 +247,90 @@ describe("Cotizaciones y apartados", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Mermas y cobro de crédito: la empresa suspendida tampoco opera
+// ---------------------------------------------------------------------------
+describe("Mermas y cobro de crédito con la empresa suspendida", () => {
+  let db: PGlite;
+  let C: TestCompany;
+  let cashier: string;
+  let admin: string;
+  let product: string;
+  let customer: string;
+  let mermaId: string;
+
+  const registerMerma = () =>
+    asUser(db, cashier, () =>
+      db.query<{ r: string }>(
+        "select register_merma($1,'otro',null,$2,1::numeric,null,null) as r",
+        [C.loc1, product],
+      ),
+    );
+
+  const collect = () =>
+    asUser(db, cashier, () =>
+      db.query("select collect_customer_credit($1, 10, 'Efectivo', 'cash')", [
+        customer,
+      ]),
+    );
+
+  const deleteMerma = () =>
+    asUser(db, admin, () => db.query("select delete_merma($1)", [mermaId]));
+
+  beforeAll(async () => {
+    db = await createTestDb();
+    C = await makeCompany(db, "Empresa mermas");
+    cashier = await makeUser(db, C.id, "user");
+    admin = await makeUser(db, C.id, "admin");
+    product = await makeProduct(db, C.id, C.loc1, "P", 1, 100, 50);
+    customer = crypto.randomUUID();
+    await db.query(
+      "insert into public.customers (id, company_id, name, credit_balance, credit_limit) values ($1,$2,'Deudor',100,500)",
+      [customer, C.id],
+    );
+    // Se prepara todo mientras la empresa está activa (CONTROL).
+    mermaId = (await registerMerma()).rows[0].r;
+    await asUser(db, cashier, () =>
+      db.query("select open_cash_session(0,$1)", [C.loc1]),
+    );
+  }, 120_000);
+
+  afterAll(async () => {
+    await db.close();
+  });
+
+  it("CONTROL: con la empresa activa, registrar una merma y cobrar crédito funciona", async () => {
+    expect(mermaId).toBeTruthy();
+    expect(await rejects(() => collect())).toBeNull();
+  });
+
+  it("suspendida, la empresa NO puede registrar ni borrar mermas, ni cobrar crédito", async () => {
+    await db.query(
+      "update public.companies set subscription_status='suspended' where id=$1",
+      [C.id],
+    );
+
+    expect(await rejects(() => registerMerma())).toMatch(/suspendida/i);
+    expect(await rejects(() => deleteMerma())).toMatch(/suspendida/i);
+    expect(await rejects(() => collect())).toMatch(/suspendida/i);
+
+    const { rows } = await db.query<{ credit_balance: string }>(
+      "select credit_balance from public.customers where id=$1",
+      [customer],
+    );
+
+    // Solo el primer cobro (10) de la prueba anterior: 100 - 10.
+    expect(Number(rows[0].credit_balance)).toBe(90);
+  });
+
+  it("CONTROL: reactivada la empresa, vuelven a funcionar", async () => {
+    await db.query(
+      "update public.companies set subscription_status='active' where id=$1",
+      [C.id],
+    );
+
+    expect(await rejects(() => collect())).toBeNull();
+    expect(await rejects(() => deleteMerma())).toBeNull();
+  });
+});
