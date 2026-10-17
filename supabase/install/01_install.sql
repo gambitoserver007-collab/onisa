@@ -6657,6 +6657,7 @@ declare
   v_new_id uuid;
   v_check_in_at timestamptz;
   v_recent_failures integer;
+  v_location_failures integer;
 begin
   if auth.uid() is null then raise exception 'No autenticado.'; end if;
   if public.current_user_is_demo() then raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.'; end if;
@@ -6671,13 +6672,19 @@ begin
   -- Auditoría 2026-10 (2ª pasada, checador): el PIN es de 4 a 6 dígitos y se
   -- compara contra TODOS los empleados de la empresa, sin límite de intentos:
   -- quien estuviera frente al kiosko podía adivinar PIN de compañeros y
-  -- marcarles entrada/salida. Tras 5 intentos fallidos en 15 minutos (de toda la
-  -- empresa) se bloquea el checador hasta que pase la ventana. Un PIN correcto
-  -- NO reinicia la cuenta (si no, bastaba intercalar el propio PIN).
-  select count(*) into v_recent_failures
+  -- marcarles entrada/salida. Un PIN correcto NO reinicia la cuenta (si no,
+  -- bastaba intercalar el propio PIN).
+  -- 3ª pasada: el bloqueo era de TODA la empresa, así que un solo kiosko (o
+  -- alguien con ganas de molestar) dejaba sin checador a todas las sucursales.
+  -- Ahora son 5 fallos en 15 minutos POR SUCURSAL (el kiosko de otra sucursal
+  -- sigue funcionando) y, para que cambiar de sucursal no sirva para seguir
+  -- adivinando, un tope mayor de 25 fallos en 15 minutos para toda la empresa.
+  select count(*) filter (where location_id is not distinct from p_location_id),
+         count(*)
+    into v_location_failures, v_recent_failures
     from public.punch_failed_attempts
     where company_id = v_company_id and attempted_at > now() - interval '15 minutes';
-  if v_recent_failures >= 5 then
+  if v_location_failures >= 5 or v_recent_failures >= 25 then
     raise exception 'Demasiados intentos fallidos en el checador. Espera unos minutos e intentalo de nuevo.';
   end if;
 
@@ -6693,8 +6700,14 @@ begin
     -- No se hace RAISE: una excepción revertiría la transacción completa y el
     -- intento fallido nunca quedaría registrado. Se devuelve el error.
     delete from public.punch_failed_attempts where attempted_at < now() - interval '1 day';
-    insert into public.punch_failed_attempts (company_id, actor_id)
-      values (v_company_id, auth.uid());
+    insert into public.punch_failed_attempts (company_id, actor_id, location_id)
+      values (v_company_id, auth.uid(), p_location_id);
+    -- Al llegar al límite queda rastro en la auditoría (visible para el
+    -- administrador): quién estaba en la sesión y en qué sucursal.
+    if v_location_failures + 1 = 5 then
+      perform public.log_audit(v_company_id, 'attendance', coalesce(p_location_id, auth.uid()),
+        'punch_locked', jsonb_build_object('actor_id', auth.uid(), 'location_id', p_location_id));
+    end if;
     return jsonb_build_object('ok', false, 'error', 'PIN no reconocido.');
   end if;
 
@@ -12679,6 +12692,9 @@ create table if not exists public.punch_failed_attempts (
   actor_id uuid,
   attempted_at timestamptz not null default now()
 );
+
+-- 3ª pasada: el bloqueo se cuenta por sucursal (ver punch_employee).
+alter table public.punch_failed_attempts add column if not exists location_id uuid;
 
 create index if not exists punch_failed_attempts_company_time_idx
   on public.punch_failed_attempts (company_id, attempted_at desc);

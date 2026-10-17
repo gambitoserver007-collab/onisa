@@ -231,3 +231,85 @@ describe("Checador: límite de intentos del PIN", () => {
     expect(err).toBeTruthy();
   });
 });
+
+// ---------------------------------------------------------------------------
+// 3ª pasada: el bloqueo es por sucursal, con un tope mayor para la empresa
+// ---------------------------------------------------------------------------
+describe("Checador: el bloqueo no deja sin checador a toda la empresa", () => {
+  let db: PGlite;
+  let C: TestCompany;
+  let admin: string;
+  let employee: string;
+
+  const punchAt = (pin: string, locationId: string | null) =>
+    asUser(db, admin, () =>
+      db.query<{ r: { ok?: boolean; error?: string; action?: string } }>(
+        "select punch_employee($1,$2,'UTC') as r",
+        [pin, locationId],
+      ),
+    ).then((r) => r.rows[0].r);
+
+  beforeAll(async () => {
+    db = await createTestDb();
+    C = await makeCompany(db, "Empresa checador por sucursal");
+    admin = await makeUser(db, C.id, "admin");
+    employee = await makeUser(db, C.id, "user");
+    await asUser(db, admin, () =>
+      db.query("select set_employee_pin($1,'4821')", [employee]),
+    );
+  }, 120_000);
+
+  afterAll(async () => {
+    await db.close();
+  });
+
+  it("tras 5 fallos en una sucursal esa sucursal se bloquea, incluso con el PIN correcto", async () => {
+    for (const pin of ["0001", "0002", "0003", "0004", "0005"]) {
+      expect((await punchAt(pin, C.loc1)).ok).toBe(false);
+    }
+
+    const locked = await rejects(() => punchAt("4821", C.loc1));
+
+    expect(locked).toMatch(/demasiados intentos/i);
+  });
+
+  it("CONTROL: la OTRA sucursal sigue pudiendo checar con normalidad", async () => {
+    const result = await punchAt("4821", C.loc2);
+
+    expect(result.action).toBe("check_in");
+  });
+
+  it("al bloquearse una sucursal queda UN rastro en la auditoría", async () => {
+    const { rows } = await db.query<{ n: string }>(
+      "select count(*)::int as n from public.audit_log where company_id=$1 and action='punch_locked'",
+      [C.id],
+    );
+
+    expect(Number(rows[0].n)).toBe(1);
+  });
+
+  it("cambiar de sucursal para seguir adivinando no sirve: tope de 25 fallos por empresa", async () => {
+    // Cada sucursal inventada es una cuenta nueva; el tope de empresa las suma.
+    // Ya hay 5 fallos en loc1; faltan 20 para llegar a 25.
+    for (let i = 0; i < 20; i++) {
+      const fresh = crypto.randomUUID();
+
+      expect((await punchAt("9999", fresh)).ok).toBe(false);
+    }
+
+    const locked = await rejects(() => punchAt("4821", C.loc2));
+
+    expect(locked).toMatch(/demasiados intentos/i);
+  });
+
+  it("CONTROL: pasada la ventana de 15 minutos todo vuelve a funcionar", async () => {
+    await db.query(
+      "update public.punch_failed_attempts set attempted_at = now() - interval '16 minutes' where company_id=$1",
+      [C.id],
+    );
+
+    const result = await punchAt("4821", C.loc1);
+
+    expect(result.action).toBe("check_out");
+  });
+});
