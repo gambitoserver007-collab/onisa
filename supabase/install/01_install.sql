@@ -12670,3 +12670,31 @@ where not exists (
         select 1 from public.locations l
         where l.id = pl.location_id and l.company_id = pl.company_id
       );
+
+-- ---------------------------------------------------------------------------
+-- Auditoría 2026-10 (3ª pasada): permisos mínimos para el rol `anon`.
+-- Supabase concede por defecto ALL sobre toda tabla nueva de `public` a anon;
+-- con eso, las políticas "public catalog" dejaban a un visitante sin sesión
+-- leer TODAS las columnas (products.cost/stock, datos fiscales y de contacto
+-- de companies). Se quita todo y se devuelve solo lo que usa la tienda en
+-- línea y la landing. Debe ir al FINAL: un REVOKE de tabla también borra los
+-- permisos de columna, por eso se vuelven a otorgar aquí abajo.
+-- ---------------------------------------------------------------------------
+revoke all on all tables in schema public from anon;
+revoke all on all sequences in schema public from anon;
+-- Tablas/secuencias futuras (creadas por este rol) ya no nacen abiertas a anon.
+alter default privileges in schema public revoke all on tables from anon;
+alter default privileges in schema public revoke all on sequences from anon;
+
+-- Landing y pantallas de login: planes activos y marca (sus políticas RLS ya
+-- limitan las filas; ninguna columna es sensible).
+grant select on public.subscription_plans, public.platform_settings to anon;
+
+-- Tienda en línea: solo columnas de catálogo, nunca cost/stock/datos fiscales.
+grant select (id, name, slug, locale, currency_code, online_catalog_enabled)
+  on public.companies to anon;
+grant select (
+  id, company_id, category_id, name, price, image_url, unit, is_public_available,
+  show_online, active, deleted_at
+) on public.products to anon;
+grant select (id, company_id, name) on public.categories to anon;

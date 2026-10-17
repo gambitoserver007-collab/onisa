@@ -42,12 +42,26 @@ const AUTH_BOOTSTRAP_SQL = `
  * Cada llamada es independiente (PGlite en memoria) -- no comparte estado
  * entre pruebas.
  */
-export async function createTestDb(): Promise<PGlite> {
+export async function createTestDb(
+  opts: { supabaseDefaultPrivileges?: boolean } = {},
+): Promise<PGlite> {
   // pgcrypto se carga como extension real de PGlite (necesario para
   // crypt()/gen_salt(), usados por pin_hash de empleados) -- a diferencia de
   // gen_random_uuid(), que ya es nativo del core desde PG13 y no lo necesita.
   const db = new PGlite({ extensions: { pgcrypto } });
   await db.exec(AUTH_BOOTSTRAP_SQL);
+
+  // Supabase real concede por defecto ALL sobre toda tabla/secuencia/funcion
+  // nueva del esquema public a anon, authenticated y service_role. Por defecto
+  // el arnes NO lo emula (los roles nacen sin privilegios); las pruebas que
+  // necesitan ver fugas por esos permisos lo piden con esta opcion.
+  if (opts.supabaseDefaultPrivileges) {
+    await db.exec(`
+      alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+      alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
+      alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
+    `);
+  }
 
   const sql = readFileSync(INSTALL_SQL_PATH, "utf-8");
   await db.exec(sql);
