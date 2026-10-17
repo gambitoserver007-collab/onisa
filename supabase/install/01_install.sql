@@ -3713,10 +3713,14 @@ begin
 
   -- Cash refund: egreso con monto negativo
   if p_refund_cash and v_total > 0 then
+    -- Auditoría 2026-10 (3ª pasada): antes se tomaba la última caja abierta de
+    -- la sucursal, que podía ser la de OTRO cajero (le descuadraba el turno).
+    -- Solo la caja abierta de quien hace la devolución.
     select id into v_session_id from public.cash_sessions
       where company_id = v_company_id
         and location_id = v_location_id
         and status = 'open'
+        and opened_by = auth.uid()
       order by opened_at desc limit 1;
 
     if v_session_id is not null then
@@ -5887,6 +5891,13 @@ begin
   if p_manual_adjustment is null or p_manual_adjustment < 0 then
     raise exception 'El ajuste manual debe ser un monto válido (0 o mayor).';
   end if;
+  -- Auditoría 2026-10 (3ª pasada): el ajuste solo cubre sueltos que no se
+  -- arman con billetes/monedas (centavos, monedas fuera de la lista). Sin
+  -- tope, la cajera podía "rellenar" cualquier faltante con él y el primer
+  -- conteo cuadraba sin pedir segundo conteo.
+  if p_manual_adjustment > 10 then
+    raise exception 'El ajuste manual no puede ser mayor a $10. Captura el efectivo por denominación.';
+  end if;
 
   for v_item in select * from jsonb_array_elements(p_denominations) loop
     v_denom := (v_item ->> 'denomination')::numeric;
@@ -5899,7 +5910,11 @@ begin
 
   -- El corte queda fijo desde el primer conteo (cuando de verdad se jaló
   -- el cajón); el segundo conteo usa el MISMO corte, no uno nuevo.
-  v_cutoff := coalesce(v_session.count_cutoff_at, now());
+  -- clock_timestamp() (no now()): ya se tiene el candado de la sesión, así
+  -- que toda venta/movimiento que alcanzó a registrarse ya está confirmada y
+  -- es anterior a este instante; now() es el inicio de la transacción y podía
+  -- dejar fuera una venta confirmada mientras esta función esperaba el candado.
+  v_cutoff := coalesce(v_session.count_cutoff_at, clock_timestamp());
 
   -- Por método real de pago (sale_payments), clasificado por "kind" -- una
   -- venta dividida aporta cada porción a su método, no el total completo a
@@ -12369,15 +12384,26 @@ language plpgsql
 security definer
 set search_path to 'public'
 as $$
+declare
+  v_locked uuid;
 begin
-  if new.till_id is not null and exists (
-    select 1 from public.cash_sessions cs
+  -- FOR KEY SHARE choca con el FOR UPDATE de submit_till_count: si el conteo
+  -- y la venta ocurren a la vez, uno espera al otro y la condición se
+  -- reevalúa ya con el corte confirmado (antes la venta podía colarse justo
+  -- entre el corte y su guardado).
+  if new.till_id is not null then
+    select cs.id into v_locked
+    from public.cash_sessions cs
     where cs.till_id = new.till_id
       and cs.company_id = new.company_id
       and cs.status = 'open'
       and cs.count_cutoff_at is not null
-  ) then
-    raise exception 'Esta caja ya esta en conteo de cierre; no se pueden registrar mas ventas en ella. Cierra el turno primero.';
+    limit 1
+    for key share;
+
+    if v_locked is not null then
+      raise exception 'Esta caja ya esta en conteo de cierre; no se pueden registrar mas ventas en ella. Cierra el turno primero.';
+    end if;
   end if;
 
   return new;
@@ -12390,6 +12416,41 @@ drop trigger if exists reject_sale_on_counting_till on public.sales;
 create trigger reject_sale_on_counting_till
   before insert on public.sales
   for each row execute function public.reject_sale_on_counting_till();
+
+-- Mismo corte para el dinero que entra o sale de la caja: un ingreso/egreso
+-- (directo, cobro de crédito, abono de apartado, reembolso de devolución)
+-- hecho DESPUÉS del conteo movía el esperado y permitía tapar un faltante.
+create or replace function public.reject_cash_movement_on_counting_till()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_locked uuid;
+begin
+  if new.cash_session_id is not null then
+    select cs.id into v_locked
+    from public.cash_sessions cs
+    where cs.id = new.cash_session_id
+      and cs.count_cutoff_at is not null
+    for key share;
+
+    if v_locked is not null then
+      raise exception 'Esta caja ya esta en conteo de cierre; no se pueden registrar mas movimientos en ella. Cierra el turno primero.';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.reject_cash_movement_on_counting_till() from public, anon, authenticated;
+
+drop trigger if exists reject_cash_movement_on_counting_till on public.cash_movements;
+create trigger reject_cash_movement_on_counting_till
+  before insert on public.cash_movements
+  for each row execute function public.reject_cash_movement_on_counting_till();
 
 -- 2) Movimientos de caja directos (ingreso/egreso): la política solo pedía
 --    una sesión abierta de la misma empresa, así que cualquier cajero podía

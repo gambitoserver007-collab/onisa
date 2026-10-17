@@ -89,11 +89,13 @@ export function DenominationCountForm({
       </div>
       <div className="space-y-1 border-t border-dashed border-border/60 pt-3">
         <Label className="text-xs text-muted-foreground">
-          Otros / ajuste exacto (sueltos que no cuadran en billetes o monedas)
+          Otros / ajuste exacto (sueltos que no cuadran en billetes o monedas,
+          máx. $10)
         </Label>
         <Input
           type="number"
           min="0"
+          max="10"
           step="0.01"
           inputMode="decimal"
           placeholder="$0.00"
