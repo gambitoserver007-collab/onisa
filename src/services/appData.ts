@@ -6040,6 +6040,15 @@ export async function punchEmployee(
 
   if (error) throw error;
 
+  // Un PIN incorrecto no se devuelve como excepción de la base de datos (eso
+  // revertiría el registro del intento fallido, que alimenta el bloqueo por
+  // intentos); llega como { ok: false, error }.
+  const failure = data as { ok?: boolean; error?: string } | null;
+
+  if (failure && failure.ok === false) {
+    throw new Error(failure.error ?? "PIN no reconocido.");
+  }
+
   const payload = (data ?? {}) as {
     action: "check_in" | "check_out";
     profile_id: string;

@@ -6564,6 +6564,7 @@ declare
   v_now_time time;
   v_new_id uuid;
   v_check_in_at timestamptz;
+  v_recent_failures integer;
 begin
   if auth.uid() is null then raise exception 'No autenticado.'; end if;
   if public.current_user_is_demo() then raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.'; end if;
@@ -6575,6 +6576,19 @@ begin
     raise exception 'Ingresa un PIN.';
   end if;
 
+  -- Auditoría 2026-10 (2ª pasada, checador): el PIN es de 4 a 6 dígitos y se
+  -- compara contra TODOS los empleados de la empresa, sin límite de intentos:
+  -- quien estuviera frente al kiosko podía adivinar PIN de compañeros y
+  -- marcarles entrada/salida. Tras 5 intentos fallidos en 15 minutos (de toda la
+  -- empresa) se bloquea el checador hasta que pase la ventana. Un PIN correcto
+  -- NO reinicia la cuenta (si no, bastaba intercalar el propio PIN).
+  select count(*) into v_recent_failures
+    from public.punch_failed_attempts
+    where company_id = v_company_id and attempted_at > now() - interval '15 minutes';
+  if v_recent_failures >= 5 then
+    raise exception 'Demasiados intentos fallidos en el checador. Espera unos minutos e intentalo de nuevo.';
+  end if;
+
   select id, full_name, location_id, shift_start, shift_end into v_profile
     from public.profiles
     where company_id = v_company_id
@@ -6584,7 +6598,12 @@ begin
     limit 1;
 
   if v_profile.id is null then
-    raise exception 'PIN no reconocido.';
+    -- No se hace RAISE: una excepción revertiría la transacción completa y el
+    -- intento fallido nunca quedaría registrado. Se devuelve el error.
+    delete from public.punch_failed_attempts where attempted_at < now() - interval '1 day';
+    insert into public.punch_failed_attempts (company_id, actor_id)
+      values (v_company_id, auth.uid());
+    return jsonb_build_object('ok', false, 'error', 'PIN no reconocido.');
   end if;
 
   v_location_id := coalesce(p_location_id, v_profile.location_id);
@@ -12471,3 +12490,66 @@ begin
   end loop;
 end
 $$;
+
+
+-- ============================================================
+-- Auditoría de seguridad 2026-10 (2ª pasada): checador y horarios.
+--
+-- 1) Registro de intentos fallidos del PIN del checador (ver punch_employee).
+--    Solo lo lee/escribe la propia RPC (SECURITY DEFINER): sin políticas ni
+--    permisos para authenticated.
+-- ============================================================
+create table if not exists public.punch_failed_attempts (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  actor_id uuid,
+  attempted_at timestamptz not null default now()
+);
+
+create index if not exists punch_failed_attempts_company_time_idx
+  on public.punch_failed_attempts (company_id, attempted_at desc);
+
+alter table public.punch_failed_attempts enable row level security;
+revoke all on public.punch_failed_attempts from public, anon, authenticated;
+grant all on public.punch_failed_attempts to service_role;
+
+-- 2) El horario de la sucursal (weekly_hours / opening_hours) alimenta el
+--    cálculo de retardos del checador. update_location_weekly_hours exige
+--    admin y valida el formato, pero la política "locations update scoped"
+--    deja a CUALQUIER miembro (un cajero) escribir esas columnas directo,
+--    saltándose la RPC: podía mover las horas para que nadie llegara tarde, o
+--    guardar valores inválidos que hacían fallar el checador. Solo un admin
+--    cambia el horario (el resto de la configuración de la sucursal sigue
+--    abierta, decisión documentada arriba).
+create or replace function public.protect_location_schedule()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  if auth.uid() is null or public.current_user_is_platform_admin() then
+    return new;
+  end if;
+
+  if (tg_op = 'INSERT'
+      and (new.weekly_hours is not null or new.opening_hours is not null))
+     or (tg_op = 'UPDATE'
+         and (new.weekly_hours is distinct from old.weekly_hours
+              or new.opening_hours is distinct from old.opening_hours))
+  then
+    if not public.can_admin_company(new.company_id) then
+      raise exception 'Solo un administrador puede cambiar el horario de la sucursal.';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.protect_location_schedule() from public, anon, authenticated;
+
+drop trigger if exists protect_location_schedule on public.locations;
+create trigger protect_location_schedule
+  before insert or update on public.locations
+  for each row execute function public.protect_location_schedule();

@@ -1792,11 +1792,16 @@ describe("RPCs críticas de dinero y stock", () => {
       const { company, admin, employee } = await setupEmployeeCompany();
       await asUser(db, admin, async () => {
         await db.query("select set_employee_pin($1, '3333')", [employee]);
-        await expect(
-          db.query("select punch_employee('0000', $1) as punch_employee", [
-            company.loc1,
-          ]),
-        ).rejects.toThrow(/pin no reconocido/i);
+        // Auditoría 2026-10: un PIN incorrecto ya no lanza excepción (revertiría
+        // el registro del intento fallido); responde { ok: false, error }.
+        const { rows } = await db.query<{
+          punch_employee: { ok?: boolean; error?: string };
+        }>("select punch_employee('0000', $1) as punch_employee", [
+          company.loc1,
+        ]);
+
+        expect(rows[0].punch_employee.ok).toBe(false);
+        expect(rows[0].punch_employee.error).toMatch(/pin no reconocido/i);
       });
     });
 
@@ -1812,9 +1817,12 @@ describe("RPCs críticas de dinero y stock", () => {
       });
 
       await asUser(db, adminA, async () => {
-        await expect(
-          db.query("select punch_employee('7777') as punch_employee"),
-        ).rejects.toThrow(/pin no reconocido/i);
+        const { rows } = await db.query<{
+          punch_employee: { ok?: boolean; error?: string };
+        }>("select punch_employee('7777') as punch_employee");
+
+        expect(rows[0].punch_employee.ok).toBe(false);
+        expect(rows[0].punch_employee.error).toMatch(/pin no reconocido/i);
       });
     });
 
