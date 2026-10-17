@@ -11416,6 +11416,21 @@ begin
     return new;
   end if;
 
+  -- Auditoría 2026-10 (clientes inventados): el trigger solo vigilaba UPDATE,
+  -- así que un cajero podía CREAR un cliente ya con 100000 puntos o un saldo
+  -- de crédito a su favor (sin ledger ni bitácora) y create_sale los
+  -- honraba. Un cliente nuevo siempre nace con saldo y puntos en cero.
+  if tg_op = 'INSERT' then
+    if coalesce(new.credit_balance, 0) <> 0
+       or coalesce(new.loyalty_points, 0) <> 0
+       or coalesce(new.loyalty_year_spend, 0) <> 0
+       or new.loyalty_year_spend_year is not null
+    then
+      raise exception 'Un cliente nuevo no puede crearse con saldo de credito ni puntos de lealtad; solo cambian mediante una venta o un cobro.';
+    end if;
+    return new;
+  end if;
+
   if new.credit_balance is distinct from old.credit_balance
      or new.loyalty_points is distinct from old.loyalty_points
      or new.loyalty_year_spend is distinct from old.loyalty_year_spend
@@ -11432,7 +11447,7 @@ revoke execute on function public.protect_customer_credit_loyalty_columns() from
 
 drop trigger if exists protect_customer_credit_loyalty_columns on public.customers;
 create trigger protect_customer_credit_loyalty_columns
-  before update on public.customers
+  before insert or update on public.customers
   for each row execute function public.protect_customer_credit_loyalty_columns();
 
 -- ============================================================
@@ -12105,3 +12120,46 @@ revoke delete on public.customers from authenticated;
 -- política de INSERT, RLS rechaza cualquier INSERT de authenticated).
 -- ============================================================
 drop policy if exists "profiles insert admin" on public.profiles;
+
+
+-- ============================================================
+-- Auditoría de seguridad 2026-10 (2ª pasada): variantes de producto de otra
+-- empresa. Igual que product_locations, las políticas de escritura de
+-- product_variants y product_variant_locations solo validaban el company_id
+-- de la FILA, no que el producto/variante/sucursal a los que apunta fueran de
+-- esa misma empresa. Un admin de la empresa A podía colgar variantes (y
+-- stock, hasta negativo) de un producto de la empresa B -- cuyos ids son
+-- legibles sin sesión si B tiene catálogo en línea --, y las RPC que
+-- recalculan products.stock sumando por product_id arrastraban ese stock
+-- ajeno. Ahora todo debe pertenecer a la misma empresa que la fila.
+-- ============================================================
+drop policy if exists "product_variants write scoped" on public.product_variants;
+create policy "product_variants write scoped" on public.product_variants
+  for all to authenticated
+  using (public.can_admin_company(company_id))
+  with check (
+    public.can_admin_company(company_id)
+    and exists (
+      select 1 from public.products p
+      where p.id = product_variants.product_id and p.company_id = product_variants.company_id
+    )
+  );
+
+drop policy if exists "product_variant_locations write scoped" on public.product_variant_locations;
+create policy "product_variant_locations write scoped" on public.product_variant_locations
+  for all to authenticated
+  using (public.can_admin_company(company_id) and public.user_can_access_location(location_id))
+  with check (
+    public.can_admin_company(company_id)
+    and public.user_can_access_location(location_id)
+    and exists (
+      select 1 from public.product_variants v
+      where v.id = product_variant_locations.product_variant_id
+        and v.company_id = product_variant_locations.company_id
+    )
+    and exists (
+      select 1 from public.locations l
+      where l.id = product_variant_locations.location_id
+        and l.company_id = product_variant_locations.company_id
+    )
+  );

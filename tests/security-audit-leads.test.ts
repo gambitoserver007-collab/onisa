@@ -750,3 +750,220 @@ describe("Correo fijo anunciosfbads2@gmail.com en el instalador", () => {
     expect(rows[0].role).toBe("user");
   }, 120_000);
 });
+
+// ---------------------------------------------------------------------------
+// Segunda pasada: clientes inventados (INSERT con puntos / saldo)
+// ---------------------------------------------------------------------------
+describe("Clientes inventados: INSERT con puntos o saldo de crédito", () => {
+  let db: PGlite;
+  let company: TestCompany;
+  let cashier: string;
+  let admin: string;
+  let product: string;
+
+  const insertCustomer = (
+    userId: string,
+    cols: string,
+    values: (string | number)[],
+  ) =>
+    asUser(db, userId, () =>
+      db.query<{ id: string }>(
+        `insert into public.customers (company_id, name, ${cols})
+         values ($1, 'Cliente', ${values.map((_, i) => `$${i + 2}`).join(", ")})
+         returning id`,
+        [company.id, ...values],
+      ),
+    );
+
+  beforeAll(async () => {
+    db = await createTestDb();
+    company = await makeCompany(db, "Empresa clientes");
+    cashier = await makeUser(db, company.id, "user");
+    admin = await makeUser(db, company.id, "admin");
+    await setLoyaltySettings(db, company.id, {
+      enabled: true,
+      pointValue: 1,
+      earnRate: 100,
+    });
+    product = await makeProduct(db, company.id, company.loc1, "P", 1, 100, 50);
+  }, 120_000);
+
+  afterAll(async () => {
+    await db.close();
+  });
+
+  it("CONTROL: un cajero sí puede crear un cliente normal (saldos en cero) y un admin con límite de crédito", async () => {
+    const plain = await insertCustomer(cashier, "phone", ["555"]);
+    const withLimit = await insertCustomer(admin, "credit_limit", [500]);
+
+    expect(plain.rows).toHaveLength(1);
+    expect(withLimit.rows).toHaveLength(1);
+  });
+
+  it("un cajero NO puede crear un cliente con puntos de lealtad inventados", async () => {
+    const err = await insertCustomer(cashier, "loyalty_points", [100000])
+      .then(() => null)
+      .catch((e) => errMessage(e));
+
+    expect(err).toMatch(/cliente nuevo/i);
+  });
+
+  it("un cajero NO puede crear un cliente con saldo de crédito (ni negativo) ni gasto anual", async () => {
+    for (const [col, val] of [
+      ["credit_balance", -50000],
+      ["credit_balance", 10],
+      ["loyalty_year_spend", 1000],
+    ] as const) {
+      const err = await insertCustomer(cashier, col, [val])
+        .then(() => null)
+        .catch((e) => errMessage(e));
+
+      expect(err).toMatch(/cliente nuevo/i);
+    }
+  });
+
+  it("ni siquiera un admin de empresa puede sembrar puntos o saldo al crear un cliente", async () => {
+    const err = await insertCustomer(admin, "loyalty_points", [500])
+      .then(() => null)
+      .catch((e) => errMessage(e));
+
+    expect(err).toMatch(/cliente nuevo/i);
+  });
+
+  it("CONTROL: los puntos siguen ganándose por venta (create_sale con cliente propio)", async () => {
+    const created = await insertCustomer(cashier, "phone", ["777"]);
+
+    await asUser(db, cashier, () =>
+      createSale(
+        db,
+        [{ product_id: product, qty: 1, unit_price: 100 }],
+        company.loc1,
+        undefined,
+        { customerId: created.rows[0].id },
+      ),
+    );
+
+    expect(
+      await getCustomerLoyaltyPoints(db, created.rows[0].id),
+    ).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Segunda pasada: variantes de producto de otra empresa
+// ---------------------------------------------------------------------------
+describe("Variantes: colgarlas de un producto de otra empresa", () => {
+  let db: PGlite;
+  let A: TestCompany;
+  let B: TestCompany;
+  let adminA: string;
+  let ownProduct: string;
+  let foreignProduct: string;
+
+  beforeAll(async () => {
+    db = await createTestDb();
+    A = await makeCompany(db, "Empresa A");
+    B = await makeCompany(db, "Empresa B");
+    adminA = await makeUser(db, A.id, "admin");
+    ownProduct = await makeProduct(db, A.id, A.loc1, "Mío", 1, 10, 5);
+    foreignProduct = await makeProduct(db, B.id, B.loc1, "De B", 1, 10, 5);
+  }, 120_000);
+
+  afterAll(async () => {
+    await db.close();
+  });
+
+  const insertVariant = (productId: string) =>
+    asUser(db, adminA, () =>
+      db.query<{ id: string }>(
+        "insert into public.product_variants (company_id, product_id, attributes) values ($1,$2,'{}'::jsonb) returning id",
+        [A.id, productId],
+      ),
+    );
+
+  it("CONTROL: el admin sí puede crear variantes y stock de variante en SU producto y SU sucursal", async () => {
+    const variant = await insertVariant(ownProduct);
+
+    await asUser(db, adminA, () =>
+      db.query(
+        "insert into public.product_variant_locations (company_id, product_variant_id, location_id, stock) values ($1,$2,$3,7)",
+        [A.id, variant.rows[0].id, A.loc1],
+      ),
+    );
+
+    const { rows } = await db.query<{ n: string }>(
+      "select count(*)::int as n from public.product_variant_locations where product_variant_id=$1",
+      [variant.rows[0].id],
+    );
+
+    expect(Number(rows[0].n)).toBe(1);
+  });
+
+  it("el admin de A NO puede crear una variante que cuelgue de un producto de B", async () => {
+    const err = await insertVariant(foreignProduct)
+      .then(() => null)
+      .catch((e) => errMessage(e));
+
+    expect(err).toMatch(/row-level security/i);
+
+    const { rows } = await db.query<{ n: string }>(
+      "select count(*)::int as n from public.product_variants where product_id=$1",
+      [foreignProduct],
+    );
+
+    expect(Number(rows[0].n)).toBe(0);
+  });
+
+  it("el admin de A NO puede ponerle stock a una variante de B, ni usar una sucursal de B", async () => {
+    // Variante legítima de B (la crea el sistema, como superusuario).
+    const vB = crypto.randomUUID();
+
+    await db.query(
+      "insert into public.product_variants (id, company_id, product_id, attributes) values ($1,$2,$3,'{}'::jsonb)",
+      [vB, B.id, foreignProduct],
+    );
+
+    const onForeignVariant = await asUser(db, adminA, () =>
+      db.query(
+        "insert into public.product_variant_locations (company_id, product_variant_id, location_id, stock) values ($1,$2,$3,1000)",
+        [A.id, vB, A.loc1],
+      ),
+    )
+      .then(() => null)
+      .catch((e) => errMessage(e));
+
+    const ownVariant = (await insertVariant(ownProduct)).rows[0].id;
+    const onForeignLocation = await asUser(db, adminA, () =>
+      db.query(
+        "insert into public.product_variant_locations (company_id, product_variant_id, location_id, stock) values ($1,$2,$3,1000)",
+        [A.id, ownVariant, B.loc1],
+      ),
+    )
+      .then(() => null)
+      .catch((e) => errMessage(e));
+
+    expect(onForeignVariant).toMatch(/row-level security/i);
+    expect(onForeignLocation).toBeTruthy();
+  });
+
+  it("CONTROL: sync_product_variants del admin sigue funcionando", async () => {
+    const err = await asUser(db, adminA, () =>
+      db.query("select sync_product_variants($1, $2, $3::jsonb)", [
+        ownProduct,
+        ["Talla"],
+        JSON.stringify([
+          {
+            attributes: { Talla: "L" },
+            price_override: 12,
+            cost_override: 5,
+            locations: [{ location_id: A.loc1, stock: 3 }],
+          },
+        ]),
+      ]),
+    )
+      .then(() => null)
+      .catch((e) => errMessage(e));
+
+    expect(err).toBeNull();
+  });
+});
