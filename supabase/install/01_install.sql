@@ -5675,8 +5675,20 @@ end $$;
 -- Cajas ya cerradas antes de esta migración (con el close_cash_session
 -- viejo, de un solo paso) quedan marcadas como ya autorizadas -- no tiene
 -- sentido pedir un arqueo ciego retroactivo de un turno que ya terminó.
+-- Auditoría 2026-10 (3ª pasada): este UPDATE corre en CADA corrida del
+-- instalador y estaba amarrado solo a "cerrada + pendiente", que es justo el
+-- estado normal de la cola de revisión del flujo actual (finish_till_count
+-- cierra la caja y deja review_status en 'pending' hasta que admin/finanzas
+-- la autoriza). Cada re-corrida autorizaba toda la cola sin calcular
+-- esperado/diferencia/clasificación, y luego authorize_cash_session fallaba
+-- con "ya fue autorizado": un cajero con faltante se salvaba esperando la
+-- siguiente corrida. Solo las cajas del flujo VIEJO de un paso no tienen
+-- ningún conteo registrado; solo esas se marcan como ya autorizadas.
 update public.cash_sessions set review_status = 'authorized', reviewed_at = closed_at
-  where status = 'closed' and review_status = 'pending';
+  where status = 'closed' and review_status = 'pending'
+    and not exists (
+      select 1 from public.till_counts tc where tc.cash_session_id = cash_sessions.id
+    );
 
 -- Cálculo del efectivo esperado, compartido por finish_till_count y
 -- authorize_cash_session para que ambos calculen exactamente lo mismo.
@@ -12575,3 +12587,86 @@ drop trigger if exists protect_location_schedule on public.locations;
 create trigger protect_location_schedule
   before insert or update on public.locations
   for each row execute function public.protect_location_schedule();
+
+
+-- ============================================================
+-- Auditoría de seguridad 2026-10 (3ª pasada): profile_locations.
+-- Mismo patrón ya cerrado en product_locations/product_variants: las
+-- políticas de INSERT/UPDATE solo validaban el company_id de la FILA, no que
+-- el perfil y la sucursal a los que apunta fueran de esa empresa. Un admin de
+-- la empresa A podía insertar (company_id = A, profile_id = <usuario de B>,
+-- location_id = <sucursal de A>); user_can_access_location() trata "tener
+-- alguna fila" como "restringido solo a esas sucursales", así que el usuario
+-- de B quedaba bloqueado de TODAS sus sucursales (ventas, caja, stock) y su
+-- admin ni veía ni podía borrar la fila (pertenece a la empresa A).
+-- ============================================================
+drop policy if exists "profile_locations_insert_admin" on public.profile_locations;
+create policy "profile_locations_insert_admin"
+  on public.profile_locations
+  for insert
+  to authenticated
+  with check (
+    public.can_admin_company(company_id)
+    and exists (
+      select 1 from public.profiles p
+      where p.id = profile_locations.profile_id and p.company_id = profile_locations.company_id
+    )
+    and exists (
+      select 1 from public.locations l
+      where l.id = profile_locations.location_id and l.company_id = profile_locations.company_id
+    )
+  );
+
+drop policy if exists "profile_locations_update_admin" on public.profile_locations;
+create policy "profile_locations_update_admin"
+  on public.profile_locations
+  for update
+  to authenticated
+  using (public.can_admin_company(company_id))
+  with check (
+    public.can_admin_company(company_id)
+    and exists (
+      select 1 from public.profiles p
+      where p.id = profile_locations.profile_id and p.company_id = profile_locations.company_id
+    )
+    and exists (
+      select 1 from public.locations l
+      where l.id = profile_locations.location_id and l.company_id = profile_locations.company_id
+    )
+  );
+
+-- Defensa adicional: solo cuentan como "restricción" las filas de la propia
+-- empresa del usuario. Así una fila ajena ya plantada (antes de este arreglo)
+-- deja de bloquearlo, aunque no se hubiera limpiado todavía.
+create or replace function public.user_can_access_location(p_location_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    p_location_id is null
+    or not exists (
+      select 1 from public.profile_locations pl
+      where pl.profile_id = auth.uid() and pl.company_id = public.current_user_company_id()
+    )
+    or exists (
+      select 1 from public.profile_locations pl
+      where pl.profile_id = auth.uid()
+        and pl.company_id = public.current_user_company_id()
+        and pl.location_id = p_location_id
+    );
+$$;
+
+-- Limpieza (idempotente): borra filas ya plantadas cuyo perfil o sucursal no
+-- sea de la empresa de la fila.
+delete from public.profile_locations pl
+where not exists (
+        select 1 from public.profiles p
+        where p.id = pl.profile_id and p.company_id = pl.company_id
+      )
+   or not exists (
+        select 1 from public.locations l
+        where l.id = pl.location_id and l.company_id = pl.company_id
+      );
