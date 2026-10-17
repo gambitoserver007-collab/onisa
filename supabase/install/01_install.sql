@@ -3455,6 +3455,13 @@ begin
   end if;
 
   v_company_id := public.current_user_company_id();
+  -- Auditoría 2026-10 (3ª pasada): el rol operador es de almacén (productos,
+  -- inventario, compras); ninguna pantalla suya toca ventas, caja ni cobros.
+  -- Sin esta revisión podía llamar la RPC directo y, por ejemplo, borrar
+  -- deudas de clientes con un "cobro".
+  if public.current_user_role()::text = 'operador' then
+    raise exception 'No tienes permiso para registrar devoluciones.';
+  end if;
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
@@ -5124,6 +5131,13 @@ begin
   end if;
 
   v_company_id := public.current_user_company_id();
+  -- Auditoría 2026-10 (3ª pasada): el rol operador es de almacén (productos,
+  -- inventario, compras); ninguna pantalla suya toca ventas, caja ni cobros.
+  -- Sin esta revisión podía llamar la RPC directo y, por ejemplo, borrar
+  -- deudas de clientes con un "cobro".
+  if public.current_user_role()::text = 'operador' then
+    raise exception 'No tienes permiso para abrir una caja.';
+  end if;
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
@@ -5842,6 +5856,13 @@ begin
   end if;
 
   v_company_id := public.current_user_company_id();
+  -- Auditoría 2026-10 (3ª pasada): el rol operador es de almacén (productos,
+  -- inventario, compras); ninguna pantalla suya toca ventas, caja ni cobros.
+  -- Sin esta revisión podía llamar la RPC directo y, por ejemplo, borrar
+  -- deudas de clientes con un "cobro".
+  if public.current_user_role()::text = 'operador' then
+    raise exception 'No tienes permiso para contar la caja.';
+  end if;
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
@@ -6006,6 +6027,13 @@ begin
   end if;
 
   v_company_id := public.current_user_company_id();
+  -- Auditoría 2026-10 (3ª pasada): el rol operador es de almacén (productos,
+  -- inventario, compras); ninguna pantalla suya toca ventas, caja ni cobros.
+  -- Sin esta revisión podía llamar la RPC directo y, por ejemplo, borrar
+  -- deudas de clientes con un "cobro".
+  if public.current_user_role()::text = 'operador' then
+    raise exception 'No tienes permiso para cerrar la caja.';
+  end if;
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
@@ -8044,6 +8072,13 @@ begin
   if auth.uid() is null then raise exception 'No autenticado.'; end if;
   if public.current_user_is_demo() then raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.'; end if;
   v_company_id := public.current_user_company_id();
+  -- Auditoría 2026-10 (3ª pasada): el rol operador es de almacén (productos,
+  -- inventario, compras); ninguna pantalla suya toca ventas, caja ni cobros.
+  -- Sin esta revisión podía llamar la RPC directo y, por ejemplo, borrar
+  -- deudas de clientes con un "cobro".
+  if public.current_user_role()::text = 'operador' then
+    raise exception 'No tienes permiso para cobrar credito de clientes.';
+  end if;
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
   -- Auditoría 2026-10 (2ª pasada): igual que create_sale/create_return y las demás
   -- RPC de dinero y stock, una empresa suspendida o vencida no opera.
@@ -8823,6 +8858,13 @@ begin
   if auth.uid() is null then raise exception 'No autenticado.'; end if;
   if public.current_user_is_demo() then raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.'; end if;
   v_company_id := public.current_user_company_id();
+  -- Auditoría 2026-10 (3ª pasada): el rol operador es de almacén (productos,
+  -- inventario, compras); ninguna pantalla suya toca ventas, caja ni cobros.
+  -- Sin esta revisión podía llamar la RPC directo y, por ejemplo, borrar
+  -- deudas de clientes con un "cobro".
+  if public.current_user_role()::text = 'operador' then
+    raise exception 'No tienes permiso para registrar ventas.';
+  end if;
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
@@ -12759,3 +12801,51 @@ grant select (
   show_online, active, deleted_at
 ) on public.products to anon;
 grant select (id, company_id, name) on public.categories to anon;
+
+-- ---------------------------------------------------------------------------
+-- Auditoría 2026-10 (3ª pasada): borrar una sucursal ya no libera a los
+-- empleados restringidos a ella. "Sin filas en profile_locations" significa
+-- "sin restricción", así que al borrar la única sucursal de un cajero
+-- restringido (el DELETE hace cascade sobre sus filas) pasaba a poder operar
+-- en TODAS. Ahora el borrado se rechaza mientras algún empleado quede sin
+-- ninguna sucursal; el admin debe reasignarlo antes.
+-- ---------------------------------------------------------------------------
+create or replace function public.reject_delete_location_of_restricted_users()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_stranded integer;
+begin
+  -- Si se está borrando la empresa completa (cascade) o se reinicia, no aplica.
+  if not exists (select 1 from public.companies where id = old.company_id) then
+    return old;
+  end if;
+
+  select count(*) into v_stranded
+  from public.profile_locations pl
+  where pl.location_id = old.id
+    and pl.company_id = old.company_id
+    and not exists (
+      select 1 from public.profile_locations other
+      where other.profile_id = pl.profile_id
+        and other.company_id = pl.company_id
+        and other.location_id <> old.id
+    );
+
+  if v_stranded > 0 then
+    raise exception 'No se puede eliminar la sucursal: % empleado(s) estan restringidos solo a ella. Reasignalos a otra sucursal primero.', v_stranded;
+  end if;
+
+  return old;
+end;
+$$;
+
+revoke execute on function public.reject_delete_location_of_restricted_users() from public, anon, authenticated;
+
+drop trigger if exists reject_delete_location_of_restricted_users on public.locations;
+create trigger reject_delete_location_of_restricted_users
+  before delete on public.locations
+  for each row execute function public.reject_delete_location_of_restricted_users();
