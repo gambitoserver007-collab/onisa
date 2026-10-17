@@ -9695,6 +9695,9 @@ begin
 
   v_company_id := public.current_user_company_id();
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  -- Auditoría 2026-10 (2ª pasada): igual que create_sale/create_return, una empresa
+  -- suspendida o vencida no opera (antes estas RPC solo revisaban el rol).
+  perform public.assert_company_can_operate(v_company_id);
   v_role := public.current_user_role();
   if v_role not in ('admin', 'finanzas', 'user') then
     raise exception 'No tienes permiso para crear cotizaciones.';
@@ -9907,6 +9910,12 @@ begin
 
   v_company_id := public.current_user_company_id();
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  -- Auditoría 2026-10 (2ª pasada): igual que create_sale/create_return, una empresa
+  -- suspendida o vencida no opera (antes estas RPC solo revisaban el rol).
+  perform public.assert_company_can_operate(v_company_id);
+  -- ...y el límite mensual de ventas del plan también aplica a las ventas que
+  -- nacen de una cotización o de un apartado, no solo a create_sale.
+  perform public.assert_monthly_sales_limit(v_company_id);
   v_role := public.current_user_role();
   if v_role not in ('admin', 'finanzas', 'user') then
     raise exception 'No tienes permiso para convertir cotizaciones.';
@@ -10429,6 +10438,9 @@ begin
 
   v_company_id := public.current_user_company_id();
   if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  -- Auditoría 2026-10 (2ª pasada): igual que create_sale/create_return, una empresa
+  -- suspendida o vencida no opera (antes estas RPC solo revisaban el rol).
+  perform public.assert_company_can_operate(v_company_id);
   v_role := public.current_user_role();
   if v_role not in ('admin', 'finanzas', 'user') then
     raise exception 'No tienes permiso para crear apartados.';
@@ -10621,6 +10633,9 @@ begin
   end if;
 
   v_company_id := public.current_user_company_id();
+  -- Auditoría 2026-10 (2ª pasada): igual que create_sale/create_return, una empresa
+  -- suspendida o vencida no opera (antes estas RPC solo revisaban el rol).
+  perform public.assert_company_can_operate(v_company_id);
   v_role := public.current_user_role();
   if v_role not in ('admin', 'finanzas', 'user') then
     raise exception 'No tienes permiso para registrar abonos.';
@@ -10709,6 +10724,12 @@ begin
   end if;
 
   v_company_id := public.current_user_company_id();
+  -- Auditoría 2026-10 (2ª pasada): igual que create_sale/create_return, una empresa
+  -- suspendida o vencida no opera (antes estas RPC solo revisaban el rol).
+  perform public.assert_company_can_operate(v_company_id);
+  -- ...y el límite mensual de ventas del plan también aplica a las ventas que
+  -- nacen de una cotización o de un apartado, no solo a create_sale.
+  perform public.assert_monthly_sales_limit(v_company_id);
   v_role := public.current_user_role();
   if v_role not in ('admin', 'finanzas', 'user') then
     raise exception 'No tienes permiso para completar apartados.';
@@ -10867,6 +10888,9 @@ begin
   end if;
 
   v_company_id := public.current_user_company_id();
+  -- Auditoría 2026-10 (2ª pasada): igual que create_sale/create_return, una empresa
+  -- suspendida o vencida no opera (antes estas RPC solo revisaban el rol).
+  perform public.assert_company_can_operate(v_company_id);
   v_role := public.current_user_role();
   if v_role not in ('admin', 'finanzas') then
     raise exception 'Solo un administrador o finanzas puede cancelar un apartado.';
@@ -12324,3 +12348,68 @@ create policy "cash_movements insert scoped" on public.cash_movements
         )
     )
   );
+
+
+-- ============================================================
+-- Auditoría de seguridad 2026-10 (2ª pasada): cotizaciones y apartados.
+-- create_sale, create_return, adjust_stock, transfer_stock, create_purchase y
+-- las RPC de caja ya rechazan a una empresa suspendida/vencida, y create_sale
+-- aplica monthly_sales_limit. Las RPC de cotizaciones y apartados (agregadas
+-- después) solo revisaban el rol: una empresa suspendida, vencida o que ya
+-- agotó el límite mensual de su plan seguía vendiendo creando una cotización
+-- y convirtiéndola en venta, o completando un apartado. Estos dos helpers
+-- concentran las mismas condiciones para no repetir el bloque en cada RPC.
+-- ============================================================
+create or replace function public.assert_company_can_operate(p_company_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  if not public.current_user_is_platform_admin() and exists (
+    select 1 from public.companies c
+    where c.id = p_company_id
+      and (c.subscription_status not in ('active','trial')
+           or (c.expires_at is not null and c.expires_at < now()))
+  ) then
+    raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
+  end if;
+end;
+$$;
+
+create or replace function public.assert_monthly_sales_limit(p_company_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_limit integer;
+  v_count bigint;
+begin
+  if public.current_user_is_platform_admin() then
+    return;
+  end if;
+
+  select sp.monthly_sales_limit into v_limit
+  from public.companies c
+  join public.subscription_plans sp on sp.id = c.plan_id
+  where c.id = p_company_id;
+
+  if v_limit is not null then
+    select count(*) into v_count
+    from public.sales
+    where company_id = p_company_id
+      and deleted_at is null
+      and sale_date >= date_trunc('month', now());
+
+    if v_count >= v_limit then
+      raise exception 'Se alcanzo el limite de ventas mensuales de tu plan (%). Actualiza tu plan para seguir vendiendo este mes.', v_limit;
+    end if;
+  end if;
+end;
+$$;
+
+revoke execute on function public.assert_company_can_operate(uuid) from public, anon, authenticated;
+revoke execute on function public.assert_monthly_sales_limit(uuid) from public, anon, authenticated;
