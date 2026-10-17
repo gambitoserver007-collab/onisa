@@ -2046,12 +2046,11 @@ begin;
 -- razón que las anteriores (auditoría 2026-09, hallazgo #9): quedaba
 -- muerta desde que se redefinió más adelante en este mismo archivo.
 
--- Corrección puntual del perfil de prueba.
-update public.profiles
-set role = 'admin'::public.app_role,
-    is_platform_admin = false,
-    updated_at = now()
-where email = 'anunciosfbads2@gmail.com';
+-- (Auditoría 2026-10) Aquí había una "corrección puntual del perfil de
+-- prueba": un UPDATE que daba rol admin a cualquier perfil con el correo
+-- 'anunciosfbads2@gmail.com' en CADA corrida de este instalador. Como
+-- profiles.email lo puede escribir el propio empleado, bastaba ponerse ese
+-- correo para quedar como admin en la siguiente corrida. Se eliminó.
 
 commit;
 
@@ -12089,3 +12088,20 @@ create policy "profiles delete admin"
 -- dependen de este permiso.
 -- ============================================================
 revoke delete on public.customers from authenticated;
+
+
+-- ============================================================
+-- Auditoría de seguridad 2026-10 (segunda pasada), CRÍTICO: la política
+-- "profiles insert admin" dejaba a cualquier admin de empresa INSERTAR filas
+-- en profiles sin restricción de columnas, y el trigger
+-- protect_profile_sensitive_columns solo se dispara en UPDATE. Combinado con
+-- "profiles delete admin" (un admin puede borrar su propio perfil), bastaban
+-- dos cuentas de registro libre: la cuenta 1 borra su perfil y la cuenta 2
+-- inserta un perfil con el id de la cuenta 1 y is_platform_admin = true, con
+-- lo que la cuenta 1 pasa a ser Super Admin de todas las empresas.
+-- La app nunca inserta perfiles desde el navegador: los crea el trigger
+-- handle_new_user (SECURITY DEFINER) y las Edge Functions con la service
+-- role, que no pasan por esta política. Se elimina por completo (sin
+-- política de INSERT, RLS rechaza cualquier INSERT de authenticated).
+-- ============================================================
+drop policy if exists "profiles insert admin" on public.profiles;

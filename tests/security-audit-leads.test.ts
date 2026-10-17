@@ -591,3 +591,162 @@ describe("Puerta 4b: Edge Function team-manage-user", () => {
     expect((h.profiles.get(superId) as Row).is_active).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Segunda pasada, CRÍTICO: profiles INSERT -> Super Admin
+// ---------------------------------------------------------------------------
+describe("Crítico: borrar el propio perfil + INSERT con is_platform_admin", () => {
+  let db: PGlite;
+  let c1: TestCompany;
+  let c2: TestCompany;
+  let u1: string;
+  let u2: string;
+
+  beforeAll(async () => {
+    db = await createTestDb();
+    c1 = await makeCompany(db, "Empresa 1");
+    c2 = await makeCompany(db, "Empresa 2");
+    u1 = await makeUser(db, c1.id, "admin");
+    u2 = await makeUser(db, c2.id, "admin");
+  }, 120_000);
+
+  afterAll(async () => {
+    await db.close();
+  });
+
+  it("CONTROL: el registro normal (alta en auth.users) sigue creando su perfil, sin Super Admin", async () => {
+    const id = crypto.randomUUID();
+
+    await db.query(
+      "insert into auth.users (id, email, raw_user_meta_data) values ($1,$2,$3)",
+      [id, "nuevo@test.local", JSON.stringify({ company_name: "Nueva SA" })],
+    );
+
+    const { rows } = await db.query<{
+      is_platform_admin: boolean;
+      role: string;
+    }>("select is_platform_admin, role from public.profiles where id=$1", [id]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].is_platform_admin).toBe(false);
+  });
+
+  it("un admin NO puede insertar filas en profiles (ni con is_platform_admin ni sin él)", async () => {
+    const victim = crypto.randomUUID();
+
+    await db.query("insert into auth.users (id, email) values ($1,$2)", [
+      victim,
+      "victima@test.local",
+    ]);
+    await db.query("delete from public.profiles where id=$1", [victim]);
+
+    for (const platformFlag of [true, false]) {
+      const rejected = await asUser(db, u2, () =>
+        db
+          .query(
+            `insert into public.profiles (id, company_id, email, full_name, role, is_platform_admin)
+             values ($1,$2,'x@test.local','x','admin',$3)`,
+            [victim, c2.id, platformFlag],
+          )
+          .then(() => false)
+          .catch(() => true),
+      );
+
+      expect(rejected).toBe(true);
+    }
+
+    const { rows } = await db.query<{ n: string }>(
+      "select count(*)::int as n from public.profiles where id=$1",
+      [victim],
+    );
+
+    expect(Number(rows[0].n)).toBe(0);
+  });
+
+  it("la cuenta 1 borra su perfil y la cuenta 2 no puede reinsertarlo como Super Admin", async () => {
+    await asUser(db, u1, () =>
+      db.query("delete from public.profiles where id=$1", [u1]),
+    );
+
+    await asUser(db, u2, () =>
+      db
+        .query(
+          `insert into public.profiles (id, company_id, email, full_name, role, is_platform_admin)
+           values ($1,$2,'x@test.local','x','admin',true)`,
+          [u1, c2.id],
+        )
+        .catch(() => undefined),
+    );
+
+    const { rows } = await asUser(db, u1, () =>
+      db.query<{ p: boolean }>(
+        "select public.current_user_is_platform_admin() as p",
+      ),
+    );
+
+    expect(rows[0].p).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Segunda pasada: el segundo correo fijo del instalador
+// ---------------------------------------------------------------------------
+describe("Correo fijo anunciosfbads2@gmail.com en el instalador", () => {
+  let db: PGlite;
+  let company: TestCompany;
+
+  beforeAll(async () => {
+    db = await createTestDb();
+    company = await makeCompany(db, "Empresa de un cliente");
+  }, 120_000);
+
+  afterAll(async () => {
+    await db.close();
+  });
+
+  const rerunInstaller = () =>
+    db.exec(
+      readFileSync(
+        path.join(__dirname, "../supabase/install/01_install.sql"),
+        "utf-8",
+      ),
+    );
+
+  it("CONTROL: un empleado sí puede editar su propio correo de perfil y un re-run no cambia su rol", async () => {
+    const cashier = await makeUser(db, company.id, "user");
+
+    await asUser(db, cashier, () =>
+      db.query(
+        "update public.profiles set email='otro@test.local' where id=$1",
+        [cashier],
+      ),
+    );
+    await rerunInstaller();
+
+    const { rows } = await db.query<{ role: string }>(
+      "select role from public.profiles where id=$1",
+      [cashier],
+    );
+
+    expect(rows[0].role).toBe("user");
+  }, 120_000);
+
+  it("un empleado que se pone ese correo NO queda como admin al re-correr el instalador", async () => {
+    const cashier = await makeUser(db, company.id, "user");
+
+    await asUser(db, cashier, () =>
+      db.query(
+        "update public.profiles set email='anunciosfbads2@gmail.com' where id=$1",
+        [cashier],
+      ),
+    );
+    await rerunInstaller();
+
+    const { rows } = await db.query<{ role: string }>(
+      "select role from public.profiles where id=$1",
+      [cashier],
+    );
+
+    expect(rows[0].role).toBe("user");
+  }, 120_000);
+});
