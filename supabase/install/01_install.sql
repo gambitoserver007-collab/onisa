@@ -4897,6 +4897,20 @@ declare
   v_limit integer;
   v_count integer;
 begin
+  -- Auditoría 2026-10 (2ª pasada): el límite solo se revisaba al INSERTAR, así
+  -- que se podía exceder borrando (deleted_at), creando otros y RESTAURANDO
+  -- los borrados con un UPDATE. Ahora también cuenta restaurar un producto
+  -- (deleted_at pasa a null) o pasarlo a otra empresa; cualquier otro UPDATE
+  -- (precio, stock...) no se revisa.
+  if tg_op = 'UPDATE'
+     and not (old.deleted_at is not null and new.deleted_at is null)
+     and new.company_id is not distinct from old.company_id then
+    return new;
+  end if;
+  if tg_op = 'UPDATE' and new.deleted_at is not null then
+    return new;
+  end if;
+
   if public.current_user_is_platform_admin() then
     return new;
   end if;
@@ -4924,7 +4938,7 @@ $$;
 
 drop trigger if exists enforce_product_limit_trg on public.products;
 create trigger enforce_product_limit_trg
-  before insert on public.products
+  before insert or update of deleted_at, company_id on public.products
   for each row execute function public.enforce_product_limit();
 
 -- ============================================================
@@ -12413,3 +12427,47 @@ $$;
 
 revoke execute on function public.assert_company_can_operate(uuid) from public, anon, authenticated;
 revoke execute on function public.assert_monthly_sales_limit(uuid) from public, anon, authenticated;
+
+
+-- ============================================================
+-- Auditoría de seguridad 2026-10 (2ª pasada): NaN en columnas numéricas.
+-- PostgreSQL acepta 'NaN' como numeric y lo ordena por ENCIMA de cualquier
+-- número, así que las validaciones "<= 0" / "< 0" de las RPC no lo rechazan:
+-- una cantidad NaN en create_sale (producto de servicio), create_quote o
+-- register_merma, o un costo NaN en create_purchase, dejaba totales, stock o
+-- costo en NaN y envenenaba todas las sumas de la empresa (SUM con un NaN da
+-- NaN) sin que ningún rol pudiera corregirlo. En vez de parchar cada RPC, se
+-- prohíbe NaN a nivel de columna en TODA tabla de public: cubre las RPC
+-- actuales, las futuras y las escrituras directas. NOT VALID para no fallar
+-- si alguna fila vieja ya lo tuviera (solo se revisan las escrituras nuevas).
+-- ============================================================
+do $$
+declare
+  r record;
+  v_name text;
+begin
+  for r in
+    select c.table_name, c.column_name
+    from information_schema.columns c
+    join information_schema.tables t
+      on t.table_schema = c.table_schema and t.table_name = c.table_name
+    where c.table_schema = 'public'
+      and t.table_type = 'BASE TABLE'
+      and c.data_type = 'numeric'
+  loop
+    v_name := left(r.table_name || '_' || r.column_name, 40)
+              || '_' || left(md5(r.table_name || '.' || r.column_name), 8) || '_nn';
+
+    if not exists (
+      select 1 from pg_constraint
+      where conname = v_name
+        and conrelid = format('public.%I', r.table_name)::regclass
+    ) then
+      execute format(
+        'alter table public.%I add constraint %I check (%I <> ''NaN''::numeric) not valid',
+        r.table_name, v_name, r.column_name
+      );
+    end if;
+  end loop;
+end
+$$;
