@@ -3441,6 +3441,13 @@ declare
   v_cumulative_returned numeric(12,2);
   v_target_clawback numeric;
   v_this_clawback numeric;
+  v_paid_total numeric;
+  v_gross_total numeric;
+  v_paid_ratio numeric := 1;
+  v_redeemed_points numeric;
+  v_already_restored numeric;
+  v_this_restore numeric;
+  v_cum_returned_gross numeric;
 begin
   if auth.uid() is null then raise exception 'No autenticado.'; end if;
   if public.current_user_is_demo() then
@@ -3498,6 +3505,18 @@ begin
   values (v_company_id, v_location_id, p_sale_id, v_return_number, btrim(p_reason), 0, 'processed')
   returning id into v_return_id;
 
+  -- Auditoría 2026-10 (2ª pasada, devoluciones): create_sale resta el canje de
+  -- puntos solo de sales.total, no de los renglones; sin esto, devolver lo
+  -- comprado reembolsaba el precio COMPLETO en efectivo (los puntos se
+  -- convertían en dinero). El reembolso se prorratea por lo realmente pagado
+  -- (sales.total / suma de los renglones, ya con promociones y con impuesto).
+  select s.total, coalesce((select sum(si2.total) from public.sale_items si2 where si2.sale_id = s.id), 0)
+    into v_paid_total, v_gross_total
+    from public.sales s where s.id = p_sale_id and s.company_id = v_company_id;
+  v_paid_ratio := case when coalesce(v_gross_total, 0) > 0
+                       then greatest(0, least(1, coalesce(v_paid_total, 0) / v_gross_total))
+                       else 1 end;
+
   for v_item in select * from jsonb_array_elements(p_items) loop
     v_qty := coalesce((v_item ->> 'qty')::numeric, 0);
     if v_qty <= 0 then raise exception 'Cantidad invalida.'; end if;
@@ -3538,7 +3557,7 @@ begin
       where id = v_product_id and company_id = v_company_id and deleted_at is null;
     if not found then raise exception 'Producto no encontrado.'; end if;
 
-    v_line_total := round(v_unit_price * v_qty, 2);
+    v_line_total := round(v_unit_price * v_qty * v_paid_ratio, 2);
     v_total := v_total + v_line_total;
 
     if v_variant_id is not null then
@@ -3654,6 +3673,39 @@ begin
         update public.customers
           set loyalty_points = greatest(0, coalesce(loyalty_points, 0) - v_this_clawback),
               updated_at = now()
+          where id = v_sale_customer_id and company_id = v_company_id;
+      end if;
+    end if;
+  end if;
+
+  -- Auditoría 2026-10 (2ª pasada, devoluciones): los puntos que el cliente
+  -- canjeó en la venta se le restituyen en proporción a lo devuelto (ya no se
+  -- le reembolsa su valor en efectivo), de forma acumulada y sin duplicar entre
+  -- devoluciones parciales, igual que la reversión de puntos ganados.
+  if v_sale_customer_id is not null and coalesce(v_gross_total, 0) > 0 then
+    select coalesce(sum(-points), 0) into v_redeemed_points
+      from public.loyalty_ledger
+      where sale_id = p_sale_id and company_id = v_company_id and type = 'redeemed';
+
+    if v_redeemed_points > 0 then
+      select coalesce(sum(points), 0) into v_already_restored
+        from public.loyalty_ledger
+        where sale_id = p_sale_id and company_id = v_company_id
+          and type = 'adjustment' and points > 0;
+
+      select coalesce(sum((si.total / nullif(si.qty, 0)) * ri.qty), 0) into v_cum_returned_gross
+        from public.return_items ri
+        join public.sale_items si on si.id = ri.sale_item_id
+        where si.sale_id = p_sale_id and ri.company_id = v_company_id;
+
+      v_this_restore := floor(v_redeemed_points * least(1, v_cum_returned_gross / v_gross_total)) - v_already_restored;
+
+      if v_this_restore > 0 then
+        insert into public.loyalty_ledger (company_id, customer_id, sale_id, points, type, created_by)
+        values (v_company_id, v_sale_customer_id, p_sale_id, v_this_restore, 'adjustment', auth.uid());
+        perform set_config('app.bypass_customer_credit_loyalty', 'true', true);
+        update public.customers
+          set loyalty_points = coalesce(loyalty_points, 0) + v_this_restore, updated_at = now()
           where id = v_sale_customer_id and company_id = v_company_id;
       end if;
     end if;
@@ -5780,6 +5832,19 @@ begin
   if v_count_number > 2 then
     raise exception 'Ya se registraron los dos conteos de esta caja.';
   end if;
+  -- Auditoría 2026-10 (2ª pasada, caja): cualquier usuario de la empresa podía
+  -- contar o cerrar la caja de un compañero (solo se filtraba por empresa).
+  -- Solo quien abrió la sesión, un admin/finanzas/gerente, o el testigo del
+  -- SEGUNDO conteo (otra persona, ver más abajo) puede contarla.
+  if v_session.opened_by is distinct from auth.uid()
+     and not public.current_user_is_platform_admin()
+     and public.current_user_role()::text not in ('admin','finanzas','gerente')
+     and v_count_number <> 2 then
+    raise exception 'Solo quien abrio la caja o un administrador/finanzas puede contarla o cerrarla.';
+  end if;
+  if not public.user_can_access_location(v_session.location_id) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
 
   if v_count_number = 2 then
     select counted_by into v_first_counted_by from public.till_counts
@@ -5915,6 +5980,19 @@ begin
     for update;
   if not found then raise exception 'Caja no encontrada.'; end if;
   if v_session.status <> 'open' then raise exception 'Esta caja ya está cerrada.'; end if;
+  -- Auditoría 2026-10 (2ª pasada, caja): cualquier usuario de la empresa podía
+  -- contar o cerrar la caja de un compañero (solo se filtraba por empresa).
+  -- Solo quien abrió la sesión, un admin/finanzas/gerente o quien ya hizo un
+  -- conteo de ella (el testigo del segundo conteo) puede cerrarla.
+  if v_session.opened_by is distinct from auth.uid()
+     and not public.current_user_is_platform_admin()
+     and public.current_user_role()::text not in ('admin','finanzas','gerente')
+     and not exists (select 1 from public.till_counts where cash_session_id = p_session_id and counted_by = auth.uid()) then
+    raise exception 'Solo quien abrio la caja o un administrador/finanzas puede contarla o cerrarla.';
+  end if;
+  if not public.user_can_access_location(v_session.location_id) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
 
   if not exists (select 1 from public.till_counts where cash_session_id = p_session_id and count_number = 1) then
     raise exception 'Primero registra el conteo de la caja.';
@@ -8746,6 +8824,9 @@ begin
   if v_till_id is not null and not exists (
     select 1 from public.cash_sessions
     where till_id = v_till_id and company_id = v_company_id and location_id = v_location_id and status = 'open'
+      -- Auditoría 2026-10 (2ª pasada, caja): no basta con que la caja tenga una sesión
+      -- abierta; tiene que ser la del propio usuario (o de un admin/finanzas/gerente).
+      and (opened_by = auth.uid() or public.current_user_is_platform_admin() or public.current_user_role()::text in ('admin','gerente','finanzas'))
   ) then
     v_till_id := null;
   end if;
@@ -9850,6 +9931,21 @@ begin
   end if;
 
   v_till_id := p_till_id;
+  -- Auditoría 2026-10 (2ª pasada, caja): esta RPC usaba la caja del cliente tal
+  -- cual (solo la FK). Igual que create_sale, solo cuenta una caja con sesión
+  -- abierta en esta sucursal y que sea del usuario (o de un admin/finanzas).
+  if v_till_id is not null and not exists (
+    select 1 from public.cash_sessions
+    where till_id = v_till_id and company_id = v_company_id and location_id = p_location_id
+      and status = 'open' and (opened_by = auth.uid() or public.current_user_is_platform_admin() or public.current_user_role()::text in ('admin','gerente','finanzas'))
+  ) then
+    v_till_id := null;
+  end if;
+  if v_till_id is null then
+    select till_id into v_till_id from public.cash_sessions
+      where company_id = v_company_id and location_id = p_location_id and status = 'open' and opened_by = auth.uid()
+      order by opened_at desc limit 1;
+  end if;
   if v_till_id is null then
     select count(*) into v_open_sessions from public.cash_sessions
       where company_id = v_company_id and location_id = p_location_id and status = 'open';
@@ -12161,5 +12257,70 @@ create policy "product_variant_locations write scoped" on public.product_variant
       select 1 from public.locations l
       where l.id = product_variant_locations.location_id
         and l.company_id = product_variant_locations.company_id
+    )
+  );
+
+
+-- ============================================================
+-- Auditoría de seguridad 2026-10 (2ª pasada), caja.
+--
+-- 1) Corte del conteo ciego: count_cutoff_at se fija en el PRIMER conteo y
+--    compute_cash_session_expected solo suma ventas hasta ese corte. Nada
+--    impedía seguir vendiendo en esa caja después del corte, así que un
+--    cajero podía contar apenas abrir y cobrar todo el turno sin que nunca
+--    entrara en el esperado: el cierre salía "cuadrado". Una vez que la caja
+--    está en conteo no se registran más ventas en ella (trigger sobre sales,
+--    que cubre create_sale, convert_quote_to_sale y cualquier otra vía).
+-- ============================================================
+create or replace function public.reject_sale_on_counting_till()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  if new.till_id is not null and exists (
+    select 1 from public.cash_sessions cs
+    where cs.till_id = new.till_id
+      and cs.company_id = new.company_id
+      and cs.status = 'open'
+      and cs.count_cutoff_at is not null
+  ) then
+    raise exception 'Esta caja ya esta en conteo de cierre; no se pueden registrar mas ventas en ella. Cierra el turno primero.';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.reject_sale_on_counting_till() from public, anon, authenticated;
+
+drop trigger if exists reject_sale_on_counting_till on public.sales;
+create trigger reject_sale_on_counting_till
+  before insert on public.sales
+  for each row execute function public.reject_sale_on_counting_till();
+
+-- 2) Movimientos de caja directos (ingreso/egreso): la política solo pedía
+--    una sesión abierta de la misma empresa, así que cualquier cajero podía
+--    meter movimientos en la caja de un compañero y mover su esperado. Ahora
+--    la sesión debe ser del propio usuario (o de un admin/finanzas/gerente) y
+--    de una sucursal a la que tenga acceso.
+drop policy if exists "cash_movements insert scoped" on public.cash_movements;
+create policy "cash_movements insert scoped" on public.cash_movements
+  for insert to authenticated
+  with check (
+    public.can_write_company(company_id)
+    and public.user_can_access_location(location_id)
+    and exists (
+      select 1 from public.cash_sessions cs
+      where cs.id = cash_movements.cash_session_id
+        and cs.company_id = cash_movements.company_id
+        and cs.status = 'open'
+        and public.user_can_access_location(cs.location_id)
+        and (
+          cs.opened_by = auth.uid()
+          or public.current_user_is_platform_admin()
+          or public.current_user_role()::text in ('admin', 'finanzas', 'gerente')
+        )
     )
   );
