@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
 
     const { data: company, error: companyErr } = await admin
       .from("companies")
-      .select("id, name, currency_code")
+      .select("id, name")
       .eq("id", caller.company_id)
       .maybeSingle();
     if (companyErr || !company) return json({ error: "Empresa no encontrada." }, 404);
@@ -94,7 +94,9 @@ Deno.serve(async (req) => {
           frequency: 1,
           frequency_type: "months",
           transaction_amount: Number(plan.price),
-          currency_id: company.currency_code || "MXN",
+          // Moneda fija de la plataforma: companies.currency_code lo edita el
+          // propio cliente y permitía pagar el plan en una moneda más barata.
+          currency_id: "MXN",
         },
         status: "pending",
       }),

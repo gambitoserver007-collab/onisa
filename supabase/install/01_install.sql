@@ -3430,6 +3430,7 @@ declare
   v_variant_label text;
   v_attr_key text; v_attr_val text; v_label_parts text[];
   v_session_id uuid;
+  v_combo_item record;
   -- Reversión de puntos de lealtad (auditoría 2026-10): si la venta
   -- original otorgó puntos, una devolución (total o parcial) quita la
   -- parte proporcional -- para que no queden "puntos fantasma" ganados
@@ -3606,23 +3607,59 @@ begin
       values (v_company_id, v_return_id, v_sale_item_id, v_product.id, v_variant.id, v_location_id,
               v_product.name, v_variant_label, v_qty, v_unit_price, v_line_total);
     else
-      insert into public.product_locations (company_id, product_id, location_id, stock, is_active)
-      values (v_company_id, v_product.id, v_location_id, v_qty, true)
-      on conflict (product_id, location_id)
-        do update set stock = public.product_locations.stock + excluded.stock,
-                      is_active = true,
-                      updated_at = now();
+      -- Auditoría 2026-10 (3ª pasada): un servicio no maneja inventario y un
+      -- combo nunca tiene fila propia en product_locations (create_sale
+      -- descuenta sus PIEZAS). Antes la devolución les creaba stock propio
+      -- (un servicio "con 1 pieza" o un combo vendible sin piezas).
+      if v_product.product_type = 'combo' then
+        for v_combo_item in
+          select ci.component_product_id, ci.qty as component_qty
+          from public.product_combo_items ci
+          join public.products pc on pc.id = ci.component_product_id
+          where ci.combo_product_id = v_product.id and ci.company_id = v_company_id
+            and pc.company_id = v_company_id and pc.deleted_at is null
+        loop
+          insert into public.product_locations (company_id, product_id, location_id, stock, is_active)
+          values (v_company_id, v_combo_item.component_product_id, v_location_id,
+                  v_combo_item.component_qty * v_qty, true)
+          on conflict (product_id, location_id)
+            do update set stock = public.product_locations.stock + excluded.stock,
+                          is_active = true,
+                          updated_at = now();
 
-      update public.products set stock = (
-        select coalesce(sum(stock),0) from public.product_locations
-        where product_id = v_product.id and is_active = true
-      ), updated_at = now()
-      where id = v_product.id;
+          update public.products set stock = (
+            select coalesce(sum(stock),0) from public.product_locations
+            where product_id = v_combo_item.component_product_id and is_active = true
+          ), updated_at = now()
+          where id = v_combo_item.component_product_id;
 
-      insert into public.stock_movements (company_id, location_id, product_id,
-                                          movement_type, qty, reference_type, reference_id, notes)
-      values (v_company_id, v_location_id, v_product.id, 'return', v_qty,
-              'return', v_return_id, 'Devolucion ' || v_return_number);
+          insert into public.stock_movements (company_id, location_id, product_id,
+                                              movement_type, qty, reference_type, reference_id, notes)
+          values (v_company_id, v_location_id, v_combo_item.component_product_id, 'return',
+                  v_combo_item.component_qty * v_qty,
+                  'return', v_return_id,
+                  'Devolucion ' || v_return_number || ' (pieza del combo: ' || v_product.name || ')');
+        end loop;
+      elsif v_product.product_type = 'standard' then
+        insert into public.product_locations (company_id, product_id, location_id, stock, is_active)
+        values (v_company_id, v_product.id, v_location_id, v_qty, true)
+        on conflict (product_id, location_id)
+          do update set stock = public.product_locations.stock + excluded.stock,
+                        is_active = true,
+                        updated_at = now();
+
+        update public.products set stock = (
+          select coalesce(sum(stock),0) from public.product_locations
+          where product_id = v_product.id and is_active = true
+        ), updated_at = now()
+        where id = v_product.id;
+
+        insert into public.stock_movements (company_id, location_id, product_id,
+                                            movement_type, qty, reference_type, reference_id, notes)
+        values (v_company_id, v_location_id, v_product.id, 'return', v_qty,
+                'return', v_return_id, 'Devolucion ' || v_return_number);
+      end if;
+      -- service: sin inventario, solo el reembolso y el renglón de devolución.
 
       insert into public.return_items (company_id, return_id, sale_item_id, product_id,
                                        location_id, product_name,

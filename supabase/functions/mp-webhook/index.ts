@@ -74,6 +74,37 @@ async function verifySignature(
   }
 }
 
+// Auditoría 2026-10 (3ª pasada): los planes se cobran en la moneda de la
+// plataforma, no en la que la empresa tenga configurada (esa la edita el
+// propio cliente). Debe coincidir con mp-create-subscription.
+const PLATFORM_CURRENCY = "MXN";
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+function oneMonthFromToday(): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+// Monto y moneda cobrados deben corresponder al plan guardado. Si Mercado
+// Pago no manda alguno de los dos campos no se puede comprobar y se acepta
+// (el recurso ya se re-consultó directo a su API); solo se rechaza una
+// diferencia real.
+function paymentMatchesPlan(
+  amount: unknown,
+  currency: unknown,
+  planPrice: unknown,
+): boolean {
+  if (currency != null && String(currency).toUpperCase() !== PLATFORM_CURRENCY) {
+    return false;
+  }
+  if (amount != null && planPrice != null) {
+    if (Number(amount) + 0.009 < Number(planPrice)) return false;
+  }
+  return true;
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Método no permitido" }, 405);
 
@@ -194,19 +225,50 @@ Deno.serve(async (req) => {
               .eq("company_id", companyId);
           }
 
-          if (!isCurrentPreapproval) {
-            // preapproval anterior reemplazado por otro más reciente: se ignora
+          // Una empresa suspendida a mano por el administrador de la
+          // plataforma (abuso, contracargo) no se reactiva por un aviso de
+          // Mercado Pago: ningún cambio de estado automático la toca.
+          const { data: co } = await admin
+            .from("companies")
+            .select("subscription_status, expires_at")
+            .eq("id", companyId)
+            .maybeSingle();
+          const isSuspended = co?.subscription_status === "suspended";
+
+          const { data: plan } = sub?.plan_id
+            ? await admin
+                .from("subscription_plans")
+                .select("price")
+                .eq("id", sub.plan_id)
+                .maybeSingle()
+            : { data: null };
+
+          if (!isCurrentPreapproval || isSuspended) {
+            // preapproval anterior reemplazado por otro más reciente, o
+            // empresa suspendida por la plataforma: se ignora
           } else if (status === "authorized" && sub?.plan_id) {
-            const periodEnd = new Date();
-            periodEnd.setMonth(periodEnd.getMonth() + 1);
-            await admin
-              .from("companies")
-              .update({
+            if (
+              !paymentMatchesPlan(
+                resource.auto_recurring?.transaction_amount,
+                resource.auto_recurring?.currency_id,
+                plan?.price,
+              )
+            ) {
+              // El cobro pactado no es el del plan: no se activa nada.
+            } else {
+              // Autorizar la suscripción NO es un pago: solo da acceso si la
+              // empresa no tiene vigencia (nueva o vencida). Cada pago
+              // aprobado extiende la vigencia (ver abajo); sin esta
+              // condición, pausar y reautorizar regalaba un mes por aviso.
+              const update: Record<string, unknown> = {
                 plan_id: sub.plan_id,
                 subscription_status: "active",
-                expires_at: periodEnd.toISOString().slice(0, 10),
-              })
-              .eq("id", companyId);
+              };
+              if (!co?.expires_at || String(co.expires_at) < todayIso()) {
+                update.expires_at = oneMonthFromToday();
+              }
+              await admin.from("companies").update(update).eq("id", companyId);
+            }
           } else if (status === "paused" || status === "cancelled") {
             await admin
               .from("companies")
@@ -221,21 +283,47 @@ Deno.serve(async (req) => {
         if (preapprovalId) {
           const { data: sub } = await admin
             .from("company_subscriptions")
-            .select("company_id")
+            .select("company_id, plan_id")
             .eq("provider_subscription_id", preapprovalId)
             .maybeSingle();
           companyId = sub?.company_id ?? null;
 
           if (companyId && approved) {
-            const periodEnd = new Date();
-            periodEnd.setMonth(periodEnd.getMonth() + 1);
-            await admin
+            const { data: co } = await admin
               .from("companies")
-              .update({
-                subscription_status: "active",
-                expires_at: periodEnd.toISOString().slice(0, 10),
-              })
-              .eq("id", companyId);
+              .select("subscription_status, expires_at")
+              .eq("id", companyId)
+              .maybeSingle();
+            const { data: plan } = sub?.plan_id
+              ? await admin
+                  .from("subscription_plans")
+                  .select("price")
+                  .eq("id", sub.plan_id)
+                  .maybeSingle()
+              : { data: null };
+
+            // No reactiva una empresa suspendida por la plataforma, ni acepta
+            // un cobro de otro monto o moneda que el del plan.
+            if (
+              co?.subscription_status !== "suspended" &&
+              paymentMatchesPlan(
+                resource.transaction_amount,
+                resource.currency_id,
+                plan?.price,
+              )
+            ) {
+              const next = oneMonthFromToday();
+              await admin
+                .from("companies")
+                .update({
+                  subscription_status: "active",
+                  expires_at:
+                    co?.expires_at && String(co.expires_at) > next
+                      ? String(co.expires_at)
+                      : next,
+                })
+                .eq("id", companyId);
+            }
           }
         }
       }

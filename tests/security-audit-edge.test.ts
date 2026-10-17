@@ -312,4 +312,168 @@ describe("mp-webhook (puertas 5 y 12)", () => {
     expect(body.already_processed).toBe(true);
     expect(company().subscription_status).toBe("paused");
   });
+
+  // -------------------------------------------------------------------------
+  // 3ª pasada: empresa suspendida, monto/moneda del plan, vigencia
+  // -------------------------------------------------------------------------
+  const payment = (over: Record<string, unknown> = {}) => ({
+    preapproval_id: "P2",
+    status: "approved",
+    transaction_amount: 299,
+    currency_id: "MXN",
+    ...over,
+  });
+
+  const nextMonth = () => {
+    const d = new Date();
+
+    d.setMonth(d.getMonth() + 1);
+
+    return d.toISOString().slice(0, 10);
+  };
+
+  const expiresAt = () =>
+    (
+      fake.tables.companies.find((r) => r.id === companyId) as {
+        expires_at?: string;
+      }
+    ).expires_at;
+
+  describe("3ª pasada: webhook", () => {
+    beforeEach(() => {
+      fake.tables.subscription_plans = [{ id: "plan-B", price: 299 }];
+    });
+
+    it("CONTROL: un pago aprobado por el monto y moneda del plan activa la empresa", async () => {
+      stubMp({ "authorized_payments/PAY9": { body: payment() } });
+
+      await call("subscription_authorized_payment", "PAY9");
+
+      expect(company().subscription_status).toBe("active");
+      expect(expiresAt()).toBe(nextMonth());
+    });
+
+    it("una empresa SUSPENDIDA por la plataforma no se reactiva con un pago aprobado", async () => {
+      company().subscription_status = "suspended";
+      stubMp({ "authorized_payments/PAY9": { body: payment() } });
+
+      const res = await call("subscription_authorized_payment", "PAY9");
+
+      expect(res.status).toBe(200);
+      expect(company().subscription_status).toBe("suspended");
+      expect(expiresAt()).toBeUndefined();
+    });
+
+    it("una empresa SUSPENDIDA no se reactiva ni se cambia con un aviso de preapproval", async () => {
+      company().subscription_status = "suspended";
+
+      for (const mpStatus of ["authorized", "paused", "cancelled"]) {
+        stubMp({
+          "preapproval/P2": {
+            body: {
+              status: mpStatus,
+              external_reference: companyId,
+              auto_recurring: { transaction_amount: 299, currency_id: "MXN" },
+            },
+          },
+        });
+        await call("subscription_preapproval", "P2");
+
+        expect(company().subscription_status).toBe("suspended");
+        expect(company().plan_id).toBe("plan-A");
+      }
+    });
+
+    it("un pago por MENOS del precio del plan no activa la empresa", async () => {
+      stubMp({
+        "authorized_payments/PAY9": {
+          body: payment({ transaction_amount: 1 }),
+        },
+      });
+
+      await call("subscription_authorized_payment", "PAY9");
+
+      expect(company().subscription_status).toBe("trial");
+    });
+
+    it("un pago en otra moneda no activa la empresa", async () => {
+      stubMp({
+        "authorized_payments/PAY9": { body: payment({ currency_id: "COP" }) },
+      });
+
+      await call("subscription_authorized_payment", "PAY9");
+
+      expect(company().subscription_status).toBe("trial");
+    });
+
+    it("una preapproval autorizada con monto o moneda distintos al plan no activa nada", async () => {
+      stubMp({
+        "preapproval/P2": {
+          body: {
+            status: "authorized",
+            external_reference: companyId,
+            auto_recurring: { transaction_amount: 299, currency_id: "COP" },
+          },
+        },
+      });
+
+      await call("subscription_preapproval", "P2");
+
+      expect(company().plan_id).toBe("plan-A");
+      expect(company().subscription_status).toBe("trial");
+    });
+
+    it("CONTROL: la preapproval autorizada correcta activa el plan y da el primer mes", async () => {
+      stubMp({
+        "preapproval/P2": {
+          body: {
+            status: "authorized",
+            external_reference: companyId,
+            auto_recurring: { transaction_amount: 299, currency_id: "MXN" },
+          },
+        },
+      });
+
+      await call("subscription_preapproval", "P2");
+
+      expect(company().plan_id).toBe("plan-B");
+      expect(company().subscription_status).toBe("active");
+      expect(expiresAt()).toBe(nextMonth());
+    });
+
+    it("un aviso de preapproval NO extiende una vigencia que todavía no vence", async () => {
+      const company0 = fake.tables.companies.find(
+        (r) => r.id === companyId,
+      ) as { expires_at?: string };
+
+      company0.expires_at = "2099-01-01";
+      stubMp({
+        "preapproval/P2": {
+          body: { status: "authorized", external_reference: companyId },
+        },
+      });
+
+      await call("subscription_preapproval", "P2");
+
+      expect(company().subscription_status).toBe("active");
+      expect(expiresAt()).toBe("2099-01-01");
+    });
+
+    it("una preapproval autorizada SÍ da acceso si la vigencia ya venció", async () => {
+      const company0 = fake.tables.companies.find(
+        (r) => r.id === companyId,
+      ) as { expires_at?: string };
+
+      company0.expires_at = "2020-01-01";
+      stubMp({
+        "preapproval/P2": {
+          body: { status: "authorized", external_reference: companyId },
+        },
+      });
+
+      await call("subscription_preapproval", "P2");
+
+      expect(expiresAt()).toBe(nextMonth());
+    });
+  });
 });
