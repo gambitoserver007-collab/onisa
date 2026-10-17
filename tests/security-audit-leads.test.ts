@@ -967,3 +967,119 @@ describe("Variantes: colgarlas de un producto de otra empresa", () => {
     expect(err).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Segunda pasada: quién fija el límite de crédito de un cliente
+// ---------------------------------------------------------------------------
+describe("Límite de crédito de un cliente (credit_limit)", () => {
+  let db: PGlite;
+  let company: TestCompany;
+  let cashier: string;
+  let admin: string;
+  let product: string;
+
+  const insertWithLimit = (userId: string, limit: number) =>
+    asUser(db, userId, () =>
+      db.query<{ id: string }>(
+        "insert into public.customers (company_id, name, credit_limit) values ($1,'Cliente',$2) returning id",
+        [company.id, limit],
+      ),
+    );
+
+  beforeAll(async () => {
+    db = await createTestDb();
+    company = await makeCompany(db, "Empresa crédito");
+    cashier = await makeUser(db, company.id, "user");
+    admin = await makeUser(db, company.id, "admin");
+    product = await makeProduct(db, company.id, company.loc1, "P", 1, 100, 50);
+  }, 120_000);
+
+  afterAll(async () => {
+    await db.close();
+  });
+
+  it("CONTROL: un admin sí puede crear un cliente con límite y editarlo", async () => {
+    const created = await insertWithLimit(admin, 500);
+
+    await asUser(db, admin, () =>
+      db.query("update public.customers set credit_limit=800 where id=$1", [
+        created.rows[0].id,
+      ]),
+    );
+
+    const { rows } = await db.query<{ credit_limit: string }>(
+      "select credit_limit from public.customers where id=$1",
+      [created.rows[0].id],
+    );
+
+    expect(Number(rows[0].credit_limit)).toBe(800);
+  });
+
+  it("CONTROL: un cajero sí puede crear un cliente normal (sin límite) y cambiarle el teléfono", async () => {
+    const created = await asUser(db, cashier, () =>
+      db.query<{ id: string }>(
+        "insert into public.customers (company_id, name, credit_limit) values ($1,'Normal',0) returning id",
+        [company.id],
+      ),
+    );
+
+    await asUser(db, cashier, () =>
+      db.query("update public.customers set phone='555' where id=$1", [
+        created.rows[0].id,
+      ]),
+    );
+
+    expect(created.rows).toHaveLength(1);
+  });
+
+  it("un cajero NO puede crear un cliente con límite de crédito", async () => {
+    const err = await insertWithLimit(cashier, 50000)
+      .then(() => null)
+      .catch((e) => errMessage(e));
+
+    expect(err).toMatch(/administrador/i);
+  });
+
+  it("un cajero NO puede subir el límite de crédito de un cliente existente", async () => {
+    const existing = await makeCustomer(db, company.id, "Existente", 0);
+
+    const err = await asUser(db, cashier, () =>
+      db.query("update public.customers set credit_limit=9999 where id=$1", [
+        existing,
+      ]),
+    )
+      .then(() => null)
+      .catch((e) => errMessage(e));
+
+    expect(err).toMatch(/administrador/i);
+
+    const { rows } = await db.query<{ credit_limit: string }>(
+      "select credit_limit from public.customers where id=$1",
+      [existing],
+    );
+
+    expect(Number(rows[0].credit_limit)).toBe(0);
+  });
+
+  it("CONTROL: la venta a crédito sigue funcionando con el límite que fijó el admin", async () => {
+    const created = await insertWithLimit(admin, 1000);
+
+    await asUser(db, cashier, () =>
+      db.query(
+        "select create_sale($1,'Ticket','Credito',$2::jsonb,$3,null,null,0,null,'credit')",
+        [
+          created.rows[0].id,
+          JSON.stringify([{ product_id: product, qty: 1, unit_price: 100 }]),
+          company.loc1,
+        ],
+      ),
+    );
+
+    const { rows } = await db.query<{ credit_balance: string }>(
+      "select credit_balance from public.customers where id=$1",
+      [created.rows[0].id],
+    );
+
+    expect(Number(rows[0].credit_balance)).toBeGreaterThan(0);
+  });
+});

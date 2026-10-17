@@ -11569,6 +11569,19 @@ begin
     return new;
   end if;
 
+  -- Auditoría 2026-10 (2ª pasada): el límite de crédito decide cuánto se puede
+  -- vender "a fiado" a un cliente, y quedaba abierto a cualquier miembro (un
+  -- cajero podía crear un cliente con 50000 de límite y llevarse mercancía sin
+  -- pagar). La pantalla de Clientes ya solo lo muestra y envía para el admin;
+  -- ahora el servidor exige lo mismo, tanto al crear como al editar.
+  if (tg_op = 'INSERT' and coalesce(new.credit_limit, 0) <> 0)
+     or (tg_op = 'UPDATE' and new.credit_limit is distinct from old.credit_limit)
+  then
+    if coalesce(public.current_user_role()::text, '') <> 'admin' then
+      raise exception 'Solo un administrador puede fijar el limite de credito de un cliente.';
+    end if;
+  end if;
+
   -- Auditoría 2026-10 (clientes inventados): el trigger solo vigilaba UPDATE,
   -- así que un cajero podía CREAR un cliente ya con 100000 puntos o un saldo
   -- de crédito a su favor (sin ledger ni bitácora) y create_sale los

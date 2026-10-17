@@ -7680,14 +7680,25 @@ describe("RPCs críticas de dinero y stock", () => {
       expect(Number(rows[0].loyalty_points)).toBe(10);
     });
 
-    it("el resto de las columnas de customers (nombre, credit_limit) se siguen pudiendo editar directo, sin RPC", async () => {
+    it("el resto de las columnas de customers (nombre) se siguen pudiendo editar directo, sin RPC; el límite de crédito solo lo fija un admin", async () => {
+      // Auditoría 2026-10 (2ª pasada): credit_limit decide cuánto se vende "a
+      // fiado", así que ya no lo edita cualquier miembro (antes esta prueba
+      // afirmaba que un cajero podía).
       const company = await makeCompany(db, "Empresa Cliente Editable Test");
       const cajero = await makeUser(db, company.id, "user");
+      const admin = await makeUser(db, company.id, "admin");
       const customer = await makeCustomer(db, company.id, "Cliente Original");
 
       await asUser(db, cajero, () =>
         db.query(
-          "update public.customers set name = 'Cliente Renombrado', credit_limit = 1000 where id = $1",
+          "update public.customers set name = 'Cliente Renombrado' where id = $1",
+          [customer],
+        ),
+      );
+
+      await asUser(db, admin, () =>
+        db.query(
+          "update public.customers set credit_limit = 1000 where id = $1",
           [customer],
         ),
       );
