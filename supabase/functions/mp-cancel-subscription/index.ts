@@ -52,6 +52,23 @@ Deno.serve(async (req) => {
       return json({ error: "Solo el administrador de la empresa puede cancelar la suscripción." }, 403);
     }
 
+    // Auditoría 2026-10 (4ª pasada): 'suspended' es un estado que solo pone el
+    // administrador de la plataforma. Esta función escribe con service role y
+    // pisaba cualquier estado con 'cancelled', así que una empresa suspendida
+    // podía borrar su suspensión (cancelar -> volver a suscribirse -> el webhook
+    // ya no la veía como 'suspended'). Ninguna ruta del cliente la toca.
+    const { data: company } = await admin
+      .from("companies")
+      .select("subscription_status")
+      .eq("id", caller.company_id)
+      .maybeSingle();
+    if (company?.subscription_status === "suspended") {
+      return json(
+        { error: "Esta empresa está suspendida. Contacta al administrador de la plataforma." },
+        403,
+      );
+    }
+
     const { data: subscription, error: subErr } = await admin
       .from("company_subscriptions")
       .select("provider_subscription_id, status")
@@ -91,7 +108,8 @@ Deno.serve(async (req) => {
     await admin
       .from("companies")
       .update({ subscription_status: "cancelled" })
-      .eq("id", caller.company_id);
+      .eq("id", caller.company_id)
+      .neq("subscription_status", "suspended");
 
     return json({ ok: true }, 200);
   } catch (e: any) {

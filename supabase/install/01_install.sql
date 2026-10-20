@@ -1690,6 +1690,21 @@ insert into public.locations (company_id, name, is_demo_data)
 select c.id, 'Principal', c.is_demo_data from public.companies c
 where not exists (select 1 from public.locations l where l.company_id = c.id);
 
+-- Marcas de migración única (auditoría 2026-10, 4ª pasada). Solo el instalador
+-- (service_role / postgres) las lee o escribe. Si la base YA tenía
+-- product_locations al llegar aquí, el relleno antiguo ya se hizo en su día:
+-- se marca como aplicado sin volver a correrlo.
+create table if not exists public.installer_migrations (
+  name text primary key,
+  applied_at timestamptz not null default now()
+);
+alter table public.installer_migrations enable row level security;
+revoke all on public.installer_migrations from public, anon, authenticated;
+grant all on public.installer_migrations to service_role;
+insert into public.installer_migrations (name)
+select 'legacy_location_backfill' where to_regclass('public.product_locations') is not null
+on conflict do nothing;
+
 -- 2) product_locations
 create table if not exists public.product_locations (
   id uuid primary key default gen_random_uuid(),
@@ -1720,18 +1735,33 @@ do $$ declare t text; begin
   end loop;
 end $$;
 
--- 4) backfill
-insert into public.product_locations (company_id, product_id, location_id, stock, is_demo_data)
-select p.company_id, p.id, l.id, coalesce(p.stock,0), coalesce(p.is_demo_data,false)
-from public.products p join public.locations l on l.company_id = p.company_id and l.name='Principal'
-where p.deleted_at is null
-on conflict (product_id, location_id) do nothing;
+-- 4) backfill (UNA SOLA VEZ)
+-- Auditoría 2026-10 (4ª pasada): estos rellenos corrían en CADA ejecución del
+-- instalador, que el dueño repite tras cada cambio. Como se unen por el NOMBRE
+-- 'Principal' (editable, no único: cualquier miembro puede crear otra sucursal
+-- con ese nombre), cada re-ejecución inventaba en 'Principal' una fila con el
+-- stock TOTAL de todo producto que solo estuviera en otra sucursal (se duplicaba
+-- el inventario) y reasignaba filas sin sucursal a un 'Principal' arbitrario.
+-- Ahora corren solo si la marca 'legacy_location_backfill' no existe; en una
+-- base que ya tenía product_locations la marca se pone sin correr el relleno.
+do $mig$
+declare t text;
+begin
+  if not exists (select 1 from public.installer_migrations where name = 'legacy_location_backfill') then
+    insert into public.product_locations (company_id, product_id, location_id, stock, is_demo_data)
+    select p.company_id, p.id, l.id, coalesce(p.stock,0), coalesce(p.is_demo_data,false)
+    from public.products p join public.locations l on l.company_id = p.company_id and l.name='Principal'
+    where p.deleted_at is null
+    on conflict (product_id, location_id) do nothing;
 
-do $$ declare t text; begin
-  foreach t in array array['sales','sale_items','stock_movements','cash_sessions','cash_movements','purchases','returns','profiles'] loop
-    execute format('update public.%I x set location_id = l.id from public.locations l where l.company_id = x.company_id and l.name=''Principal'' and x.location_id is null', t);
-  end loop;
-end $$;
+    foreach t in array array['sales','sale_items','stock_movements','cash_sessions','cash_movements','purchases','returns','profiles'] loop
+      execute format('update public.%I x set location_id = l.id from public.locations l where l.company_id = x.company_id and l.name=''Principal'' and x.location_id is null', t);
+    end loop;
+
+    insert into public.installer_migrations (name) values ('legacy_location_backfill') on conflict do nothing;
+  end if;
+end
+$mig$;
 
 -- 5) trigger en companies
 create or replace function public.create_default_location()
@@ -1827,6 +1857,11 @@ create trigger companies_seed_default_units after insert on public.companies
 -- 20260621053313_581dc256-fa39-4d7a-991e-eb2eaaaf8978.sql
 -- ============================================================
 
+-- Igual que arriba: si profile_locations ya existía, su relleno de cajeros ya se hizo.
+insert into public.installer_migrations (name)
+select 'legacy_profile_locations_backfill' where to_regclass('public.profile_locations') is not null
+on conflict do nothing;
+
 -- a) Tabla profile_locations
 create table if not exists public.profile_locations (
   profile_id uuid not null references public.profiles(id) on delete cascade,
@@ -1851,14 +1886,24 @@ create policy "profile_locations_select_same_company"
   to authenticated
   using (company_id = public.current_user_company_id());
 
--- b) Backfill cajeros
-insert into public.profile_locations (profile_id, location_id, company_id)
-select p.id, p.location_id, p.company_id
-from public.profiles p
-where p.role = 'user'
-  and p.location_id is not null
-  and p.company_id is not null
-on conflict do nothing;
+-- b) Backfill cajeros (UNA SOLA VEZ; ver la marca 'legacy_profile_locations_backfill'):
+-- en cada re-ejecución volvía a restringir a una sucursal a los cajeros que el
+-- administrador había dejado sin restricción a propósito.
+do $mig$
+begin
+  if not exists (select 1 from public.installer_migrations where name = 'legacy_profile_locations_backfill') then
+    insert into public.profile_locations (profile_id, location_id, company_id)
+    select p.id, p.location_id, p.company_id
+    from public.profiles p
+    where p.role = 'user'
+      and p.location_id is not null
+      and p.company_id is not null
+    on conflict do nothing;
+
+    insert into public.installer_migrations (name) values ('legacy_profile_locations_backfill') on conflict do nothing;
+  end if;
+end
+$mig$;
 
 -- c) Enum operador
 alter type public.app_role add value if not exists 'operador';

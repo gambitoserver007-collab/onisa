@@ -71,10 +71,18 @@ Deno.serve(async (req) => {
 
     const { data: company, error: companyErr } = await admin
       .from("companies")
-      .select("id, name")
+      .select("id, name, subscription_status")
       .eq("id", caller.company_id)
       .maybeSingle();
     if (companyErr || !company) return json({ error: "Empresa no encontrada." }, 404);
+    // Auditoría 2026-10 (4ª pasada): una empresa suspendida por la plataforma no
+    // puede contratar un plan por su cuenta (ver mp-cancel-subscription).
+    if (company.subscription_status === "suspended") {
+      return json(
+        { error: "Esta empresa está suspendida. Contacta al administrador de la plataforma." },
+        403,
+      );
+    }
 
     const origin = req.headers.get("Origin") || Deno.env.get("APP_URL") || "";
     const backUrl = origin ? `${origin}/suscripcion` : undefined;

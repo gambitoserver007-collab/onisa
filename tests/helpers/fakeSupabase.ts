@@ -22,6 +22,7 @@ export interface FakeSupabase {
 
 interface QueryState {
   filters: [string, unknown][];
+  neq: [string, unknown][];
   op: "select" | "update" | "insert" | "upsert" | "delete";
   payload: FakeRow | FakeRow[] | null;
   head: boolean;
@@ -55,6 +56,7 @@ export function createFakeSupabase(): FakeSupabase {
   const from = (table: string) => {
     const state: QueryState = {
       filters: [],
+      neq: [],
       op: "select",
       payload: null,
       head: false,
@@ -63,7 +65,11 @@ export function createFakeSupabase(): FakeSupabase {
     };
     const rows = () => (fake.tables[table] ??= []);
     const matching = () =>
-      rows().filter((r) => state.filters.every(([c, v]) => r[c] === v));
+      rows().filter(
+        (r) =>
+          state.filters.every(([c, v]) => r[c] === v) &&
+          state.neq.every(([c, v]) => r[c] !== v),
+      );
 
     const exec = async () => {
       if (state.op === "select") {
@@ -121,6 +127,11 @@ export function createFakeSupabase(): FakeSupabase {
       },
       eq: (c: string, v: unknown) => {
         state.filters.push([c, v]);
+
+        return b;
+      },
+      neq: (c: string, v: unknown) => {
+        state.neq.push([c, v]);
 
         return b;
       },
