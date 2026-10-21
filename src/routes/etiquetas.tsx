@@ -50,6 +50,9 @@ export const Route = createFileRoute("/etiquetas")({ component: Etiquetas });
 
 function Etiquetas() {
   const { isDemo, session, isReady } = useDemoSession();
+  // Tras cerrar sesión la página sigue montada un instante: sin sesión no se
+  // pide nada (el visitante ya no puede leer esas tablas).
+  const signedIn = Boolean(session);
   const [units, setUnits] = useState<Unit[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -80,9 +83,9 @@ function Etiquetas() {
   }, [session?.companyId]);
 
   useEffect(() => {
-    if (!isReady) return;
+    if (!isReady || !signedIn) return;
     void reload();
-  }, [isReady, reload]);
+  }, [isReady, reload, signedIn]);
 
   const list = useMemo(
     () =>

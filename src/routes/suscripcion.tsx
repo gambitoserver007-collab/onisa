@@ -40,6 +40,9 @@ const pct = (value: number, limit: number) =>
 function Suscripcion() {
   const { formatMoney } = useBusinessSettings();
   const { isDemo, session, isReady } = useDemoSession();
+  // Tras cerrar sesión la página sigue montada un instante: sin sesión no se
+  // pide nada (el visitante ya no puede leer esas tablas).
+  const signedIn = Boolean(session);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [usage, setUsage] = useState<PlanUsage | null>(null);
   const [subscribingId, setSubscribingId] = useState<string | null>(null);
@@ -60,9 +63,9 @@ function Suscripcion() {
   }, [session?.companyId]);
 
   useEffect(() => {
-    if (!isReady) return;
+    if (!isReady || !signedIn) return;
     void reload();
-  }, [isReady, reload]);
+  }, [isReady, reload, signedIn]);
 
   const handleSubscribe = async (plan: SubscriptionPlan) => {
     if (isDemo) {

@@ -89,6 +89,9 @@ const defaultSectionsFor = (role: StoreRole) => [
 
 function Usuarios() {
   const { isDemo, session, isReady } = useDemoSession();
+  // Tras cerrar sesión la página sigue montada un instante: sin sesión no se
+  // pide nada (el visitante ya no puede leer esas tablas).
+  const signedIn = Boolean(session);
   const { locations } = useCurrentLocation();
   const multiLocal = locations.length > 1;
 
@@ -176,9 +179,9 @@ function Usuarios() {
     userLimit > 0 && userLimit < UNLIMITED && activeCount >= userLimit;
 
   useEffect(() => {
-    if (!isReady) return;
+    if (!isReady || !signedIn) return;
     void reload();
-  }, [isReady, reload]);
+  }, [isReady, reload, signedIn]);
 
   const handleCreate = async () => {
     if (isDemo) {

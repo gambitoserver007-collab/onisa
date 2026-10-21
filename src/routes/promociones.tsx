@@ -62,6 +62,9 @@ const SCOPE_NONE = "none";
 function Promos() {
   const { formatMoney } = useBusinessSettings();
   const { isDemo, session, isReady } = useDemoSession();
+  // Tras cerrar sesión la página sigue montada un instante: sin sesión no se
+  // pide nada (el visitante ya no puede leer esas tablas).
+  const signedIn = Boolean(session);
   const { products, categories } = useCompanyCatalog();
   const [promos, setPromos] = useState<Promotion[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -93,9 +96,9 @@ function Promos() {
   }, [session?.companyId]);
 
   useEffect(() => {
-    if (!isReady) return;
+    if (!isReady || !signedIn) return;
     void reload();
-  }, [isReady, reload]);
+  }, [isReady, reload, signedIn]);
 
   const openCreate = () => {
     setEditing(null);

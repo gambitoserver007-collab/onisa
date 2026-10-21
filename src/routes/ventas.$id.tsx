@@ -52,6 +52,9 @@ function VentaDetail() {
   const navigate = useNavigate();
   const { formatMoney, settings } = useBusinessSettings();
   const { session, isReady } = useDemoSession();
+  // Tras cerrar sesión la página sigue montada un instante: sin sesión no se
+  // pide nada (el visitante ya no puede leer esas tablas).
+  const signedIn = Boolean(session);
   const { locations } = useCurrentLocation();
 
   const [sale, setSale] = useState<Sale | null>(null);
@@ -71,7 +74,7 @@ function VentaDetail() {
   // para encontrar esta una con .find() -- ahora se pide directo por
   // folio/uuid (ver fetchSaleById).
   useEffect(() => {
-    if (!isReady) return;
+    if (!isReady || !signedIn) return;
     let active = true;
     setIsLoading(true);
 
@@ -93,7 +96,7 @@ function VentaDetail() {
     return () => {
       active = false;
     };
-  }, [isReady, id, session?.companyId]);
+  }, [isReady, id, session?.companyId, signedIn]);
 
   useEffect(() => {
     if (!session?.companyId) return;

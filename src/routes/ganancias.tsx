@@ -70,6 +70,9 @@ function Kpi({
 function Ganancias() {
   const { formatMoney } = useBusinessSettings();
   const { session, isReady } = useDemoSession();
+  // Tras cerrar sesión la página sigue montada un instante: sin sesión no se
+  // pide nada (el visitante ya no puede leer esas tablas).
+  const signedIn = Boolean(session);
   const [report, setReport] = useState<ProfitReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [from, setFrom] = useState("");
@@ -78,7 +81,7 @@ function Ganancias() {
   const { currentLocationId } = useCurrentLocation();
 
   useEffect(() => {
-    if (!isReady) return;
+    if (!isReady || !signedIn) return;
     setIsLoading(true);
     setPage(1);
     void fetchProfitReport(
@@ -96,7 +99,7 @@ function Ganancias() {
         ),
       )
       .finally(() => setIsLoading(false));
-  }, [isReady, session?.companyId, from, to, currentLocationId]);
+  }, [isReady, session?.companyId, from, to, currentLocationId, signedIn]);
 
   const rows = report?.rows ?? [];
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));

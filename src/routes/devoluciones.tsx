@@ -64,6 +64,9 @@ const NO_SALE = "__none__";
 function Devoluciones() {
   const { formatMoney } = useBusinessSettings();
   const { isDemo, session, isReady } = useDemoSession();
+  // Tras cerrar sesión la página sigue montada un instante: sin sesión no se
+  // pide nada (el visitante ya no puede leer esas tablas).
+  const signedIn = Boolean(session);
   const [returns, setReturns] = useState<ReturnDoc[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -99,9 +102,9 @@ function Devoluciones() {
   }, [session?.companyId]);
 
   useEffect(() => {
-    if (!isReady) return;
+    if (!isReady || !signedIn) return;
     void reload();
-  }, [isReady, reload]);
+  }, [isReady, reload, signedIn]);
 
   // Busca en el servidor (folio o nombre de cliente) en vez de cargar TODO
   // el historial de ventas de la empresa para filtrarlo en el navegador.

@@ -71,6 +71,9 @@ function defaultWeeklyHours(): WeeklyHours {
 
 function PuntosDeVenta() {
   const { isDemo, session, isReady, role } = useDemoSession();
+  // Tras cerrar sesión la página sigue montada un instante: sin sesión no se
+  // pide nada (el visitante ya no puede leer esas tablas).
+  const signedIn = Boolean(session);
   const [locations, setLocations] = useState<Location[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -137,9 +140,9 @@ function PuntosDeVenta() {
   }, [session?.companyId]);
 
   useEffect(() => {
-    if (!isReady) return;
+    if (!isReady || !signedIn) return;
     void reload();
-  }, [isReady, reload]);
+  }, [isReady, reload, signedIn]);
 
   const resetFields = () => {
     setName("");
