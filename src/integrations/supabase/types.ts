@@ -3280,6 +3280,10 @@ export type Database = {
         Args: { p_session_id: string };
         Returns: number;
       };
+      sessions_needing_second_count: {
+        Args: { p_location_id: string };
+        Returns: { session_id: string; first_counted_by: string | null }[];
+      };
       create_purchase: {
         Args: {
           p_date: string;

@@ -8509,7 +8509,7 @@ describe("RPCs críticas de dinero y stock", () => {
   });
 
   describe("45. get_cash_session_cash_sales(): estimado de efectivo del turno, calculado en el servidor", () => {
-    it("suma solo las ventas en efectivo del turno, y respeta el rol/dueño de la sesión", async () => {
+    it("suma solo las ventas en efectivo del turno y solo la ve admin/finanzas (no el cajero, ni el dueño de la sesión)", async () => {
       const company = await makeCompany(db, "Empresa Caja Efectivo");
       const admin = await makeUser(db, company.id, "admin");
       const cajero = await makeUser(db, company.id, "user");
@@ -8550,13 +8550,13 @@ describe("RPCs críticas de dinero y stock", () => {
         ),
       );
 
-      const { rows: cajeroRows } = await asUser(db, cajero, () =>
-        db.query<{ get_cash_session_cash_sales: string }>(
-          "select get_cash_session_cash_sales($1) as get_cash_session_cash_sales",
-          [sessionId],
+      // Arqueo ciego (4ª pasada): ni siquiera quien abrió la caja puede leer el
+      // efectivo esperado; solo admin/finanzas.
+      await expect(
+        asUser(db, cajero, () =>
+          db.query("select get_cash_session_cash_sales($1)", [sessionId]),
         ),
-      );
-      expect(Number(cajeroRows[0].get_cash_session_cash_sales)).toBe(40);
+      ).rejects.toThrow(/no autorizado/i);
 
       const { rows: adminRows } = await asUser(db, admin, () =>
         db.query<{ get_cash_session_cash_sales: string }>(

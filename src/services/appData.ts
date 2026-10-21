@@ -2877,29 +2877,48 @@ export async function fetchTillCountsForSessions(
 export async function fetchSessionsNeedingSecondCount(
   companyId: string,
   locationId: string,
-  excludeCountedBy: string,
-): Promise<CashSession[]> {
+  _excludeCountedBy: string,
+): Promise<{
+  sessions: CashSession[];
+  firstCountedBy: Record<string, string | null>;
+}> {
+  // Auditoría 2026-10 (4ª pasada): los conteos ajenos ya no se pueden leer (el
+  // segundo conteo debe ser independiente del primero); el servidor devuelve
+  // solo QUÉ cajas esperan segundo conteo y quién hizo el primero, sin montos.
+  const { data: waiting, error: rpcError } = await supabase.rpc(
+    "sessions_needing_second_count",
+    { p_location_id: locationId },
+  );
+
+  if (rpcError) throw rpcError;
+
+  const rows = (waiting ?? []) as {
+    session_id: string;
+    first_counted_by: string | null;
+  }[];
+  const firstCountedBy: Record<string, string | null> = {};
+
+  for (const r of rows) firstCountedBy[r.session_id] = r.first_counted_by;
+  if (!rows.length) return { sessions: [], firstCountedBy };
+
   const { data, error } = await supabase
     .from("cash_sessions")
     .select(CASH_SESSION_COLS_SAFE)
     .eq("company_id", companyId)
     .eq("location_id", locationId)
     .eq("status", "open")
+    .in(
+      "id",
+      rows.map((r) => r.session_id),
+    )
     .order("opened_at", { ascending: true });
 
   if (error) throw error;
-  const sessions = (data ?? []).map((row) => mapCashSession(row as never));
-  const countsBySession = await fetchTillCountsForSessions(
-    sessions.map((s) => s.id),
-  );
 
-  return sessions.filter((s) => {
-    const counts = countsBySession.get(s.id) ?? [];
-    const count1 = counts.find((c) => c.countNumber === 1);
-    const count2 = counts.find((c) => c.countNumber === 2);
-
-    return !!count1 && !count2 && count1.countedBy !== excludeCountedBy;
-  });
+  return {
+    sessions: (data ?? []).map((row) => mapCashSession(row as never)),
+    firstCountedBy,
+  };
 }
 
 export interface PendingReviewSession extends CashSession {

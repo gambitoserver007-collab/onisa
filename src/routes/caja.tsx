@@ -257,14 +257,32 @@ function Caja() {
       let helpCounts: TillCount[] = [];
 
       if (!current && companyId && cajaLocationId && session?.userId) {
-        const candidates = await fetchSessionsNeedingSecondCount(
-          companyId,
-          cajaLocationId,
-          session.userId,
-        );
+        const { sessions: candidates, firstCountedBy } =
+          await fetchSessionsNeedingSecondCount(
+            companyId,
+            cajaLocationId,
+            session.userId,
+          );
 
         help = candidates[0] ?? null;
-        helpCounts = help ? await fetchTillCounts(help.id) : [];
+        // El servidor ya no deja leer el conteo de otra persona (para que el
+        // segundo conteo sea independiente): solo se conoce quién hizo el primero.
+        helpCounts = help
+          ? [
+              {
+                id: "",
+                countNumber: 1,
+                countedBy: firstCountedBy[help.id] ?? null,
+                countedAt: "",
+                countedCashTotal: 0,
+                cardTotal: 0,
+                transferTotal: 0,
+                otherTotal: 0,
+                manualAdjustment: 0,
+                lines: [],
+              },
+            ]
+          : [];
       }
 
       setOpenSession(current);
@@ -302,7 +320,9 @@ function Caja() {
   // verdad cuenta para el arqueo lo calcula el servidor al autorizar,
   // nunca este cálculo del navegador.
   useEffect(() => {
-    if (!openSession) {
+    // Solo admin/finanzas: el servidor ya no le entrega este dato a un cajero
+    // (arqueo ciego), y de todos modos la pantalla no se lo muestra.
+    if (!openSession || !canSeeFigures) {
       setCashSales(0);
 
       return;
@@ -321,7 +341,7 @@ function Caja() {
     return () => {
       active = false;
     };
-  }, [openSession]);
+  }, [openSession, canSeeFigures]);
 
   const ingresos = movements
     .filter((m) => m.amount > 0)

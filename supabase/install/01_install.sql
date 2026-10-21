@@ -5867,8 +5867,12 @@ begin
     raise exception 'No autorizado.';
   end if;
 
+  -- Auditoría 2026-10 (4ª pasada): antes también la podía llamar quien abrió la
+  -- caja, y con ella el cajero obtenía la parte de ventas en efectivo del
+  -- esperado ANTES de contar (arqueo ciego solo en la pantalla). La pantalla ya
+  -- solo la muestra a admin/finanzas; ahora el servidor lo exige igual.
   v_role := public.current_user_role();
-  if v_role not in ('admin', 'finanzas') and v_session.opened_by <> auth.uid() then
+  if v_role not in ('admin', 'finanzas') and not public.current_user_is_platform_admin() then
     raise exception 'No autorizado.';
   end if;
 
@@ -12522,23 +12526,25 @@ security definer
 set search_path to 'public'
 as $$
 declare
-  v_locked uuid;
+  v_cutoff timestamptz;
 begin
-  -- FOR KEY SHARE choca con el FOR UPDATE de submit_till_count: si el conteo
-  -- y la venta ocurren a la vez, uno espera al otro y la condición se
-  -- reevalúa ya con el corte confirmado (antes la venta podía colarse justo
-  -- entre el corte y su guardado).
+  -- Auditoría 2026-10 (4ª pasada): el candado FOR KEY SHARE se tomaba sobre un
+  -- SELECT filtrado por el corte ya guardado (corte no nulo). Mientras el PRIMER conteo
+  -- no hace commit, la versión visible de la fila todavía tiene el corte en NULL,
+  -- así que no coincidía, no se tomaba ningún candado y la venta no esperaba al
+  -- conteo. Ahora se bloquea la caja abierta SIEMPRE (sin filtrar por el corte):
+  -- si el conteo está en curso la venta espera su commit y luego lee el corte ya
+  -- confirmado.
   if new.till_id is not null then
-    select cs.id into v_locked
+    select cs.count_cutoff_at into v_cutoff
     from public.cash_sessions cs
     where cs.till_id = new.till_id
       and cs.company_id = new.company_id
       and cs.status = 'open'
-      and cs.count_cutoff_at is not null
     limit 1
     for key share;
 
-    if v_locked is not null then
+    if v_cutoff is not null then
       raise exception 'Esta caja ya esta en conteo de cierre; no se pueden registrar mas ventas en ella. Cierra el turno primero.';
     end if;
   end if;
@@ -12564,16 +12570,16 @@ security definer
 set search_path to 'public'
 as $$
 declare
-  v_locked uuid;
+  v_cutoff timestamptz;
 begin
   if new.cash_session_id is not null then
-    select cs.id into v_locked
+    -- Mismo candado incondicional que reject_sale_on_counting_till (ver arriba).
+    select cs.count_cutoff_at into v_cutoff
     from public.cash_sessions cs
     where cs.id = new.cash_session_id
-      and cs.count_cutoff_at is not null
     for key share;
 
-    if v_locked is not null then
+    if v_cutoff is not null then
       raise exception 'Esta caja ya esta en conteo de cierre; no se pueden registrar mas movimientos en ella. Cierra el turno primero.';
     end if;
   end if;
@@ -12947,3 +12953,85 @@ drop trigger if exists reject_delete_location_of_restricted_users on public.loca
 create trigger reject_delete_location_of_restricted_users
   before delete on public.locations
   for each row execute function public.reject_delete_location_of_restricted_users();
+
+-- ---------------------------------------------------------------------------
+-- Auditoría 2026-10 (4ª pasada): arqueo ciego del lado del servidor.
+-- Los conteos (till_counts / till_count_lines) los podía leer cualquier miembro
+-- de la empresa con acceso a la sucursal: quien hacía el SEGUNDO conteo leía el
+-- total del primero y podía copiarlo, así que el segundo conteo no era
+-- independiente. Ahora solo los ve un administrador/finanzas/gerente, quien hizo
+-- ese conteo, o quien abrió la caja. (Un cajero siempre conoce sus propias ventas,
+-- fondo y movimientos: ocultar por completo el esperado es imposible mientras vea
+-- sus ventas; esto cierra lo que sí se puede cerrar.)
+-- ---------------------------------------------------------------------------
+create or replace function public.can_view_till_count(p_session_id uuid, p_counted_by uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    public.current_user_is_platform_admin()
+    or public.current_user_role()::text in ('admin', 'finanzas', 'gerente')
+    or p_counted_by = auth.uid()
+    or exists (
+      select 1 from public.cash_sessions cs
+      where cs.id = p_session_id and cs.opened_by = auth.uid()
+    );
+$$;
+
+revoke execute on function public.can_view_till_count(uuid, uuid) from public, anon;
+grant execute on function public.can_view_till_count(uuid, uuid) to authenticated;
+
+drop policy if exists "till_counts select scoped" on public.till_counts;
+create policy "till_counts select scoped" on public.till_counts for select to authenticated
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and public.user_can_access_location(location_id)
+    and public.can_view_till_count(cash_session_id, counted_by)
+  );
+
+drop policy if exists "till_count_lines select scoped" on public.till_count_lines;
+create policy "till_count_lines select scoped" on public.till_count_lines for select to authenticated
+  using (exists (
+    select 1 from public.till_counts tc
+    where tc.id = till_count_lines.till_count_id
+      and public.can_select_company(tc.company_id, tc.is_demo_data)
+      and public.user_can_access_location(tc.location_id)
+      and public.can_view_till_count(tc.cash_session_id, tc.counted_by)
+  ));
+
+-- Cajas abiertas de la sucursal que esperan un segundo conteo que YO puedo hacer,
+-- sin exponer ningún monto: solo quién hizo el primero (para mostrar su nombre).
+create or replace function public.sessions_needing_second_count(p_location_id uuid)
+returns table (session_id uuid, first_counted_by uuid)
+language plpgsql
+stable
+security definer
+set search_path to 'public'
+as $$
+begin
+  if auth.uid() is null then raise exception 'No autenticado.'; end if;
+  if public.current_user_company_id() is null then return; end if;
+  if public.current_user_role()::text = 'operador' then return; end if;
+  if not public.user_can_access_location(p_location_id) then return; end if;
+
+  return query
+  select cs.id, tc1.counted_by
+  from public.cash_sessions cs
+  join public.till_counts tc1 on tc1.cash_session_id = cs.id and tc1.count_number = 1
+  where cs.company_id = public.current_user_company_id()
+    and cs.location_id = p_location_id
+    and cs.status = 'open'
+    and not exists (
+      select 1 from public.till_counts tc2
+      where tc2.cash_session_id = cs.id and tc2.count_number = 2
+    )
+    and tc1.counted_by is distinct from auth.uid()
+  order by cs.opened_at;
+end;
+$$;
+
+revoke execute on function public.sessions_needing_second_count(uuid) from public, anon;
+grant execute on function public.sessions_needing_second_count(uuid) to authenticated;
