@@ -65,14 +65,28 @@ function charsForWidth(widthMm: 58 | 80): number {
   return widthMm === 58 ? 32 : 48;
 }
 
-function center(text: string, width: number): string {
+// Auditoría 2026-10 (4ª pasada): nombre de cliente, pie de ticket, dirección, etc.
+// los puede escribir cualquier miembro de la empresa, y este canal es crudo
+// (ESC/POS): un carácter de control embebido (p. ej. ESC p = abrir cajón) la
+// impresora lo ejecuta como comando. El texto de usuario se limpia aquí; los
+// comandos propios del ticket (INIT, BOLD_ON, CUT...) no pasan por estas funciones.
+export function printableText(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return String(text ?? "").replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+}
+
+function center(rawText: string, width: number): string {
+  const text = printableText(rawText);
+
   if (text.length >= width) return text.slice(0, width);
   const left = Math.floor((width - text.length) / 2);
 
   return " ".repeat(left) + text;
 }
 
-function row(left: string, right: string, width: number): string {
+function row(rawLeft: string, rawRight: string, width: number): string {
+  const left = printableText(rawLeft);
+  const right = printableText(rawRight);
   const space = width - left.length - right.length;
 
   if (space < 1) {

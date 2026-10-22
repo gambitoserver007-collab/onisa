@@ -3550,6 +3550,13 @@ begin
 
   perform 1 from public.sales where id = p_sale_id and company_id = v_company_id and deleted_at is null;
   if not found then raise exception 'Venta no encontrada.'; end if;
+  -- Auditoría 2026-10 (4ª pasada): además de la sucursal elegida, el empleado debe
+  -- tener acceso a la sucursal de la VENTA que devuelve (antes bastaba nombrar la propia).
+  if not public.user_can_access_location(
+       (select s2.location_id from public.sales s2 where s2.id = p_sale_id and s2.company_id = v_company_id)
+     ) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
 
   v_return_number := 'NC-' || to_char(now(),'YYYYMMDD') || '-' ||
                      upper(substr(replace(gen_random_uuid()::text,'-',''),1,6));
@@ -5988,6 +5995,19 @@ begin
       where cash_session_id = p_session_id and count_number = 1;
     if v_first_counted_by = auth.uid() then
       raise exception 'El segundo conteo debe hacerlo una persona distinta a quien hizo el primero.';
+    end if;
+    -- Auditoría 2026-10 (4ª pasada): un compañero podía meter un "segundo conteo"
+    -- falso aunque el primero ya cuadrara, y el último conteo sustituye al primero
+    -- (falso faltante para quien abrió la caja). Quien no es admin/finanzas/gerente
+    -- solo puede hacerlo si el primero NO cuadró (cuando se pide segundo conteo).
+    if not public.current_user_is_platform_admin()
+       and public.current_user_role()::text not in ('admin','finanzas','gerente')
+       and not exists (
+         select 1 from public.till_counts
+         where cash_session_id = p_session_id and count_number = 1
+           and round(counted_cash_total, 2) <> public.compute_cash_session_expected(p_session_id)
+       ) then
+      raise exception 'El segundo conteo solo se permite cuando el primero no cuadra.';
     end if;
   end if;
 
@@ -9592,6 +9612,13 @@ begin
 
   v_role := public.current_user_role();
 
+  -- Auditoría 2026-10 (4ª pasada): solo la rama sin producto rechazaba una pérdida
+  -- negativa; con producto se guardaba tal cual y restaba a los totales de
+  -- mermas (ocultando robos). Se valida antes de ramificar y la tabla lo exige.
+  if p_estimated_loss is not null and p_estimated_loss < 0 then
+    raise exception 'La perdida estimada no puede ser negativa.';
+  end if;
+
   v_employee_id := coalesce(p_employee_id, auth.uid());
   if v_employee_id <> auth.uid() and v_role not in ('admin', 'finanzas') then
     raise exception 'Solo un administrador o finanzas puede registrar una merma a nombre de otro empleado.';
@@ -9709,6 +9736,11 @@ begin
   select * into v_merma from public.mermas
     where id = p_merma_id and company_id = v_company_id and deleted_at is null;
   if not found then raise exception 'Merma no encontrada.'; end if;
+  -- Auditoría 2026-10 (4ª pasada): la restricción por sucursal también aplica a
+  -- los registros que ya existen, no solo a los nuevos.
+  if not public.user_can_access_location(v_merma.location_id) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
 
   if v_merma.product_id is not null and v_merma.quantity is not null then
     select id, stock into v_row_id, v_current
@@ -10030,6 +10062,15 @@ begin
     raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
   end if;
   v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+  -- Auditoría 2026-10 (4ª pasada): sin revisión de rol, cualquier miembro (incluso
+  -- un operador de almacén, que no ve cotizaciones) podía dejar en estado terminal
+  -- 'rechazada' las cotizaciones pendientes de los demás. Mismo criterio que
+  -- create_quote/convert_quote_to_sale, sin dejar fuera al gerente.
+  perform public.assert_company_can_operate(v_company_id);
+  if public.current_user_role()::text not in ('admin', 'finanzas', 'user', 'gerente') then
+    raise exception 'No tienes permiso para rechazar cotizaciones.';
+  end if;
 
   update public.quotes set status = 'rechazada', updated_at = now()
   where id = p_quote_id and company_id = v_company_id and status = 'pendiente';
@@ -10855,6 +10896,11 @@ begin
     where id = p_apartado_id and company_id = v_company_id and deleted_at is null
     for update;
   if not found then raise exception 'Apartado no encontrado.'; end if;
+  -- Auditoría 2026-10 (4ª pasada): un empleado restringido a otra sucursal no
+  -- opera apartados de esta (create_apartado ya lo exigía; estas tres no).
+  if not public.user_can_access_location(v_apartado.location_id) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
   if v_apartado.status <> 'activo' then
     raise exception 'Este apartado ya esta % y no admite mas abonos.', v_apartado.status;
   end if;
@@ -10949,6 +10995,11 @@ begin
     where id = p_apartado_id and company_id = v_company_id and deleted_at is null
     for update;
   if not found then raise exception 'Apartado no encontrado.'; end if;
+  -- Auditoría 2026-10 (4ª pasada): un empleado restringido a otra sucursal no
+  -- opera apartados de esta (create_apartado ya lo exigía; estas tres no).
+  if not public.user_can_access_location(v_apartado.location_id) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
   if v_apartado.status <> 'activo' then
     raise exception 'Este apartado ya esta %.', v_apartado.status;
   end if;
@@ -11110,6 +11161,11 @@ begin
     where id = p_apartado_id and company_id = v_company_id and deleted_at is null
     for update;
   if not found then raise exception 'Apartado no encontrado.'; end if;
+  -- Auditoría 2026-10 (4ª pasada): un empleado restringido a otra sucursal no
+  -- opera apartados de esta (create_apartado ya lo exigía; estas tres no).
+  if not public.user_can_access_location(v_apartado.location_id) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
   if v_apartado.status <> 'activo' then
     raise exception 'Este apartado ya esta % y no se puede cancelar.', v_apartado.status;
   end if;
@@ -13035,3 +13091,8 @@ $$;
 
 revoke execute on function public.sessions_needing_second_count(uuid) from public, anon;
 grant execute on function public.sessions_needing_second_count(uuid) to authenticated;
+
+-- Auditoría 2026-10 (4ª pasada): una merma nunca tiene pérdida negativa. NOT VALID para
+-- no fallar si ya hubiera filas negativas; las nuevas sí se validan.
+alter table public.mermas drop constraint if exists mermas_estimated_loss_nonneg;
+alter table public.mermas add constraint mermas_estimated_loss_nonneg check (estimated_loss >= 0) not valid;
