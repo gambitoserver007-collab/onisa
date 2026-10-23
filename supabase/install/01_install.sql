@@ -5883,6 +5883,13 @@ begin
     raise exception 'No autorizado.';
   end if;
 
+  -- Auditoría 2026-10 (5ª pasada): un usuario restringido a ciertas sucursales
+  -- (profile_locations) no ve el efectivo de las cajas de otras: esta función
+  -- corre como dueño y se saltaba la restricción de las políticas de RLS.
+  if not public.user_can_access_location(v_session.location_id) then
+    raise exception 'No autorizado.';
+  end if;
+
   select coalesce(sum(sp.amount), 0) into v_total
   from public.sale_payments sp
   join public.sales s on s.id = sp.sale_id
@@ -8603,6 +8610,10 @@ as $$
     where s.company_id = public.current_user_company_id()
       and s.deleted_at is null
       and s.sale_date >= now() - make_interval(days => p_days_window)
+      -- Auditoría 2026-10 (5ª pasada): solo las ventas/devoluciones de las
+      -- sucursales a las que el usuario tiene acceso (SECURITY DEFINER las
+      -- leía de toda la empresa).
+      and public.user_can_access_location(s.location_id)
       and si.product_id is not null
     group by si.product_id
   ),
@@ -8613,6 +8624,7 @@ as $$
     where r.company_id = public.current_user_company_id()
       and r.deleted_at is null
       and r.created_at >= now() - make_interval(days => p_days_window)
+      and public.user_can_access_location(r.location_id)
       and ri.product_id is not null
     group by ri.product_id
   ),
@@ -11661,12 +11673,16 @@ begin
     from public.apartados a
     where a.company_id = v_company_id and a.status = 'activo' and a.due_date < current_date
       and a.deleted_at is null
+      -- Auditoría 2026-10 (5ª pasada): solo sucursales a las que el usuario
+      -- tiene acceso (esta función corre como dueño y no pasa por RLS).
+      and public.user_can_access_location(a.location_id)
   ),
   cotizaciones_vencidas as (
     select q.id, q.quote_number, q.customer_name, q.valid_until, q.total
     from public.quotes q
     where q.company_id = v_company_id and q.status = 'pendiente' and q.valid_until < current_date
       and q.deleted_at is null
+      and public.user_can_access_location(q.location_id)
   ),
   cajas_abiertas as (
     select cs.id, l.name as location_name, cs.opened_at, pr.full_name as opened_by_name
@@ -11676,6 +11692,7 @@ begin
     left join public.profiles pr on pr.id = cs.opened_by
     where cs.company_id = v_company_id and cs.status = 'open'
       and cs.opened_at < date_trunc('day', now())
+      and public.user_can_access_location(cs.location_id)
   ),
   clientes_credito as (
     select c2.id, c2.name, c2.credit_limit, c2.credit_balance
@@ -11692,6 +11709,7 @@ begin
     from public.voided_sales vs
     left join public.profiles pr on pr.id = vs.created_by
     where vs.company_id = v_company_id and vs.created_at >= now() - interval '2 days'
+      and public.user_can_access_location(vs.location_id)
   )
   select jsonb_build_object(
     'stock_bajo', coalesce((
@@ -13234,3 +13252,92 @@ alter table public.mermas add constraint mermas_employee_id_fkey
 alter table public.mermas drop constraint if exists mermas_registered_by_fkey;
 alter table public.mermas add constraint mermas_registered_by_fkey
   foreign key (registered_by) references public.profiles(id) on delete set null;
+
+-- Auditoría 2026-10 (5ª pasada): aislamiento por sucursal también en las tablas
+-- hijas y en apartados/cotizaciones. Las políticas de lectura de sales, sale_items,
+-- stock_movements, cash_*, purchases y returns ya exigen user_can_access_location;
+-- estas tablas solo exigían la empresa, así que un empleado restringido a una
+-- sucursal leía por la API los pagos, compras, apartados y cotizaciones de las
+-- demás. Las hijas sin location_id heredan la sucursal de su padre.
+drop policy if exists "sale_payments select scoped" on public.sale_payments;
+create policy "sale_payments select scoped" on public.sale_payments for select to authenticated
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and exists (
+      select 1 from public.sales s
+      where s.id = sale_payments.sale_id and public.user_can_access_location(s.location_id)
+    )
+  );
+
+drop policy if exists "purchase_items select scoped" on public.purchase_items;
+create policy "purchase_items select scoped" on public.purchase_items for select to authenticated
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and exists (
+      select 1 from public.purchases p
+      where p.id = purchase_items.purchase_id and public.user_can_access_location(p.location_id)
+    )
+  );
+
+drop policy if exists "apartados select scoped" on public.apartados;
+create policy "apartados select scoped" on public.apartados for select to authenticated
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and public.user_can_access_location(location_id)
+  );
+
+drop policy if exists "apartado_items select scoped" on public.apartado_items;
+create policy "apartado_items select scoped" on public.apartado_items for select to authenticated
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and exists (
+      select 1 from public.apartados a
+      where a.id = apartado_items.apartado_id and public.user_can_access_location(a.location_id)
+    )
+  );
+
+drop policy if exists "apartado_payments select scoped" on public.apartado_payments;
+create policy "apartado_payments select scoped" on public.apartado_payments for select to authenticated
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and exists (
+      select 1 from public.apartados a
+      where a.id = apartado_payments.apartado_id and public.user_can_access_location(a.location_id)
+    )
+  );
+
+drop policy if exists "quotes select scoped" on public.quotes;
+create policy "quotes select scoped" on public.quotes for select to authenticated
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and public.user_can_access_location(location_id)
+  );
+
+drop policy if exists "quote_items select scoped" on public.quote_items;
+create policy "quote_items select scoped" on public.quote_items for select to authenticated
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and exists (
+      select 1 from public.quotes q
+      where q.id = quote_items.quote_id and public.user_can_access_location(q.location_id)
+    )
+  );
+
+drop policy if exists "voided_sales select scoped" on public.voided_sales;
+create policy "voided_sales select scoped" on public.voided_sales for select to authenticated
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and public.current_user_role()::text in ('admin', 'finanzas')
+    and public.user_can_access_location(location_id)
+  );
+
+drop policy if exists "voided_sale_items select scoped" on public.voided_sale_items;
+create policy "voided_sale_items select scoped" on public.voided_sale_items for select to authenticated
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and public.current_user_role()::text in ('admin', 'finanzas')
+    and exists (
+      select 1 from public.voided_sales v
+      where v.id = voided_sale_items.voided_sale_id and public.user_can_access_location(v.location_id)
+    )
+  );
