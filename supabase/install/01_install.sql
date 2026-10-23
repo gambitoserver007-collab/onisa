@@ -3319,6 +3319,15 @@ begin
   if p_items is null or jsonb_array_length(p_items) = 0 then
     raise exception 'Agrega al menos un producto a la compra.';
   end if;
+  if jsonb_array_length(p_items) > 200 then
+    raise exception 'La compra tiene demasiadas lineas (maximo 200).';
+  end if;
+  -- Auditoría 2026-10 (12ª pasada): el proveedor tiene que ser de la empresa (antes solo
+  -- lo validaba la llave foránea, que acepta el proveedor de otra empresa).
+  if p_supplier_id is not null and p_supplier_id <> '00000000-0000-0000-0000-000000000000'::uuid then
+    perform 1 from public.suppliers where id = p_supplier_id and company_id = v_company_id;
+    if not found then raise exception 'Proveedor no encontrado.'; end if;
+  end if;
 
   v_location_id := p_location_id;
   if v_location_id is null then
@@ -3341,14 +3350,17 @@ begin
   for v_item in select * from jsonb_array_elements(p_items) loop
     v_qty := coalesce((v_item ->> 'qty')::numeric, 0);
     v_unit_cost := coalesce((v_item ->> 'unit_cost')::numeric, 0);
-    if v_qty <= 0 then raise exception 'La cantidad debe ser mayor a 0.'; end if;
-    if v_unit_cost < 0 then raise exception 'El costo no puede ser negativo.'; end if;
+    if v_qty = 'NaN'::numeric or v_qty <= 0 then raise exception 'La cantidad debe ser mayor a 0.'; end if;
+    if v_unit_cost = 'NaN'::numeric or v_unit_cost < 0 then raise exception 'El costo no puede ser negativo.'; end if;
     v_total := v_total + round(v_qty * v_unit_cost, 2);
 
     select * into v_product from public.products
       where id = (v_item ->> 'product_id')::uuid
         and company_id = v_company_id and deleted_at is null;
     if not found then raise exception 'Producto no encontrado.'; end if;
+    if v_product.product_type <> 'standard' then
+      raise exception 'Los combos y servicios no se compran: no manejan inventario propio.';
+    end if;
     v_variant_id := nullif(v_item ->> 'variant_id','')::uuid;
     if v_product.has_variants and v_variant_id is null then
       raise exception 'El producto % requiere variante.', v_product.name;
@@ -3434,6 +3446,10 @@ begin
               'purchase', v_purchase_id, 'Compra ' || v_purchase_number);
     end if;
   end loop;
+
+  perform public.log_audit(v_company_id, 'purchase', v_purchase_id, 'registered',
+    jsonb_build_object('purchase_number', v_purchase_number, 'total', v_total,
+                       'items', jsonb_array_length(p_items)));
 
   return v_purchase_id;
 end;
@@ -3968,6 +3984,14 @@ begin
   if v_has_variants then
     for v_item in select * from jsonb_array_elements(p_variants) loop
       v_variant_id := nullif(v_item ->> 'id','')::uuid;
+      -- Auditoría 2026-10 (12ª pasada): precios y costos de variante no negativos ni NaN
+      -- (un price_override negativo hacía ventas de total negativo).
+      if coalesce(nullif(v_item ->> 'price_override','')::numeric, 0) < 0
+         or coalesce(nullif(v_item ->> 'cost_override','')::numeric, 0) < 0
+         or nullif(v_item ->> 'price_override','') = 'NaN'
+         or nullif(v_item ->> 'cost_override','') = 'NaN' then
+        raise exception 'El precio y el costo de una variante no pueden ser negativos.';
+      end if;
 
       if v_variant_id is not null then
         update public.product_variants set
@@ -4001,6 +4025,18 @@ begin
       v_keep_locs := array[]::uuid[];
       if (v_item ? 'locations') and jsonb_typeof(v_item -> 'locations') = 'array' then
         for v_loc in select * from jsonb_array_elements(v_item -> 'locations') loop
+          -- Auditoría 2026-10 (12ª pasada): la sucursal debe ser de la empresa y accesible
+          -- (esta RPC corre como dueño y no pasaba por las políticas RLS), y el
+          -- stock inicial no puede ser negativo ni NaN.
+          perform 1 from public.locations
+            where id = (v_loc ->> 'location_id')::uuid and company_id = v_company_id;
+          if not found then raise exception 'Sucursal invalida.'; end if;
+          if not public.user_can_access_location((v_loc ->> 'location_id')::uuid) then
+            raise exception 'No tienes acceso a esta sucursal.';
+          end if;
+          if coalesce((v_loc ->> 'stock')::numeric, 0) < 0 or (v_loc ->> 'stock') = 'NaN' then
+            raise exception 'El stock de una variante no puede ser negativo.';
+          end if;
           insert into public.product_variant_locations
             (company_id, product_variant_id, location_id, stock, is_active)
           values (
@@ -4399,11 +4435,18 @@ begin
     raise exception 'No tienes permiso para ajustar inventario.';
   end if;
 
+  if p_qty = 'NaN'::numeric then raise exception 'Ingresa una cantidad valida.'; end if;
   if v_qty = 0 then raise exception 'Ingresa una cantidad distinta de cero (usa negativos para descontar).'; end if;
 
   select * into v_product from public.products
     where id = p_product_id and company_id = v_company_id and deleted_at is null;
   if not found then raise exception 'Producto no encontrado.'; end if;
+  -- Auditoría 2026-10 (12ª pasada): un combo no tiene fila propia de stock (create_sale
+  -- descuenta sus PIEZAS) y un servicio no maneja inventario; darles stock propio
+  -- rompía esa regla (create_return ya lo evitaba).
+  if v_product.product_type <> 'standard' then
+    raise exception 'Los combos y servicios no manejan inventario propio.';
+  end if;
   if v_product.has_variants then
     raise exception 'Este producto tiene variantes. Usa el editor de variantes para ajustar stock.';
   end if;
@@ -4499,7 +4542,7 @@ begin
     raise exception 'No tienes permiso para transferir inventario.';
   end if;
 
-  if not (v_qty > 0) then raise exception 'Ingresa una cantidad mayor a cero.'; end if;
+  if p_qty = 'NaN'::numeric or not (v_qty > 0) then raise exception 'Ingresa una cantidad mayor a cero.'; end if;
   if p_from_location is null or p_to_location is null then
     raise exception 'Elige sucursal origen y destino.';
   end if;
@@ -4510,6 +4553,12 @@ begin
   select * into v_product from public.products
     where id = p_product_id and company_id = v_company_id and deleted_at is null;
   if not found then raise exception 'Producto no encontrado.'; end if;
+  -- Auditoría 2026-10 (12ª pasada): un combo no tiene fila propia de stock (create_sale
+  -- descuenta sus PIEZAS) y un servicio no maneja inventario; darles stock propio
+  -- rompía esa regla (create_return ya lo evitaba).
+  if v_product.product_type <> 'standard' then
+    raise exception 'Los combos y servicios no manejan inventario propio.';
+  end if;
   if v_product.has_variants then
     raise exception 'Este producto tiene variantes. Transfiere por variante.';
   end if;
@@ -4562,13 +4611,15 @@ begin
     v_to_stock := coalesce(v_to_stock,0) + v_qty;
   end if;
 
+  -- Auditoría 2026-10 (12ª pasada): las dos filas de la transferencia ahora guardan
+  -- quién la hizo (antes quedaban sin autor en el kardex).
   insert into public.stock_movements (company_id, location_id, product_id,
-                                      movement_type, qty, reference_type, notes)
+                                      movement_type, qty, reference_type, notes, created_by)
   values
     (v_company_id, p_from_location, p_product_id, 'transfer_out', -v_qty,
-     'transfer', coalesce(nullif(btrim(coalesce(p_notes,'')),''), 'Transferencia entre sucursales')),
+     'transfer', coalesce(nullif(btrim(coalesce(p_notes,'')),''), 'Transferencia entre sucursales'), auth.uid()),
     (v_company_id, p_to_location, p_product_id, 'transfer_in', v_qty,
-     'transfer', coalesce(nullif(btrim(coalesce(p_notes,'')),''), 'Transferencia entre sucursales'));
+     'transfer', coalesce(nullif(btrim(coalesce(p_notes,'')),''), 'Transferencia entre sucursales'), auth.uid());
 
   select coalesce(sum(stock),0) into v_total
   from public.product_locations
