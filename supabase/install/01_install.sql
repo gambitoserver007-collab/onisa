@@ -8191,6 +8191,9 @@ create table if not exists public.customer_credit_payments (
 );
 create index if not exists customer_credit_payments_customer_idx on public.customer_credit_payments(customer_id);
 create index if not exists customer_credit_payments_company_idx on public.customer_credit_payments(company_id);
+-- Auditoría 2026-10 (7ª pasada): el tipo de cobro que declaró quien cobró ('cash' /
+-- 'other') queda guardado para poder revisar los cobros no efectivo.
+alter table public.customer_credit_payments add column if not exists kind text;
 
 grant select on public.customer_credit_payments to authenticated;
 grant all on public.customer_credit_payments to service_role;
@@ -8218,8 +8221,10 @@ declare
   v_company_id uuid;
   v_balance numeric(12,2);
   v_apply numeric(12,2);
-  v_till_id uuid;
-  v_location_id uuid;
+  v_session_id uuid;
+  v_role text;
+  v_kind text;
+  v_balance_before numeric(12,2);
 begin
   if auth.uid() is null then raise exception 'No autenticado.'; end if;
   if public.current_user_is_demo() then raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.'; end if;
@@ -8235,7 +8240,26 @@ begin
   -- Auditoría 2026-10 (2ª pasada): igual que create_sale/create_return y las demás
   -- RPC de dinero y stock, una empresa suspendida o vencida no opera.
   perform public.assert_company_can_operate(v_company_id);
-  if p_amount is null or p_amount <= 0 then raise exception 'Ingresa un monto valido.'; end if;
+  if p_amount is null or p_amount <= 0 or p_amount = 'NaN'::numeric then raise exception 'Ingresa un monto valido.'; end if;
+  -- Auditoría 2026-10 (7ª pasada): el tipo de cobro lo declara quien llama la RPC;
+  -- se normaliza a 'cash' u 'other' (cualquier texto distinto de cash es no
+  -- efectivo, como siempre) y queda guardado para revisión.
+  v_kind := case when coalesce(nullif(btrim(p_kind), ''), 'cash') = 'cash' then 'cash' else 'other' end;
+  v_role := coalesce(public.current_user_role()::text, '');
+  -- Un cobro en efectivo tiene que entrar al efectivo esperado de un turno: antes,
+  -- si quien cobraba no tenía caja abierta, la deuda se borraba y el dinero no
+  -- quedaba en ningún arqueo. Cajeros: exigen su propia caja abierta. Admin /
+  -- gerente / finanzas (que pueden no tener caja propia) quedan registrados en
+  -- customer_credit_payments y en la bitácora.
+  if v_kind = 'cash' then
+    select id into v_session_id from public.cash_sessions
+      where company_id = v_company_id and status = 'open' and opened_by = auth.uid()
+      order by opened_at desc limit 1;
+    if v_session_id is null and v_role not in ('admin', 'gerente', 'finanzas')
+       and not coalesce(public.current_user_is_platform_admin(), false) then
+      raise exception 'Abre tu caja para cobrar en efectivo.';
+    end if;
+  end if;
 
   select credit_balance into v_balance
     from public.customers where id = p_customer_id and company_id = v_company_id
@@ -8244,6 +8268,7 @@ begin
 
   -- Nunca se rechaza por "pagó de más" -- se topa al saldo real, mismo
   -- principio que el canje de puntos de lealtad.
+  v_balance_before := coalesce(v_balance, 0);
   v_apply := least(p_amount, coalesce(v_balance, 0));
   if v_apply <= 0 then raise exception 'Este cliente no tiene saldo pendiente.'; end if;
 
@@ -8251,24 +8276,23 @@ begin
   update public.customers set credit_balance = coalesce(credit_balance,0) - v_apply, updated_at = now()
     where id = p_customer_id;
 
-  insert into public.customer_credit_payments (company_id, customer_id, amount, method, notes, created_by)
-  values (v_company_id, p_customer_id, v_apply, coalesce(p_method, 'Efectivo'), nullif(btrim(coalesce(p_notes,'')),''), auth.uid());
+  insert into public.customer_credit_payments (company_id, customer_id, amount, method, notes, created_by, kind)
+  values (v_company_id, p_customer_id, v_apply, left(coalesce(nullif(btrim(p_method), ''), 'Efectivo'), 60), nullif(btrim(coalesce(p_notes,'')),''), auth.uid(), v_kind);
 
-  -- Solo si es efectivo: se busca una caja abierta del usuario para que
-  -- este cobro también se refleje en el efectivo esperado del turno.
-  if coalesce(p_kind, 'cash') = 'cash' then
-    select location_id into v_location_id from public.profiles where id = auth.uid();
-    select till_id into v_till_id from public.cash_sessions
-      where company_id = v_company_id and status = 'open' and opened_by = auth.uid()
-      order by opened_at desc limit 1;
-    if v_till_id is not null then
-      insert into public.cash_movements (company_id, cash_session_id, movement_type, concept, amount, location_id)
-      select v_company_id, cs.id, 'ingreso', 'Cobro de credito', v_apply, cs.location_id
-      from public.cash_sessions cs
-      where cs.company_id = v_company_id and cs.status = 'open' and cs.opened_by = auth.uid()
-      order by cs.opened_at desc limit 1;
-    end if;
+  -- Solo si es efectivo: el cobro entra al efectivo esperado del turno de quien
+  -- cobra (la caja se resolvió arriba).
+  if v_kind = 'cash' and v_session_id is not null then
+    insert into public.cash_movements (company_id, cash_session_id, movement_type, concept, amount, location_id)
+    select v_company_id, cs.id, 'ingreso', 'Cobro de credito', v_apply, cs.location_id
+    from public.cash_sessions cs
+    where cs.id = v_session_id;
   end if;
+
+  -- Bitácora: cada cobro (y, por tanto, cada condonación disfrazada de cobro no
+  -- efectivo) queda con quién, cuánto, cómo y el saldo antes / después.
+  perform public.log_audit(v_company_id, 'customer', p_customer_id, 'credit_collected',
+    jsonb_build_object('amount', v_apply, 'method', coalesce(p_method, 'Efectivo'), 'kind', v_kind,
+                       'balance_before', v_balance_before, 'balance_after', v_balance_before - v_apply));
 
   return jsonb_build_object(
     'customer_id', p_customer_id,
