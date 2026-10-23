@@ -10218,11 +10218,23 @@ begin
   if p_location_id is not null then
     perform 1 from public.locations where id = p_location_id and company_id = v_company_id;
     if not found then raise exception 'Sucursal invalida.'; end if;
+    -- Auditoría 2026-10 (10ª pasada): igual que create_apartado y convert_quote_to_sale,
+    -- un empleado restringido a otra sucursal no crea cotizaciones de esta.
+    if not public.user_can_access_location(p_location_id) then
+      raise exception 'No tienes acceso a esta sucursal.';
+    end if;
   end if;
 
   v_valid_until := coalesce(p_valid_until, (current_date + interval '15 days')::date);
   if v_valid_until < current_date then
     raise exception 'La fecha de vigencia no puede ser en el pasado.';
+  end if;
+  -- Auditoría 2026-10 (10ª pasada): los precios de la cotización quedan congelados y
+  -- convert_quote_to_sale los respeta mientras no venza; con una vigencia sin tope
+  -- (p. ej. el año 2099) quien cotiza podía fijar el precio de hoy y venderlo a ese
+  -- precio meses después, cuando el producto ya subió. Tope de 90 días.
+  if v_valid_until > current_date + 90 then
+    raise exception 'La vigencia de una cotizacion no puede pasar de 90 dias.';
   end if;
 
   if p_customer_id is not null then
@@ -10230,7 +10242,7 @@ begin
       where id = p_customer_id and company_id = v_company_id and deleted_at is null;
     if v_customer_name is null then raise exception 'Cliente no encontrado.'; end if;
   else
-    v_customer_name := coalesce(nullif(btrim(coalesce(p_customer_name, '')), ''), 'Cliente');
+    v_customer_name := left(coalesce(nullif(btrim(coalesce(p_customer_name, '')), ''), 'Cliente'), 200);
   end if;
 
   select coalesce(tax_rate, 0.18) into v_tax_rate from public.companies where id = v_company_id;
@@ -10241,7 +10253,7 @@ begin
   insert into public.quotes (company_id, location_id, quote_number, customer_id, customer_name,
                              valid_until, notes, created_by)
   values (v_company_id, p_location_id, v_quote_number, p_customer_id, v_customer_name,
-          v_valid_until, nullif(btrim(coalesce(p_notes, '')), ''), auth.uid())
+          v_valid_until, left(nullif(btrim(coalesce(p_notes, '')), ''), 2000), auth.uid())
   returning id into v_quote_id;
 
   for v_item in select * from jsonb_array_elements(p_items) loop
@@ -10249,7 +10261,8 @@ begin
     if v_qty <= 0 then raise exception 'Cantidad invalida.'; end if;
 
     select * into v_product from public.products
-      where id = (v_item ->> 'product_id')::uuid and company_id = v_company_id and deleted_at is null;
+      where id = (v_item ->> 'product_id')::uuid and company_id = v_company_id and deleted_at is null
+        and active = true;
     if not found then raise exception 'Producto no encontrado.'; end if;
 
     v_price_includes_tax := coalesce(v_product.price_includes_tax, true);
@@ -10349,6 +10362,14 @@ begin
   perform public.assert_company_can_operate(v_company_id);
   if public.current_user_role()::text not in ('admin', 'finanzas', 'user', 'gerente') then
     raise exception 'No tienes permiso para rechazar cotizaciones.';
+  end if;
+
+  -- Auditoría 2026-10 (10ª pasada): la sucursal de la cotización también cuenta.
+  perform 1 from public.quotes q
+    where q.id = p_quote_id and q.company_id = v_company_id
+      and not public.user_can_access_location(q.location_id);
+  if found then
+    raise exception 'No tienes acceso a esta sucursal.';
   end if;
 
   update public.quotes set status = 'rechazada', updated_at = now()
@@ -10468,6 +10489,10 @@ begin
   if not public.user_can_access_location(p_location_id) then
     raise exception 'No tienes acceso a esta sucursal.';
   end if;
+  -- Auditoría 2026-10 (10ª pasada): también la sucursal de la propia cotización.
+  if not public.user_can_access_location(v_quote.location_id) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
 
   v_till_id := p_till_id;
   -- Auditoría 2026-10 (2ª pasada, caja): esta RPC usaba la caja del cliente tal
@@ -10520,6 +10545,11 @@ begin
       where id = v_item.product_id and company_id = v_company_id and deleted_at is null;
     if not found then
       raise exception 'El producto "%" de la cotizacion ya no existe en el catalogo.', v_item.product_name;
+    end if;
+    -- Auditoría 2026-10 (10ª pasada): create_sale no vende un producto desactivado; una
+    -- cotización vieja tampoco debe saltarse esa baja.
+    if not v_product.active then
+      raise exception 'El producto "%" de la cotizacion ya no esta disponible.', v_item.product_name;
     end if;
     if v_product.has_variants and v_item.product_variant_id is null then
       raise exception 'El producto "%" requiere variante.', v_item.product_name;

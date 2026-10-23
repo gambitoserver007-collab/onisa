@@ -91,6 +91,14 @@ function defaultValidUntil() {
   return d.toISOString().slice(0, 10);
 }
 
+// El servidor limita la vigencia a 90 días (los precios de la cotización quedan congelados).
+function maxValidUntil() {
+  const d = new Date();
+  d.setDate(d.getDate() + 90);
+
+  return d.toISOString().slice(0, 10);
+}
+
 interface QuoteCartItem {
   productId: string;
   name: string;
@@ -341,6 +349,7 @@ function CotizacionesPage() {
                     <Label>Válida hasta</Label>
                     <Input
                       type="date"
+                      max={maxValidUntil()}
                       value={validUntil}
                       onChange={(event) => setValidUntil(event.target.value)}
                     />
