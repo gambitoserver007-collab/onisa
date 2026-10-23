@@ -9447,10 +9447,18 @@ begin
   -- ese monto exacto al cliente al armar el pago dividido).
   if v_total > 0 then
     if p_payments is not null and jsonb_array_length(p_payments) > 0 then
-      select coalesce(sum((pmt ->> 'amount')::numeric), 0) into v_payments_total
+      -- Auditoría 2026-10 (5ª pasada): la suma se valida sobre los montos YA
+      -- redondeados a centavos (lo mismo que se guarda); antes se sumaban sin
+      -- redondear y muchas líneas de 0.0149 dejaban pagos guardados por debajo
+      -- del total. Además el desglose tiene tope de líneas.
+      if jsonb_array_length(p_payments) > 20 then
+        raise exception 'El desglose de pagos tiene demasiadas lineas (maximo 20).';
+      end if;
+
+      select coalesce(sum(round((pmt ->> 'amount')::numeric, 2)), 0) into v_payments_total
       from jsonb_array_elements(p_payments) pmt;
 
-      if round(v_payments_total, 2) <> round(v_total, 2) then
+      if v_payments_total <> round(v_total, 2) then
         raise exception 'La suma de los pagos (%) no coincide con el total de la venta (%).', v_payments_total, v_total;
       end if;
 
