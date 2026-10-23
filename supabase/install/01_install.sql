@@ -9129,7 +9129,13 @@ begin
       where company_id = v_company_id and location_id = v_location_id and status = 'open' and opened_by = auth.uid()
       order by opened_at desc limit 1;
   end if;
-  if v_till_id is null then
+  -- Auditoría 2026-10 (5ª pasada): este respaldo (la única sesión abierta de la
+  -- sucursal) cargaba la venta a la caja de OTRO cajero: su efectivo esperado
+  -- subía y su arqueo salía en faltante. Solo lo usan admin/gerente/finanzas
+  -- (que no tienen caja propia); un cajero sin sesión propia queda sin caja,
+  -- igual que create_return, que ya exigía la sesión del propio usuario.
+  if v_till_id is null
+     and (public.current_user_is_platform_admin() or public.current_user_role()::text in ('admin','gerente','finanzas')) then
     select count(*) into v_open_sessions from public.cash_sessions
       where company_id = v_company_id and location_id = v_location_id and status = 'open';
     if v_open_sessions = 1 then
@@ -10309,7 +10315,13 @@ begin
       where company_id = v_company_id and location_id = p_location_id and status = 'open' and opened_by = auth.uid()
       order by opened_at desc limit 1;
   end if;
-  if v_till_id is null then
+  -- Auditoría 2026-10 (5ª pasada): este respaldo (la única sesión abierta de la
+  -- sucursal) cargaba la venta a la caja de OTRO cajero: su efectivo esperado
+  -- subía y su arqueo salía en faltante. Solo lo usan admin/gerente/finanzas
+  -- (que no tienen caja propia); un cajero sin sesión propia queda sin caja,
+  -- igual que create_return, que ya exigía la sesión del propio usuario.
+  if v_till_id is null
+     and (public.current_user_is_platform_admin() or public.current_user_role()::text in ('admin','gerente','finanzas')) then
     select count(*) into v_open_sessions from public.cash_sessions
       where company_id = v_company_id and location_id = p_location_id and status = 'open';
     if v_open_sessions = 1 then
