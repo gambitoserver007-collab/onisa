@@ -8896,6 +8896,53 @@ grant execute on function public.set_employee_commission(uuid, numeric) to authe
 -- create_sale: agrega el cálculo de comisión al final, sobre el total ya
 -- final (post-promociones y post-lealtad, lo que de verdad se cobró) -- se
 -- reusa la misma firma, solo cambia el cuerpo.
+-- Auditoría 2026-10 (5ª pasada): normaliza el carrito que mandan create_sale,
+-- create_quote y create_apartado. Rechaza cualquier línea con cantidad <= 0 ANTES
+-- de unir (para que una línea negativa no se compense con otra), une las líneas
+-- repetidas del mismo producto/variante sumando su cantidad (así el importe se
+-- redondea una sola vez, no una vez por línea) y limita el carrito a 200 líneas.
+create or replace function public.normalize_cart_items(p_items jsonb)
+returns jsonb
+language plpgsql
+immutable
+set search_path to 'public'
+as $$
+declare
+  v_result jsonb;
+begin
+  if p_items is null or jsonb_typeof(p_items) <> 'array' then
+    raise exception 'Carrito invalido.';
+  end if;
+  if jsonb_array_length(p_items) > 200 then
+    raise exception 'El carrito tiene demasiadas lineas (maximo 200).';
+  end if;
+  if exists (
+    select 1 from jsonb_array_elements(p_items) i
+    where coalesce((i ->> 'qty')::numeric, 0) <= 0
+  ) then
+    raise exception 'Cantidad invalida.';
+  end if;
+
+  select coalesce(jsonb_agg(
+           jsonb_build_object('product_id', m.pid, 'variant_id', m.vid, 'qty', m.qty)
+           order by m.first_pos), '[]'::jsonb)
+    into v_result
+  from (
+    select t.item ->> 'product_id' as pid,
+           nullif(t.item ->> 'variant_id', '') as vid,
+           sum(coalesce((t.item ->> 'qty')::numeric, 0)) as qty,
+           min(t.pos) as first_pos
+    from jsonb_array_elements(p_items) with ordinality as t(item, pos)
+    group by 1, 2
+  ) m;
+
+  return v_result;
+end;
+$$;
+
+revoke execute on function public.normalize_cart_items(jsonb) from public, anon;
+grant execute on function public.normalize_cart_items(jsonb) to authenticated;
+
 create or replace function public.create_sale(
   p_customer_id uuid,
   p_document_type text,
@@ -8994,6 +9041,9 @@ begin
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
   end if;
   if p_items is null or jsonb_array_length(p_items) = 0 then raise exception 'El carrito esta vacio.'; end if;
+  -- Une las líneas repetidas del mismo producto/variante (se redondea una sola vez)
+  -- y limita el número de líneas. Ver normalize_cart_items.
+  p_items := public.normalize_cart_items(p_items);
   if coalesce(p_points_redeemed, 0) < 0 then raise exception 'Puntos invalidos.'; end if;
 
   if p_client_request_id is not null then
@@ -9172,6 +9222,14 @@ begin
       else
         v_line_total := round(v_unit_price * v_qty * (1+v_tax_rate), 2); v_line_tax := round(v_unit_price * v_qty * v_tax_rate, 2);
       end if;
+      -- Auditoría 2026-10 (5ª pasada): una línea con cantidad fraccionaria diminuta
+      -- (p. ej. 0.001 de un producto de $4) se redondeaba a $0.00 y aun así
+      -- descontaba stock: partiendo el carrito en muchas líneas, un cajero se
+      -- llevaba mercancía sin cobrarla. Ahora una línea con precio > 0 no puede
+      -- cobrarse en cero.
+      if v_unit_price > 0 and v_line_total <= 0 then
+        raise exception 'La cantidad de % es demasiado pequena para su precio.', v_product.name;
+      end if;
       v_total := v_total + v_line_total; v_tax := v_tax + v_line_tax;
 
       v_label_parts := array[]::text[];
@@ -9277,6 +9335,14 @@ begin
         v_line_total := round(v_unit_price * v_qty, 2); v_line_tax := round(v_line_total - v_line_total/(1+v_tax_rate), 2);
       else
         v_line_total := round(v_unit_price * v_qty * (1+v_tax_rate), 2); v_line_tax := round(v_unit_price * v_qty * v_tax_rate, 2);
+      end if;
+      -- Auditoría 2026-10 (5ª pasada): una línea con cantidad fraccionaria diminuta
+      -- (p. ej. 0.001 de un producto de $4) se redondeaba a $0.00 y aun así
+      -- descontaba stock: partiendo el carrito en muchas líneas, un cajero se
+      -- llevaba mercancía sin cobrarla. Ahora una línea con precio > 0 no puede
+      -- cobrarse en cero.
+      if v_unit_price > 0 and v_line_total <= 0 then
+        raise exception 'La cantidad de % es demasiado pequena para su precio.', v_product.name;
       end if;
       v_total := v_total + v_line_total; v_tax := v_tax + v_line_tax;
 
@@ -9948,6 +10014,7 @@ begin
   if p_items is null or jsonb_array_length(p_items) = 0 then
     raise exception 'Agrega al menos un producto a la cotizacion.';
   end if;
+  p_items := public.normalize_cart_items(p_items);
 
   if p_location_id is not null then
     perform 1 from public.locations where id = p_location_id and company_id = v_company_id;
@@ -10014,6 +10081,14 @@ begin
     else
       v_line_total := round(v_unit_price * v_qty * (1 + v_tax_rate), 2);
       v_line_tax := round(v_unit_price * v_qty * v_tax_rate, 2);
+    end if;
+    -- Auditoría 2026-10 (5ª pasada): una línea con cantidad fraccionaria diminuta
+    -- (p. ej. 0.001 de un producto de $4) se redondeaba a $0.00 y aun así
+    -- descontaba stock: partiendo el carrito en muchas líneas, un cajero se
+    -- llevaba mercancía sin cobrarla. Ahora una línea con precio > 0 no puede
+    -- cobrarse en cero.
+    if v_unit_price > 0 and v_line_total <= 0 then
+      raise exception 'La cantidad de % es demasiado pequena para su precio.', v_product.name;
     end if;
     v_total := v_total + v_line_total;
     v_tax := v_tax + v_line_tax;
@@ -10700,6 +10775,7 @@ begin
   if p_items is null or jsonb_array_length(p_items) = 0 then
     raise exception 'Agrega al menos un producto al apartado.';
   end if;
+  p_items := public.normalize_cart_items(p_items);
 
   select name into v_customer_name from public.customers
     where id = p_customer_id and company_id = v_company_id and deleted_at is null;
@@ -10751,6 +10827,14 @@ begin
     else
       v_line_total := round(v_unit_price * v_qty * (1 + v_tax_rate), 2);
       v_line_tax := round(v_unit_price * v_qty * v_tax_rate, 2);
+    end if;
+    -- Auditoría 2026-10 (5ª pasada): una línea con cantidad fraccionaria diminuta
+    -- (p. ej. 0.001 de un producto de $4) se redondeaba a $0.00 y aun así
+    -- descontaba stock: partiendo el carrito en muchas líneas, un cajero se
+    -- llevaba mercancía sin cobrarla. Ahora una línea con precio > 0 no puede
+    -- cobrarse en cero.
+    if v_unit_price > 0 and v_line_total <= 0 then
+      raise exception 'La cantidad de % es demasiado pequena para su precio.', v_product.name;
     end if;
     v_total := v_total + v_line_total;
     v_tax := v_tax + v_line_tax;
