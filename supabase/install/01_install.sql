@@ -3490,6 +3490,7 @@ declare
   v_paid_total numeric;
   v_gross_total numeric;
   v_paid_ratio numeric := 1;
+  v_refunded_prev numeric(12,2);
   v_redeemed_points numeric;
   v_already_restored numeric;
   v_this_restore numeric;
@@ -3617,7 +3618,17 @@ begin
       where id = v_product_id and company_id = v_company_id and deleted_at is null;
     if not found then raise exception 'Producto no encontrado.'; end if;
 
-    v_line_total := round(v_unit_price * v_qty * v_paid_ratio, 2);
+    -- Auditoría 2026-10 (6ª pasada): el reembolso se redondeaba en cada llamada
+    -- por separado (0.001 x $5 = $0.01 en vez de $0.005): devolviendo en
+    -- fracciones diminutas se reembolsaba hasta el doble de lo pagado. Ahora se
+    -- calcula sobre la cantidad ACUMULADA devuelta y se resta lo ya reembolsado
+    -- de ese renglón, así la suma de cualquier partición es el monto de un solo
+    -- redondeo (v_sale_item está bloqueado FOR UPDATE: lectura sin carrera).
+    select coalesce(sum(ri.total), 0) into v_refunded_prev
+    from public.return_items ri
+    where ri.sale_item_id = v_sale_item.id;
+    v_line_total := greatest(0,
+      round(v_unit_price * (v_returned_prev + v_qty) * v_paid_ratio, 2) - v_refunded_prev);
     v_total := v_total + v_line_total;
 
     if v_variant_id is not null then
@@ -5867,15 +5878,24 @@ set search_path to 'public'
 as $$
 declare
   v_session public.cash_sessions%rowtype;
+  v_company_id uuid;
   v_role public.app_role;
   v_total numeric(12,2);
 begin
   if auth.uid() is null then raise exception 'No autenticado.'; end if;
 
+  -- Auditoría 2026-10 (6ª pasada): fallaba ABIERTA para quien no tiene perfil
+  -- activo (p. ej. un empleado desactivado con la sesión aún vigente):
+  -- current_user_company_id() y current_user_role() devuelven NULL, las
+  -- comparaciones "<>" / "not in" dan NULL (= no se lanza el error) y devolvía el
+  -- efectivo de la caja de CUALQUIER empresa. Ahora exige empresa y rol conocidos.
+  v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
+
   select * into v_session from public.cash_sessions where id = p_session_id;
   if not found then raise exception 'Caja no encontrada.'; end if;
 
-  if v_session.company_id <> public.current_user_company_id() then
+  if v_session.company_id is distinct from v_company_id then
     raise exception 'No autorizado.';
   end if;
 
@@ -5884,7 +5904,8 @@ begin
   -- esperado ANTES de contar (arqueo ciego solo en la pantalla). La pantalla ya
   -- solo la muestra a admin/finanzas; ahora el servidor lo exige igual.
   v_role := public.current_user_role();
-  if v_role not in ('admin', 'finanzas') and not public.current_user_is_platform_admin() then
+  if coalesce(v_role::text, '') not in ('admin', 'finanzas')
+     and not coalesce(public.current_user_is_platform_admin(), false) then
     raise exception 'No autorizado.';
   end if;
 
@@ -9219,6 +9240,12 @@ begin
 
     v_price_includes_tax := coalesce(v_product.price_includes_tax, true);
     v_variant_id := nullif(v_item ->> 'variant_id','')::uuid;
+    -- Auditoría 2026-10 (6ª pasada): un producto con variantes solo se vende por
+    -- variante (precio y stock de la variante); sin esto un cajero que llamara
+    -- la RPC directo lo vendía al precio base y con el stock viejo.
+    if v_product.has_variants and v_variant_id is null then
+      raise exception 'El producto % requiere variante.', v_product.name;
+    end if;
 
     if v_variant_id is not null then
       select * into v_variant from public.product_variants
@@ -9847,6 +9874,7 @@ begin
   end if;
 
   v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
   -- Auditoría 2026-10 (2ª pasada): igual que create_sale/create_return y las demás
   -- RPC de dinero y stock, una empresa suspendida o vencida no opera.
   perform public.assert_company_can_operate(v_company_id);
@@ -10117,6 +10145,11 @@ begin
     v_price_includes_tax := coalesce(v_product.price_includes_tax, true);
     v_variant_id := nullif(v_item ->> 'variant_id', '')::uuid;
     v_variant_label := null;
+    -- Auditoría 2026-10 (6ª pasada): igual que create_sale, un producto con
+    -- variantes solo se cotiza por variante.
+    if v_product.has_variants and v_variant_id is null then
+      raise exception 'El producto % requiere variante.', v_product.name;
+    end if;
 
     if v_variant_id is not null then
       select * into v_variant from public.product_variants
@@ -10377,6 +10410,9 @@ begin
       where id = v_item.product_id and company_id = v_company_id and deleted_at is null;
     if not found then
       raise exception 'El producto "%" de la cotizacion ya no existe en el catalogo.', v_item.product_name;
+    end if;
+    if v_product.has_variants and v_item.product_variant_id is null then
+      raise exception 'El producto "%" requiere variante.', v_item.product_name;
     end if;
     if v_item.product_variant_id is not null then
       -- Variante: solo aplica a productos estándar (un combo/servicio
@@ -11035,6 +11071,7 @@ begin
   end if;
 
   v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
   -- Auditoría 2026-10 (2ª pasada): igual que create_sale/create_return, una empresa
   -- suspendida o vencida no opera (antes estas RPC solo revisaban el rol).
   perform public.assert_company_can_operate(v_company_id);
@@ -11300,6 +11337,7 @@ begin
   end if;
 
   v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
   -- Auditoría 2026-10 (2ª pasada): igual que create_sale/create_return, una empresa
   -- suspendida o vencida no opera (antes estas RPC solo revisaban el rol).
   perform public.assert_company_can_operate(v_company_id);
@@ -12358,6 +12396,7 @@ begin
     raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
   end if;
   v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
   v_role := public.current_user_role();
   if v_role not in ('admin', 'finanzas', 'user') then
     raise exception 'No tienes permiso para atender solicitudes de cotizacion.';
@@ -12396,6 +12435,7 @@ begin
     raise exception 'Esta accion esta deshabilitada en el Modo de Prueba.';
   end if;
   v_company_id := public.current_user_company_id();
+  if v_company_id is null then raise exception 'El usuario no tiene empresa asociada.'; end if;
   v_role := public.current_user_role();
   if v_role not in ('admin', 'finanzas', 'user') then
     raise exception 'No tienes permiso para atender solicitudes de cotizacion.';
@@ -13423,3 +13463,15 @@ drop trigger if exists enforce_user_limit_trg on public.profiles;
 create trigger enforce_user_limit_trg
   before insert or update of is_active, company_id on public.profiles
   for each row execute function public.enforce_user_limit();
+
+-- Auditoría 2026-10 (6ª pasada): el modo demo es de solo lectura. Todas las demás
+-- tablas lo hacen valer (can_write_company / can_admin_company o el trigger
+-- reject_demo_write), pero las políticas de profiles solo miraban el rol: un
+-- admin en modo demo podía renombrar, cambiar el PIN o BORRAR perfiles de su
+-- empresa por la API. Un trigger cubre cualquier política presente o futura.
+-- (Las RPC y los triggers del sistema corren sin sesión de usuario demo; la
+-- Edge Function usa service_role, para quien current_user_is_demo() es falso.)
+drop trigger if exists prevent_demo_profiles_write on public.profiles;
+create trigger prevent_demo_profiles_write
+  before update or delete on public.profiles
+  for each row execute function public.reject_demo_write();
