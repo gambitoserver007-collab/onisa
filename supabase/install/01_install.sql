@@ -5024,6 +5024,11 @@ begin
     return new;
   end if;
 
+  -- Auditoría 2026-10 (5ª pasada): contar y luego insertar no era atómico;
+  -- N altas simultáneas con (límite - 1) productos pasaban todas. El candado
+  -- (por empresa, hasta el commit) serializa la cuenta con el alta.
+  perform pg_advisory_xact_lock(hashtextextended(new.company_id::text || ':products', 0));
+
   select count(*) into v_count
   from public.products
   where company_id = new.company_id and deleted_at is null;
@@ -9099,6 +9104,11 @@ begin
     where c.id = v_company_id;
 
     if v_plan_sales_limit is not null then
+      -- Auditoría 2026-10 (5ª pasada): contar y luego insertar no era atómico;
+      -- N ventas simultáneas con (límite - 1) ventas pasaban todas. El candado
+      -- (por empresa, hasta el commit) serializa la cuenta con la venta.
+      perform pg_advisory_xact_lock(hashtextextended(v_company_id::text || ':sales', 0));
+
       select count(*) into v_sales_this_month
       from public.sales
       where company_id = v_company_id
@@ -9845,8 +9855,13 @@ begin
     raise exception 'Solo un administrador o finanzas puede eliminar una merma.';
   end if;
 
+  -- Auditoría 2026-10 (5ª pasada): FOR UPDATE -- dos llamadas a la vez (doble
+  -- clic, reintento, dos administradores) leían ambas la merma sin borrar y
+  -- cada una le sumaba el stock otra vez. Ahora la segunda espera a la primera,
+  -- ya no encuentra la merma y se rechaza.
   select * into v_merma from public.mermas
-    where id = p_merma_id and company_id = v_company_id and deleted_at is null;
+    where id = p_merma_id and company_id = v_company_id and deleted_at is null
+    for update;
   if not found then raise exception 'Merma no encontrada.'; end if;
   -- Auditoría 2026-10 (4ª pasada): la restricción por sucursal también aplica a
   -- los registros que ya existen, no solo a los nuevos.
@@ -9875,7 +9890,7 @@ begin
     end if;
   end if;
 
-  update public.mermas set deleted_at = now() where id = p_merma_id;
+  update public.mermas set deleted_at = now() where id = p_merma_id and deleted_at is null;
 
   perform public.log_audit(v_company_id, 'merma', p_merma_id, 'deleted',
     jsonb_build_object('reason_category', v_merma.reason_category, 'estimated_loss', v_merma.estimated_loss));
@@ -12730,7 +12745,10 @@ begin
   -- SELECT filtrado por el corte ya guardado (corte no nulo). Mientras el PRIMER conteo
   -- no hace commit, la versión visible de la fila todavía tiene el corte en NULL,
   -- así que no coincidía, no se tomaba ningún candado y la venta no esperaba al
-  -- conteo. Ahora se bloquea la caja abierta SIEMPRE (sin filtrar por el corte):
+  -- conteo. Auditoría 2026-10 (5ª pasada): además el candado pasa de FOR KEY SHARE
+  -- (el más débil: no choca con un UPDATE de una columna que no es llave, que es
+  -- justo como el conteo escribe count_cutoff_at) a FOR SHARE, que sí espera
+  -- tanto a un FOR UPDATE como a ese UPDATE sin llave. Ahora se bloquea la caja abierta SIEMPRE (sin filtrar por el corte):
   -- si el conteo está en curso la venta espera su commit y luego lee el corte ya
   -- confirmado.
   if new.till_id is not null then
@@ -12740,7 +12758,7 @@ begin
       and cs.company_id = new.company_id
       and cs.status = 'open'
     limit 1
-    for key share;
+    for share;
 
     if v_cutoff is not null then
       raise exception 'Esta caja ya esta en conteo de cierre; no se pueden registrar mas ventas en ella. Cierra el turno primero.';
@@ -12775,7 +12793,7 @@ begin
     select cs.count_cutoff_at into v_cutoff
     from public.cash_sessions cs
     where cs.id = new.cash_session_id
-    for key share;
+    for share;
 
     if v_cutoff is not null then
       raise exception 'Esta caja ya esta en conteo de cierre; no se pueden registrar mas movimientos en ella. Cierra el turno primero.';
@@ -12867,6 +12885,9 @@ begin
   where c.id = p_company_id;
 
   if v_limit is not null then
+    -- Mismo candado por empresa que create_sale (ver ahí).
+    perform pg_advisory_xact_lock(hashtextextended(p_company_id::text || ':sales', 0));
+
     select count(*) into v_count
     from public.sales
     where company_id = p_company_id
@@ -13341,3 +13362,64 @@ create policy "voided_sale_items select scoped" on public.voided_sale_items for 
       where v.id = voided_sale_items.voided_sale_id and public.user_can_access_location(v.location_id)
     )
   );
+
+-- Auditoría 2026-10 (5ª pasada): límite de usuarios del plan a prueba de peticiones
+-- simultáneas. Las Edge Functions team-create-user y team-manage-user contaban los
+-- perfiles activos y DESPUÉS creaban/reactivaban (llamadas separadas, sin candado):
+-- N peticiones en paralelo con (límite - 1) usuarios pasaban todas. Ahora la base
+-- lo hace valer: al activar un perfil o mudarlo de empresa se toma un candado por
+-- empresa (hasta el commit) y se vuelve a contar. Como product_limit, no aplica a
+-- empresas sin plan ni al administrador de la plataforma; las Edge Functions siguen
+-- haciendo su revisión previa para dar el mensaje.
+create or replace function public.enforce_user_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_limit integer;
+  v_count integer;
+begin
+  if new.is_active is not true then
+    return new;
+  end if;
+  if tg_op = 'UPDATE'
+     and old.is_active is true
+     and new.company_id is not distinct from old.company_id then
+    return new;
+  end if;
+  if new.company_id is null or public.current_user_is_platform_admin() then
+    return new;
+  end if;
+
+  select sp.user_limit into v_limit
+  from public.companies c
+  join public.subscription_plans sp on sp.id = c.plan_id
+  where c.id = new.company_id;
+
+  if v_limit is null then
+    return new;
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(new.company_id::text || ':users', 0));
+
+  select count(*) into v_count
+  from public.profiles
+  where company_id = new.company_id and is_active = true and id <> new.id;
+
+  if v_count >= v_limit then
+    raise exception 'Se alcanzo el limite de usuarios de tu plan (%). Actualiza tu plan para agregar mas usuarios.', v_limit
+      using errcode = 'P0001';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.enforce_user_limit() from public, anon, authenticated;
+
+drop trigger if exists enforce_user_limit_trg on public.profiles;
+create trigger enforce_user_limit_trg
+  before insert or update of is_active, company_id on public.profiles
+  for each row execute function public.enforce_user_limit();

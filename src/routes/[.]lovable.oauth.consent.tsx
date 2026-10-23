@@ -1,6 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { isEmbeddedInFrame } from "@/lib/framing";
 
 // Minimal typed wrapper for the beta supabase.auth.oauth namespace.
 type OAuthResult = {
@@ -81,6 +82,9 @@ function Consent() {
   const details = Route.useLoaderData();
   const { authorization_id } = Route.useSearch();
   const [busy, setBusy] = useState(false);
+  // Dentro de un iframe de otro sitio no se muestra el botón de aprobar
+  // (clickjacking): se pide abrir la autorización en una ventana propia.
+  const [framed] = useState(() => isEmbeddedInFrame());
   const [error, setError] = useState<string | null>(null);
   const clientName = details?.client?.name ?? "una aplicación externa";
 
@@ -118,6 +122,28 @@ function Consent() {
       setBusy(false);
       setError(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  if (framed) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 p-8">
+        <h1 className="text-2xl font-bold">
+          Abre esta autorización en una ventana nueva
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Por seguridad, la autorización no se puede aprobar desde dentro de
+          otra página.
+        </p>
+        <a
+          href={typeof window === "undefined" ? "#" : window.location.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-md bg-primary px-4 py-2 text-center text-sm font-medium text-primary-foreground"
+        >
+          Abrir en una ventana nueva
+        </a>
+      </main>
+    );
   }
 
   return (

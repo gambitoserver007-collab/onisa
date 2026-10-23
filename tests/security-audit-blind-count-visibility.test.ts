@@ -188,9 +188,16 @@ describe("Cortes de conteo: el candado se toma siempre", () => {
       expect(rows).toHaveLength(2);
 
       for (const r of rows) {
-        const src = r.src.toLowerCase();
+        // Sin comentarios: solo cuenta el SQL ejecutable.
+        const src = r.src
+          .split("\n")
+          .filter((l) => !l.trim().startsWith("--"))
+          .join("\n")
+          .toLowerCase();
 
-        expect(src, r.proname).toContain("for key share");
+        // FOR SHARE (no KEY SHARE): debe esperar también al UPDATE sin llave del conteo.
+        expect(src, r.proname).toMatch(/for share/);
+        expect(src, r.proname).not.toContain("for key share");
         // El corte se LEE de la fila bloqueada; no es parte del WHERE.
         expect(src, r.proname).not.toMatch(/count_cutoff_at\s+is\s+not\s+null/);
       }

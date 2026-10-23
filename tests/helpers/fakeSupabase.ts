@@ -10,12 +10,21 @@ export interface FakeSupabaseCalls {
   updates: { table: string; row: FakeRow; payload: FakeRow }[];
   upserts: { table: string; row: FakeRow }[];
   inserts: { table: string; row: FakeRow }[];
+  createUser: FakeRow[];
+}
+
+/** Hace fallar una escritura (como lo haría un trigger de la base). */
+export interface FakeWriteFailure {
+  table: string;
+  op: "update" | "insert" | "upsert" | "delete";
+  message: string;
 }
 
 export interface FakeSupabase {
   tables: Record<string, FakeRow[]>;
   tokens: Map<string, string>;
   calls: FakeSupabaseCalls;
+  failWrites: FakeWriteFailure[];
   client: unknown;
   reset: () => void;
 }
@@ -40,7 +49,9 @@ export function createFakeSupabase(): FakeSupabase {
       updates: [],
       upserts: [],
       inserts: [],
+      createUser: [],
     },
+    failWrites: [],
     client: null,
     reset() {
       fake.tables = {};
@@ -50,6 +61,8 @@ export function createFakeSupabase(): FakeSupabase {
       fake.calls.updates.length = 0;
       fake.calls.upserts.length = 0;
       fake.calls.inserts.length = 0;
+      fake.calls.createUser.length = 0;
+      fake.failWrites.length = 0;
     },
   };
 
@@ -80,6 +93,13 @@ export function createFakeSupabase(): FakeSupabase {
           count: state.count ? m.length : null,
           error: null,
         };
+      }
+      const failure = fake.failWrites.find(
+        (f) => f.table === table && f.op === state.op,
+      );
+
+      if (failure) {
+        return { data: null, count: null, error: { message: failure.message } };
       }
       if (state.op === "update") {
         for (const r of matching()) {
@@ -137,7 +157,14 @@ export function createFakeSupabase(): FakeSupabase {
       },
       in: () => b,
       maybeSingle: async () => ({ data: matching()[0] ?? null, error: null }),
-      single: async () => ({ data: matching()[0] ?? null, error: null }),
+      single: async () => {
+        if (state.op === "select") {
+          return { data: matching()[0] ?? null, error: null };
+        }
+        const res = await exec();
+
+        return { data: res.error ? null : state.payload, error: res.error };
+      },
       update: (p: FakeRow) => {
         state.op = "update";
         state.payload = p;
@@ -186,6 +213,14 @@ export function createFakeSupabase(): FakeSupabase {
           fake.calls.updateUserById.push({ id, attrs });
 
           return { error: null };
+        },
+        createUser: async (attrs: FakeRow) => {
+          fake.calls.createUser.push(attrs);
+
+          return {
+            data: { user: { id: `new-user-${fake.calls.createUser.length}` } },
+            error: null,
+          };
         },
         deleteUser: async (id: string) => {
           fake.calls.deleteUser.push(id);

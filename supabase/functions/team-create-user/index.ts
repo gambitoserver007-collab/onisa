@@ -208,6 +208,19 @@ Deno.serve(async (req) => {
       .single();
 
     if (profileErr) {
+      // El límite de usuarios también lo hace valer la base (trigger
+      // enforce_user_limit, con candado por empresa): si varias peticiones
+      // pasaron la revisión de arriba a la vez, las que sobran caen aquí. Se
+      // borra la cuenta recién creada para no dejar un login huérfano.
+      if (/limite de usuarios/i.test(profileErr.message ?? "")) {
+        await admin.auth.admin.deleteUser(newUserId);
+        return json(
+          {
+            error: `Se alcanzó el límite de usuarios del plan (${userLimit}). Actualiza el plan para agregar más usuarios.`,
+          },
+          409,
+        );
+      }
       return json({ error: `Usuario creado pero falló el perfil: ${profileErr.message}` }, 500);
     }
 

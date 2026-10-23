@@ -221,7 +221,20 @@ Deno.serve(async (req) => {
         .from("profiles")
         .update(updates)
         .eq("id", target_user_id);
-      if (updErr) return json({ error: updErr.message }, 500);
+      if (updErr) {
+        // Mismo límite que hace valer la base (trigger enforce_user_limit): una
+        // reactivación simultánea que ya no cabe se rechaza igual que arriba.
+        if (/limite de usuarios/i.test(updErr.message ?? "")) {
+          return json(
+            {
+              error:
+                "Se alcanzó el límite de usuarios del plan. Actualiza el plan para reactivar usuarios.",
+            },
+            409,
+          );
+        }
+        return json({ error: updErr.message }, 500);
+      }
     }
 
     if (Object.keys(sensitiveChanges).length > 0) {
