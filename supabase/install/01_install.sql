@@ -8261,8 +8261,9 @@ grant execute on function public.collect_customer_credit(uuid, numeric, text, te
 -- dejar logins huérfanos que luego, al volver a entrar sin perfil,
 -- terminen creándose una empresa fantasma por accidente -- eso solo lo
 -- hace bien la Edge Function team-manage-user (Admin API), que ya existe
--- y ya se usa en /usuarios. El frontend debe borrar ahí primero a todo el
--- equipo (menos quien está restableciendo) antes de llamar esta función.
+-- y ya se usa en /usuarios. El frontend llama esta función PRIMERO (si falla,
+-- no se pierde ninguna cuenta) y después borra ahí a todo el equipo (menos
+-- quien está restableciendo).
 --
 -- Doble confirmación: además del diálogo del frontend, esta función exige
 -- que le manden el nombre EXACTO actual de la empresa -- mismo principio
@@ -8304,6 +8305,25 @@ begin
   perform set_config('request.jwt.claim.sub', '', true);
 
   -- Orden hijo -> padre para respetar llaves foráneas.
+  -- Auditoría 2026-10 (5ª pasada): antes la lista a mano omitía mermas,
+  -- apartados, cotizaciones, ventas anuladas, eventos de calendario y
+  -- bloqueos del checador. Cuatro llaves foráneas ON DELETE RESTRICT
+  -- (mermas -> sucursal, apartados -> sucursal/cliente, apartado_items ->
+  -- producto) abortaban todo el restablecimiento en cuanto existía UNA merma
+  -- o UN apartado -- y cualquier cajero podía registrar la merma que lo
+  -- bloqueaba. Se borran primero, junto con sus hijos.
+  delete from public.apartado_payments where company_id = v_company_id;
+  delete from public.apartado_items where company_id = v_company_id;
+  delete from public.apartados where company_id = v_company_id;
+  delete from public.mermas where company_id = v_company_id;
+  delete from public.quote_items where company_id = v_company_id;
+  delete from public.quotes where company_id = v_company_id;
+  delete from public.quote_request_items where company_id = v_company_id;
+  delete from public.quote_requests where company_id = v_company_id;
+  delete from public.voided_sale_items where company_id = v_company_id;
+  delete from public.voided_sales where company_id = v_company_id;
+  delete from public.company_calendar_events where company_id = v_company_id;
+  delete from public.punch_failed_attempts where company_id = v_company_id;
   delete from public.till_count_lines where company_id = v_company_id;
   delete from public.till_counts where company_id = v_company_id;
   delete from public.cash_movements where company_id = v_company_id;
@@ -13188,3 +13208,17 @@ grant execute on function public.sessions_needing_second_count(uuid) to authenti
 -- no fallar si ya hubiera filas negativas; las nuevas sí se validan.
 alter table public.mermas drop constraint if exists mermas_estimated_loss_nonneg;
 alter table public.mermas add constraint mermas_estimated_loss_nonneg check (estimated_loss >= 0) not valid;
+
+-- Auditoría 2026-10 (5ª pasada): las mermas ya no impiden borrar a un empleado.
+-- employee_id / registered_by eran NOT NULL + ON DELETE RESTRICT hacia profiles:
+-- borrar la cuenta de cualquiera que hubiera registrado una merma fallaba
+-- ("Database error deleting user") y el cajero que la registró era intocable.
+-- Ahora la merma se conserva (historial de pérdidas) y queda sin empleado.
+alter table public.mermas alter column employee_id drop not null;
+alter table public.mermas alter column registered_by drop not null;
+alter table public.mermas drop constraint if exists mermas_employee_id_fkey;
+alter table public.mermas add constraint mermas_employee_id_fkey
+  foreign key (employee_id) references public.profiles(id) on delete set null;
+alter table public.mermas drop constraint if exists mermas_registered_by_fkey;
+alter table public.mermas add constraint mermas_registered_by_fkey
+  foreign key (registered_by) references public.profiles(id) on delete set null;

@@ -916,7 +916,7 @@ export type Database = {
           company_id: string;
           created_at: string;
           deleted_at: string | null;
-          employee_id: string;
+          employee_id: string | null;
           estimated_loss: number;
           id: string;
           is_demo_data: boolean;
@@ -925,7 +925,7 @@ export type Database = {
           product_id: string | null;
           quantity: number | null;
           reason_category: string;
-          registered_by: string;
+          registered_by: string | null;
           unit_cost: number | null;
         };
         Insert: {

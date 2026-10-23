@@ -6224,8 +6224,8 @@ export interface Merma {
   estimatedLoss: number;
   reasonCategory: MermaReasonCategory;
   notes: string | null;
-  employeeId: string;
-  registeredBy: string;
+  employeeId: string | null;
+  registeredBy: string | null;
   createdAt: string;
 }
 
@@ -6238,8 +6238,8 @@ function mapMerma(row: {
   estimated_loss: number | string;
   reason_category: string;
   notes: string | null;
-  employee_id: string;
-  registered_by: string;
+  employee_id: string | null;
+  registered_by: string | null;
   created_at: string;
   products?: { name: string } | { name: string }[] | null;
 }): Merma {
@@ -6401,10 +6401,11 @@ export async function fetchMermaSummary(
   for (const merma of mermas) {
     totalLoss += merma.estimatedLoss;
 
-    const emp = byEmployee.get(merma.employeeId) ?? { count: 0, total: 0 };
+    const empKey = merma.employeeId ?? "";
+    const emp = byEmployee.get(empKey) ?? { count: 0, total: 0 };
     emp.count += 1;
     emp.total += merma.estimatedLoss;
-    byEmployee.set(merma.employeeId, emp);
+    byEmployee.set(empKey, emp);
 
     const loc = byLocation.get(merma.locationId) ?? { count: 0, total: 0 };
     loc.count += 1;

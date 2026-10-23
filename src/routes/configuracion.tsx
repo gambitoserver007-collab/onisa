@@ -518,12 +518,15 @@ function Configuracion() {
     try {
       const team = await fetchTeam(session.companyId ?? undefined);
 
+      // Primero se borran los datos (atómico en el servidor): si falla, no se
+      // pierde ninguna cuenta. El equipo se borra después.
+      await resetCompanyData(settings.businessName.trim());
+
       for (const member of team) {
         if (member.id === session.userId) continue;
         await deleteTeamUser(session, member.id);
       }
 
-      await resetCompanyData(settings.businessName.trim());
       toast.success("Sistema restablecido. Reiniciando sesión...");
       window.location.href = "/";
     } catch (error) {

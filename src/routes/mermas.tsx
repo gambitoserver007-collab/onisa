@@ -573,7 +573,9 @@ function Mermas() {
                       )}
                       {isManager && (
                         <TableCell>
-                          {profileNames[merma.employeeId] ?? "—"}
+                          {(merma.employeeId &&
+                            profileNames[merma.employeeId]) ||
+                            "—"}
                         </TableCell>
                       )}
                       <TableCell>
