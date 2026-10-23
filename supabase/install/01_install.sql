@@ -5371,6 +5371,16 @@ begin
   ) then
     raise exception 'Ya hay una caja abierta en esa caja.';
   end if;
+  -- Auditoría 2026-10 (8ª pasada): un cajero podía abrir TODAS las cajas de la
+  -- sucursal y dejarlas abiertas (solo él o un administrador las puede cerrar),
+  -- bloqueando a sus compañeros. Un cajero tiene una sola caja abierta a la vez;
+  -- admin / gerente / finanzas no tienen ese límite.
+  if public.current_user_role()::text = 'user' and exists (
+    select 1 from public.cash_sessions
+    where company_id = v_company_id and opened_by = auth.uid() and status = 'open'
+  ) then
+    raise exception 'Ya tienes una caja abierta. Cierra tu turno antes de abrir otra.';
+  end if;
 
   insert into public.cash_sessions
     (company_id, location_id, till_id, status, opening_amount, opened_by, opened_at)
@@ -6347,6 +6357,12 @@ begin
     where id = p_session_id and company_id = v_company_id
     for update;
   if not found then raise exception 'Caja no encontrada.'; end if;
+  -- Auditoría 2026-10 (8ª pasada): igual que contar y cerrar, autorizar el corte
+  -- de una sucursal exige acceso a esa sucursal (un finanzas restringido a la
+  -- sucursal A podía dar por bueno, o por faltante, el corte de la B).
+  if not public.user_can_access_location(v_session.location_id) then
+    raise exception 'No tienes acceso a esta sucursal.';
+  end if;
   if v_session.status <> 'closed' then raise exception 'Esta caja todavía no está cerrada.'; end if;
   if v_session.review_status = 'authorized' then raise exception 'Este corte ya fue autorizado.'; end if;
 
@@ -10899,7 +10915,7 @@ set search_path to 'public'
 as $$
 begin
   insert into public.cash_movements (company_id, cash_session_id, movement_type, concept, amount, location_id)
-  select p_company_id, cs.id, 'ingreso', p_concept, p_amount, cs.location_id
+  select p_company_id, cs.id, case when p_amount < 0 then 'egreso' else 'ingreso' end, p_concept, p_amount, cs.location_id
   from public.cash_sessions cs
   where cs.company_id = p_company_id and cs.status = 'open' and cs.opened_by = auth.uid()
   order by cs.opened_at desc
@@ -12962,6 +12978,7 @@ create policy "cash_movements insert scoped" on public.cash_movements
         and cs.company_id = cash_movements.company_id
         and cs.status = 'open'
         and public.user_can_access_location(cs.location_id)
+        and (cash_movements.location_id is null or cash_movements.location_id = cs.location_id)
         and (
           cs.opened_by = auth.uid()
           or public.current_user_is_platform_admin()
@@ -13569,3 +13586,11 @@ drop trigger if exists prevent_demo_profiles_write on public.profiles;
 create trigger prevent_demo_profiles_write
   before update or delete on public.profiles
   for each row execute function public.reject_demo_write();
+
+-- Auditoría 2026-10 (8ª pasada): un movimiento de caja es 'ingreso' (monto > 0) o
+-- 'egreso' (monto < 0). La inserción directa aceptaba cualquier tipo, signo o un
+-- monto cero (p. ej. un "ingreso" negativo que restaba del esperado sin quedar como
+-- egreso). NOT VALID: no revisa filas viejas, solo las nuevas.
+alter table public.cash_movements drop constraint if exists cash_movements_type_sign_chk;
+alter table public.cash_movements add constraint cash_movements_type_sign_chk
+  check ((movement_type = 'ingreso' and amount > 0) or (movement_type = 'egreso' and amount < 0)) not valid;

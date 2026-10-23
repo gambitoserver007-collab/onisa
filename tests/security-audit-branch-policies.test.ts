@@ -36,6 +36,7 @@ describe("Sucursal restringida: tablas hijas y RPC de lectura", () => {
   let db: PGlite;
   let C: TestCompany;
   let seller: string; // sin restricción: vende en las dos sucursales
+  let seller2: string; // sin restricción: vende en la sucursal 2 (un cajero = una caja abierta)
   let restricted: string; // cajero restringido a loc1
   let finanzas: string; // finanzas restringido a loc1
   let boss: string; // admin sin restricción
@@ -65,6 +66,7 @@ describe("Sucursal restringida: tablas hijas y RPC de lectura", () => {
     db = await createTestDb();
     C = await makeCompany(db, "Empresa sucursales");
     seller = await makeUser(db, C.id, "user");
+    seller2 = await makeUser(db, C.id, "user");
     restricted = await makeUser(db, C.id, "user");
     finanzas = await makeUser(db, C.id, "finanzas");
     boss = await makeUser(db, C.id, "admin");
@@ -82,7 +84,7 @@ describe("Sucursal restringida: tablas hijas y RPC de lectura", () => {
       [C.loc1, product1],
       [C.loc2, product2],
     ] as const) {
-      await asUser(db, seller, async () => {
+      await asUser(db, loc === C.loc1 ? seller : seller2, async () => {
         await db.query("select open_cash_session(0,$1)", [loc]);
         await createSale(
           db,
