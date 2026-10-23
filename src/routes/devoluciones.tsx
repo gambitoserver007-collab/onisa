@@ -451,7 +451,9 @@ function Devoluciones() {
                     checked={refundCash}
                     onCheckedChange={(v) => setRefundCash(v === true)}
                   />
-                  Reembolsar en efectivo (si hay caja abierta en la sucursal)
+                  Reembolsar en efectivo lo que se pagó en efectivo (requiere tu
+                  caja abierta). Lo pagado a crédito baja la deuda del cliente;
+                  tarjeta o transferencia no mueven la caja.
                 </label>
               </div>
               <DialogFooter>

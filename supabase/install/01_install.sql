@@ -3442,6 +3442,11 @@ $$;
 revoke execute on function public.create_purchase(uuid, text, timestamp with time zone, uuid, jsonb) from public, anon;
 grant execute on function public.create_purchase(uuid, text, timestamp with time zone, uuid, jsonb) to authenticated;
 
+-- Auditoría 2026-10 (8ª pasada): cuánto de cada devolución se reembolsó en efectivo
+-- y cuánto a la deuda a crédito del cliente (el resto fue por otro medio).
+alter table public.returns add column if not exists refund_cash_amount numeric(12,2) not null default 0;
+alter table public.returns add column if not exists refund_credit_amount numeric(12,2) not null default 0;
+
 -- =====================================================================
 -- §1) create_return — exigir sale_item_id + lock anti-carrera
 --      (también fix locations.deleted_at -> is_active)
@@ -3491,6 +3496,15 @@ declare
   v_gross_total numeric;
   v_paid_ratio numeric := 1;
   v_refunded_prev numeric(12,2);
+  v_pay_cash numeric(12,2);
+  v_pay_credit numeric(12,2);
+  v_pay_all numeric(12,2);
+  v_cum_refund numeric(12,2);
+  v_prev_cash numeric(12,2);
+  v_prev_credit numeric(12,2);
+  v_cash_part numeric(12,2) := 0;
+  v_credit_part numeric(12,2) := 0;
+  v_sale_method text;
   v_redeemed_points numeric;
   v_already_restored numeric;
   v_this_restore numeric;
@@ -3818,8 +3832,55 @@ begin
     end if;
   end if;
 
-  -- Cash refund: egreso con monto negativo
-  if p_refund_cash and v_total > 0 then
+  -- Auditoría 2026-10 (8ª pasada): el reembolso sigue la FORMA DE PAGO ORIGINAL de
+  -- la venta. Antes, p_refund_cash sacaba efectivo del cajón por el total aunque la
+  -- venta se hubiera pagado a crédito o con tarjeta: devolver una venta a crédito
+  -- "reembolsada en efectivo" convertía una deuda en dinero del cajón y la deuda
+  -- del cliente nunca bajaba. Ahora, de forma acumulada entre devoluciones:
+  --   · la parte pagada en efectivo se reembolsa en efectivo (si p_refund_cash);
+  --   · la parte pagada a crédito reduce la deuda del cliente;
+  --   · lo demás (tarjeta, transferencia) no mueve la caja.
+  perform 1 from public.sales where id = p_sale_id and company_id = v_company_id for update;
+  select coalesce(sum(case when sp.kind = 'cash' then sp.amount end), 0),
+         coalesce(sum(case when sp.kind = 'credit' then sp.amount end), 0),
+         coalesce(sum(sp.amount), 0)
+    into v_pay_cash, v_pay_credit, v_pay_all
+    from public.sale_payments sp
+    where sp.sale_id = p_sale_id and sp.company_id = v_company_id;
+  if v_pay_all <= 0 then
+    -- Venta anterior al desglose de pagos: se usa el método guardado en la venta.
+    select payment_method into v_sale_method from public.sales
+      where id = p_sale_id and company_id = v_company_id;
+    v_pay_all := 1;
+    v_pay_credit := 0;
+    v_pay_cash := case when lower(coalesce(v_sale_method, 'efectivo')) = 'efectivo' then 1 else 0 end;
+  end if;
+
+  select coalesce(sum(r.total), 0), coalesce(sum(r.refund_cash_amount), 0), coalesce(sum(r.refund_credit_amount), 0)
+    into v_cum_refund, v_prev_cash, v_prev_credit
+    from public.returns r
+    where r.sale_id = p_sale_id and r.company_id = v_company_id and r.id <> v_return_id;
+  v_cum_refund := v_cum_refund + v_total;
+
+  v_cash_part := greatest(0, least(v_total,
+    round(v_cum_refund * v_pay_cash / v_pay_all, 2) - v_prev_cash));
+  v_credit_part := greatest(0, least(v_total - v_cash_part,
+    round(v_cum_refund * v_pay_credit / v_pay_all, 2) - v_prev_credit));
+
+  update public.returns
+    set refund_cash_amount = v_cash_part, refund_credit_amount = v_credit_part
+    where id = v_return_id;
+
+  if v_credit_part > 0 and v_sale_customer_id is not null then
+    perform set_config('app.bypass_customer_credit_loyalty', 'true', true);
+    update public.customers
+      set credit_balance = greatest(0, coalesce(credit_balance, 0) - v_credit_part),
+          updated_at = now()
+      where id = v_sale_customer_id and company_id = v_company_id;
+  end if;
+
+  -- Cash refund: egreso con monto negativo (solo la parte pagada en efectivo)
+  if p_refund_cash and v_cash_part > 0 then
     -- Auditoría 2026-10 (3ª pasada): antes se tomaba la última caja abierta de
     -- la sucursal, que podía ser la de OTRO cajero (le descuadraba el turno).
     -- Solo la caja abierta de quien hace la devolución.
@@ -3830,11 +3891,20 @@ begin
         and opened_by = auth.uid()
       order by opened_at desc limit 1;
 
+    -- Un reembolso en efectivo sin la caja de quien lo da no quedaba en ningún
+    -- arqueo: los cajeros deben tener su caja abierta (admin / gerente / finanzas
+    -- quedan registrados en returns.refund_cash_amount).
+    if v_session_id is null
+       and coalesce(public.current_user_role()::text, '') not in ('admin', 'gerente', 'finanzas')
+       and not coalesce(public.current_user_is_platform_admin(), false) then
+      raise exception 'Abre tu caja para reembolsar en efectivo.';
+    end if;
+
     if v_session_id is not null then
       insert into public.cash_movements (company_id, cash_session_id,
                                          movement_type, concept, amount, movement_at)
       values (v_company_id, v_session_id, 'egreso',
-              'Reembolso devolucion ' || v_return_number, -v_total, now());
+              'Reembolso devolucion ' || v_return_number, -v_cash_part, now());
     end if;
   end if;
 
