@@ -10913,6 +10913,8 @@ language plpgsql
 security definer
 set search_path to 'public'
 as $$
+declare
+  v_rows integer;
 begin
   insert into public.cash_movements (company_id, cash_session_id, movement_type, concept, amount, location_id)
   select p_company_id, cs.id, case when p_amount < 0 then 'egreso' else 'ingreso' end, p_concept, p_amount, cs.location_id
@@ -10920,6 +10922,18 @@ begin
   where cs.company_id = p_company_id and cs.status = 'open' and cs.opened_by = auth.uid()
   order by cs.opened_at desc
   limit 1;
+  get diagnostics v_rows = row_count;
+
+  -- Auditoría 2026-10 (9ª pasada): sin caja abierta de quien recibe el efectivo, el
+  -- anticipo o abono se guardaba y el dinero no entraba a ningún arqueo. Los
+  -- cajeros deben tener su caja abierta; admin / gerente / finanzas (que cancelan
+  -- apartados y pueden no tener caja propia) quedan registrados en
+  -- apartado_payments y en la bitácora.
+  if v_rows = 0
+     and coalesce(public.current_user_role()::text, '') not in ('admin', 'gerente', 'finanzas')
+     and not coalesce(public.current_user_is_platform_admin(), false) then
+    raise exception 'Abre tu caja para registrar efectivo del apartado.';
+  end if;
 end;
 $$;
 
@@ -10989,6 +11003,10 @@ begin
     raise exception 'Agrega al menos un producto al apartado.';
   end if;
   p_items := public.normalize_cart_items(p_items);
+  -- Auditoría 2026-10 (9ª pasada): un anticipo NaN o con fracciones de centavo
+  -- ya no pasa; se trabaja siempre con centavos exactos.
+  if p_deposit_amount = 'NaN'::numeric then raise exception 'Monto de anticipo invalido.'; end if;
+  p_deposit_amount := round(coalesce(p_deposit_amount, 0), 2);
 
   select name into v_customer_name from public.customers
     where id = p_customer_id and company_id = v_company_id and deleted_at is null;
@@ -11022,7 +11040,8 @@ begin
     if v_qty <= 0 then raise exception 'Cantidad invalida.'; end if;
 
     select * into v_product from public.products
-      where id = (v_item ->> 'product_id')::uuid and company_id = v_company_id and deleted_at is null;
+      where id = (v_item ->> 'product_id')::uuid and company_id = v_company_id and deleted_at is null
+        and active = true;
     if not found then raise exception 'Producto no encontrado.'; end if;
     if v_product.has_variants then
       raise exception 'El producto "%" tiene variantes; los apartados por ahora solo admiten productos sin variantes.', v_product.name;
@@ -11205,6 +11224,10 @@ begin
 
   v_remaining := v_apartado.total - v_apartado.paid_total;
   if v_remaining <= 0 then raise exception 'Este apartado ya esta pagado por completo.'; end if;
+  -- Auditoría 2026-10 (9ª pasada): NaN ordena por encima de cualquier número, así
+  -- que least(NaN, saldo) daba el saldo completo: un abono "NaN" liquidaba el
+  -- apartado entero.
+  if p_amount = 'NaN'::numeric then raise exception 'Ingresa un monto valido.'; end if;
   v_apply := least(coalesce(p_amount, 0), v_remaining);
   if v_apply <= 0 then raise exception 'Ingresa un monto valido.'; end if;
 
@@ -11302,6 +11325,7 @@ begin
     raise exception 'Este apartado ya esta %.', v_apartado.status;
   end if;
 
+  if p_final_payment_amount = 'NaN'::numeric then raise exception 'Ingresa un monto valido.'; end if;
   if coalesce(p_final_payment_amount, 0) > 0 then
     v_remaining := v_apartado.total - v_apartado.paid_total;
     if v_remaining > 0 then
@@ -11440,6 +11464,8 @@ declare
   v_role public.app_role;
   v_apartado public.apartados%rowtype;
   v_movement record;
+  v_cash_paid numeric(12,2);
+  v_refund_cash numeric(12,2) := 0;
 begin
   if auth.uid() is null then raise exception 'No autenticado.'; end if;
   if public.current_user_is_demo() then
@@ -11494,22 +11520,34 @@ begin
             'apartado', v_apartado.id, 'Apartado ' || v_apartado.apartado_number || ' cancelado -- se repone el stock');
   end loop;
 
+  -- Auditoría 2026-10 (9ª pasada): el efectivo que sale del cajón es solo lo que se
+  -- pagó EN EFECTIVO; antes se sacaba el total pagado aunque el anticipo se hubiera
+  -- cobrado con tarjeta o transferencia (la parte no efectiva se devuelve por su
+  -- propio medio, fuera de la caja).
   if p_refund_deposit and v_apartado.paid_total > 0 then
-    perform public.apartado_register_cash_movement(
-      v_company_id, -v_apartado.paid_total, 'Reembolso apartado cancelado ' || v_apartado.apartado_number
-    );
+    select coalesce(sum(amount), 0) into v_cash_paid
+      from public.apartado_payments
+      where apartado_id = v_apartado.id and company_id = v_company_id and kind = 'cash';
+    v_refund_cash := least(v_cash_paid, v_apartado.paid_total);
+    if v_refund_cash > 0 then
+      perform public.apartado_register_cash_movement(
+        v_company_id, -v_refund_cash, 'Reembolso apartado cancelado ' || v_apartado.apartado_number
+      );
+    end if;
   end if;
 
   update public.apartados set status = 'cancelado', cancel_refunded = p_refund_deposit, updated_at = now()
     where id = p_apartado_id;
 
   perform public.log_audit(v_company_id, 'apartado', p_apartado_id, 'cancelled',
-    jsonb_build_object('refund_deposit', p_refund_deposit, 'paid_total', v_apartado.paid_total));
+    jsonb_build_object('refund_deposit', p_refund_deposit, 'paid_total', v_apartado.paid_total,
+                       'refund_cash', v_refund_cash));
 
   return jsonb_build_object(
     'apartado_id', p_apartado_id,
     'refunded', p_refund_deposit,
-    'refunded_amount', case when p_refund_deposit then v_apartado.paid_total else 0 end
+    'refunded_amount', case when p_refund_deposit then v_apartado.paid_total else 0 end,
+    'refunded_cash', v_refund_cash
   );
 end;
 $$;

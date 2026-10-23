@@ -56,6 +56,11 @@ describe("Cotizaciones y apartados", () => {
       [C.id],
     );
 
+    // El anticipo/abono en efectivo exige la caja abierta de quien lo recibe.
+    await asUser(db, cashier, () =>
+      db.query("select open_cash_session(0,$1)", [C.loc1]),
+    );
+
     return { C, cashier, admin, product, customer };
   };
 
