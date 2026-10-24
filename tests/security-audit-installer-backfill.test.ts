@@ -78,8 +78,9 @@ describe("Instalador: re-ejecutarlo no toca el inventario ni las asignaciones", 
     expect(Number(r[0].stock)).toBe(10);
   }, 240_000);
 
-  it("un cajero que crea otra sucursal llamada 'Principal' no multiplica el inventario al re-ejecutar", async () => {
-    const plant = await rejects(() =>
+  it("una sucursal 'Principal' extra (ya no la puede crear un cajero) no multiplica el inventario al re-ejecutar", async () => {
+    // Auditoría 2026-10 (13ª pasada): crear sucursales ahora es solo del admin.
+    const byCashier = await rejects(() =>
       asUser(db, cashier, () =>
         db.query(
           "insert into public.locations (company_id, name) values ($1,'Principal')",
@@ -88,10 +89,14 @@ describe("Instalador: re-ejecutarlo no toca el inventario ni las asignaciones", 
       ),
     );
 
-    // La política actual permite crear sucursales a cualquier miembro (decisión
-    // documentada); lo que importa es que ya no sirve para duplicar stock.
-    expect(plant).toBeNull();
+    expect(byCashier).toMatch(/row-level security/i);
 
+    // Aun si existiera otra 'Principal' (alta por un admin), re-ejecutar el
+    // instalador no debe servir para duplicar stock.
+    await db.query(
+      "insert into public.locations (company_id, name) values ($1,'Principal')",
+      [C.id],
+    );
     await rerunInstaller(db);
 
     expect(await rows(productB)).toHaveLength(1);

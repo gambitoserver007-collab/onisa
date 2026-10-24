@@ -113,7 +113,8 @@ describe("Horario de la sucursal", () => {
     expect(rows[0].opening_hours).toBe("9 a 6");
   });
 
-  it("un cajero NO puede crear una sucursal con horario ya fijado, pero sí sin él", async () => {
+  it("un cajero NO puede crear una sucursal, ni con horario ni sin él (solo el admin)", async () => {
+    // Auditoría 2026-10 (13ª pasada): INSERT de sucursales solo para admin.
     const withHours = await rejects(() =>
       asUser(db, cashier, () =>
         db.query(
@@ -131,8 +132,9 @@ describe("Horario de la sucursal", () => {
       ),
     );
 
-    expect(withHours).toMatch(/administrador/i);
-    expect(without).toBeNull();
+    // El trigger del horario se evalúa antes que la política de RLS.
+    expect(withHours).toMatch(/administrador|row-level security/i);
+    expect(without).toMatch(/row-level security/i);
   });
 });
 

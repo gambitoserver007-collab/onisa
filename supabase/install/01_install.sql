@@ -13713,3 +13713,86 @@ create trigger prevent_demo_profiles_write
 alter table public.cash_movements drop constraint if exists cash_movements_type_sign_chk;
 alter table public.cash_movements add constraint cash_movements_type_sign_chk
   check ((movement_type = 'ingreso' and amount > 0) or (movement_type = 'egreso' and amount < 0)) not valid;
+
+-- ============================================================
+-- Auditoría de seguridad 2026-10 (13ª pasada): escrituras directas del cliente vs
+-- los roles de la pantalla. Varias políticas dejaban escribir a roles que la app
+-- nunca deja entrar a esa pantalla (solo la UI lo ocultaba; un REST directo lo
+-- permitía igual).
+--   · locations: INSERT abierto a CUALQUIER miembro y UPDATE sin límite sobre
+--     is_active, pero toda escritura de sucursales sale de /puntos-de-venta (solo
+--     admin). Un cajero podía crear sucursales (cada una crea su caja) o
+--     desactivar la principal (apagando el POS de todos). Se mantiene abierto,
+--     como se decidió en la auditoría 2026-09, editar nombre / dirección /
+--     teléfono / config de ticket; crear sucursales y activar / desactivar solo
+--     el administrador.
+--   · customers: lo escribía cualquier miembro, incluido el operador de almacén
+--     (que no ve /clientes). Ahora solo los roles de esa pantalla.
+--   · Archivar (deleted_at) a un cliente con saldo pendiente lo "escondía" de la
+--     pantalla; solo un administrador puede archivar a un cliente con deuda.
+-- ============================================================
+drop policy if exists "locations insert scoped" on public.locations;
+create policy "locations insert scoped" on public.locations
+  for insert to authenticated
+  with check (public.can_admin_company(company_id));
+
+create or replace function public.protect_location_active()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  if auth.uid() is not null
+     and new.is_active is distinct from old.is_active
+     and not public.can_admin_company(new.company_id) then
+    raise exception 'Solo un administrador puede activar o desactivar sucursales.';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.protect_location_active() from public, anon, authenticated;
+
+drop trigger if exists protect_location_active on public.locations;
+create trigger protect_location_active
+  before update of is_active on public.locations
+  for each row execute function public.protect_location_active();
+
+drop policy if exists "customers write scoped" on public.customers;
+create policy "customers write scoped" on public.customers for all to authenticated
+  using (
+    public.can_write_company(company_id)
+    and public.current_user_role()::text in ('admin', 'gerente', 'finanzas', 'user')
+  )
+  with check (
+    public.can_write_company(company_id)
+    and public.current_user_role()::text in ('admin', 'gerente', 'finanzas', 'user')
+  );
+
+create or replace function public.protect_customer_archive()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  if auth.uid() is not null
+     and old.deleted_at is null
+     and new.deleted_at is not null
+     and coalesce(old.credit_balance, 0) > 0
+     and not public.can_admin_company(old.company_id) then
+    raise exception 'No puedes eliminar a un cliente con saldo pendiente. Cobra su deuda o pide a un administrador.';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.protect_customer_archive() from public, anon, authenticated;
+
+drop trigger if exists protect_customer_archive on public.customers;
+create trigger protect_customer_archive
+  before update of deleted_at on public.customers
+  for each row execute function public.protect_customer_archive();
