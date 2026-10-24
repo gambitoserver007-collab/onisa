@@ -6500,6 +6500,11 @@ create policy "audit_log select scoped" on public.audit_log for select to authen
 -- Sin política de insert/update/delete para "authenticated": solo vía
 -- log_audit() (SECURITY DEFINER) o el trigger de cash_movements.
 
+-- Auditoría 2026-10 (14ª pasada): quién actuó, tal como se llamaba en ese momento.
+-- actor_id se pone en NULL si luego borran la cuenta (on delete set null); con esta
+-- copia la bitácora conserva la atribución aunque el empleado ya no exista.
+alter table public.audit_log add column if not exists actor_label text;
+
 create or replace function public.log_audit(
   p_company_id uuid,
   p_entity_type text,
@@ -6512,8 +6517,10 @@ security definer
 set search_path to 'public'
 as $$
 begin
-  insert into public.audit_log (company_id, actor_id, entity_type, entity_id, action, detail)
-  values (p_company_id, auth.uid(), p_entity_type, p_entity_id, p_action, coalesce(p_detail, '{}'::jsonb));
+  insert into public.audit_log (company_id, actor_id, actor_label, entity_type, entity_id, action, detail)
+  values (p_company_id, auth.uid(),
+          (select left(coalesce(nullif(btrim(pr.full_name), ''), pr.email), 120) from public.profiles pr where pr.id = auth.uid()),
+          p_entity_type, p_entity_id, p_action, coalesce(p_detail, '{}'::jsonb));
 end;
 $$;
 
@@ -8594,6 +8601,15 @@ begin
     commission_rate = null,
     updated_at = now()
   where id = v_caller_id;
+
+  -- Auditoría 2026-10 (14ª pasada): el restablecimiento borra la bitácora entera; lo
+  -- único que queda es esta entrada, con quién lo hizo y cuándo. (Se inserta directo
+  -- porque arriba se limpió el claim de sesión y auth.uid() ya no identifica a nadie.)
+  insert into public.audit_log (company_id, actor_id, actor_label, entity_type, entity_id, action, detail)
+  values (v_company_id, v_caller_id,
+          (select left(coalesce(nullif(btrim(pr.full_name), ''), pr.email), 120) from public.profiles pr where pr.id = v_caller_id),
+          'company', v_company_id, 'reset',
+          jsonb_build_object('previous_name', v_company.name));
 
   return jsonb_build_object(
     'company_id', v_company_id,
@@ -13796,3 +13812,79 @@ drop trigger if exists protect_customer_archive on public.customers;
 create trigger protect_customer_archive
   before update of deleted_at on public.customers
   for each row execute function public.protect_customer_archive();
+
+-- ============================================================
+-- Auditoría de seguridad 2026-10 (14ª pasada): integridad de la bitácora.
+-- La bitácora y los libros (kardex, ventas, caja, cobros) no tienen política de
+-- escritura para los usuarios, pero un administrador aún podía destruir evidencia
+-- por la API:
+--   · DELETE de un producto: borra en cascada TODO su kardex (stock_movements).
+--     El borrado normal es soft_delete_product (deleted_at); la app nunca hace
+--     DELETE de productos.
+--   · DELETE de la fila de la empresa: borra en cascada todo (bitácora incluida),
+--     saltándose el nombre de confirmación y la entrada de bitácora de
+--     reset_company_data. La app nunca hace DELETE de companies (la plataforma
+--     usa funciones SECURITY DEFINER o la service_role).
+--   · Alta / baja / cambios de rol de usuarios hechos directo sobre profiles no
+--     dejaban rastro (solo las Edge Functions los registraban).
+-- ============================================================
+revoke delete on public.products from authenticated;
+revoke delete on public.companies from authenticated;
+
+create or replace function public.log_audit_profile_change()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_changed text[] := array[]::text[];
+begin
+  -- Solo cuando actúa una persona (REST directo). Las Edge Functions (service_role,
+  -- sin auth.uid()) ya dejan su propia entrada y las cascadas del sistema no cuentan.
+  if auth.uid() is null then
+    if tg_op = 'DELETE' then return old; end if;
+    return new;
+  end if;
+
+  if tg_op = 'DELETE' then
+    if old.company_id is not null then
+      -- Directo (no log_audit): si la persona se borra a sí misma, su perfil ya no
+      -- existe y actor_id violaría la llave foránea; la copia del nombre se conserva.
+      insert into public.audit_log (company_id, actor_id, actor_label, entity_type, entity_id, action, detail)
+      values (old.company_id,
+              (select pr.id from public.profiles pr where pr.id = auth.uid()),
+              coalesce(
+                (select left(coalesce(nullif(btrim(pr.full_name), ''), pr.email), 120) from public.profiles pr where pr.id = auth.uid()),
+                case when old.id = auth.uid() then left(coalesce(nullif(btrim(old.full_name), ''), old.email), 120) end),
+              'profile', old.id, 'deleted',
+              jsonb_build_object('full_name', old.full_name, 'email', old.email, 'role', old.role));
+    end if;
+
+    return old;
+  end if;
+
+  if new.role is distinct from old.role then v_changed := array_append(v_changed, 'role'); end if;
+  if new.is_active is distinct from old.is_active then v_changed := array_append(v_changed, 'is_active'); end if;
+  if new.allowed_sections is distinct from old.allowed_sections then v_changed := array_append(v_changed, 'allowed_sections'); end if;
+  if new.location_id is distinct from old.location_id then v_changed := array_append(v_changed, 'location_id'); end if;
+  if new.commission_rate is distinct from old.commission_rate then v_changed := array_append(v_changed, 'commission_rate'); end if;
+  if new.pin_hash is distinct from old.pin_hash then v_changed := array_append(v_changed, 'pin'); end if;
+  if new.company_id is distinct from old.company_id then v_changed := array_append(v_changed, 'company_id'); end if;
+
+  if array_length(v_changed, 1) > 0 and new.company_id is not null then
+    perform public.log_audit(new.company_id, 'profile', new.id, 'updated',
+      jsonb_build_object('full_name', new.full_name, 'changed', to_jsonb(v_changed),
+                         'role', new.role, 'is_active', new.is_active));
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.log_audit_profile_change() from public, anon, authenticated;
+
+drop trigger if exists profiles_log_audit_change on public.profiles;
+create trigger profiles_log_audit_change
+  after update or delete on public.profiles
+  for each row execute function public.log_audit_profile_change();
