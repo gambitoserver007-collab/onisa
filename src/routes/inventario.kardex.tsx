@@ -149,6 +149,13 @@ function Kardex() {
       return;
     }
 
+    // El servidor lo exige igual (adjust_stock): descontar pide un motivo claro.
+    if (Number(aQty) < 0 && aNotes.trim().length < 5) {
+      toast.error("Describe el motivo del ajuste negativo (mínimo 5 letras).");
+
+      return;
+    }
+
     setASaving(true);
 
     try {
@@ -230,7 +237,7 @@ function Kardex() {
               />
             </div>
             <div className="space-y-1">
-              <Label>Motivo</Label>
+              <Label>Motivo (obligatorio al descontar)</Label>
               <Input
                 value={aNotes}
                 onChange={(event) => setANotes(event.target.value)}

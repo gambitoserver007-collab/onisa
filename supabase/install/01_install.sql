@@ -4447,6 +4447,12 @@ begin
 
   if p_qty = 'NaN'::numeric then raise exception 'Ingresa una cantidad valida.'; end if;
   if v_qty = 0 then raise exception 'Ingresa una cantidad distinta de cero (usa negativos para descontar).'; end if;
+  -- Auditoría 2026-10 (17ª pasada): descontar inventario exige decir por qué. Sin motivo,
+  -- un ajuste negativo se guardaba como "Ajuste manual" y servia para esconder
+  -- faltantes (robo, merma) sin dejar explicación en el kardex.
+  if v_qty < 0 and length(btrim(coalesce(p_notes, ''))) < 5 then
+    raise exception 'Describe el motivo del ajuste negativo (minimo 5 caracteres).';
+  end if;
 
   select * into v_product from public.products
     where id = p_product_id and company_id = v_company_id and deleted_at is null;
@@ -13996,3 +14002,37 @@ end;
 $$;
 
 revoke execute on function public.assert_noncash_payment_allowed() from public, anon, authenticated;
+
+-- Auditoría de seguridad 2026-10 (17ª pasada): el pie del ticket y la impresora (QZ Tray)
+-- de una sucursal los edita solo un administrador. "locations update scoped" deja a
+-- cualquier miembro editar nombre / dirección / teléfono (decisión de 2026-09), pero el
+-- pie sale impreso en TODOS los tickets de la sucursal (texto de phishing, un número de
+-- pago falso) y el nombre de la impresora redirige o rompe la impresión directa en las
+-- demás cajas. Solo cambia si el valor cambia de verdad.
+create or replace function public.protect_location_ticket()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  if auth.uid() is null or public.current_user_is_platform_admin() then
+    return new;
+  end if;
+
+  if (new.ticket_footer_text is distinct from old.ticket_footer_text
+      or new.ticket_qz_printer_name is distinct from old.ticket_qz_printer_name)
+     and not public.can_admin_company(new.company_id) then
+    raise exception 'Solo un administrador puede cambiar el pie del ticket y la impresora.';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.protect_location_ticket() from public, anon, authenticated;
+
+drop trigger if exists protect_location_ticket on public.locations;
+create trigger protect_location_ticket
+  before update of ticket_footer_text, ticket_qz_printer_name on public.locations
+  for each row execute function public.protect_location_ticket();
