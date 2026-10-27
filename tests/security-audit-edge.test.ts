@@ -332,6 +332,14 @@ describe("mp-webhook (puertas 5 y 12)", () => {
     return d.toISOString().slice(0, 10);
   };
 
+  const inDays = (days: number) => {
+    const d = new Date();
+
+    d.setDate(d.getDate() + days);
+
+    return d.toISOString().slice(0, 10);
+  };
+
   const expiresAt = () =>
     (
       fake.tables.companies.find((r) => r.id === companyId) as {
@@ -423,7 +431,7 @@ describe("mp-webhook (puertas 5 y 12)", () => {
       expect(company().subscription_status).toBe("trial");
     });
 
-    it("CONTROL: la preapproval autorizada correcta activa el plan y da el primer mes", async () => {
+    it("CONTROL: la preapproval autorizada correcta activa el plan y da unos días de gracia (el mes lo da el primer pago)", async () => {
       stubMp({
         "preapproval/P2": {
           body: {
@@ -438,7 +446,7 @@ describe("mp-webhook (puertas 5 y 12)", () => {
 
       expect(company().plan_id).toBe("plan-B");
       expect(company().subscription_status).toBe("active");
-      expect(expiresAt()).toBe(nextMonth());
+      expect(expiresAt()).toBe(inDays(3));
     });
 
     it("un aviso de preapproval NO extiende una vigencia que todavía no vence", async () => {
@@ -473,6 +481,53 @@ describe("mp-webhook (puertas 5 y 12)", () => {
 
       await call("subscription_preapproval", "P2");
 
+      expect(expiresAt()).toBe(inDays(3));
+    });
+
+    it("la gracia es de UNA vez por empresa: pausar y reautorizar tras vencer no regala más días", async () => {
+      const company0 = fake.tables.companies.find(
+        (r) => r.id === companyId,
+      ) as { expires_at?: string };
+      const authorized = {
+        "preapproval/P2": {
+          body: { status: "authorized", external_reference: companyId },
+        },
+      };
+
+      company0.expires_at = "2020-01-01";
+      stubMp(authorized);
+      await call("subscription_preapproval", "P2");
+      expect(expiresAt()).toBe(inDays(3));
+
+      // La gracia se agota sin que llegue ningún pago aprobado...
+      company0.expires_at = "2020-06-01";
+      await call("subscription_preapproval", "P2");
+
+      // ...y volver a autorizar NO la renueva.
+      expect(expiresAt()).toBe("2020-06-01");
+    });
+
+    it("un cobro rechazado nunca da más que la gracia; el primer pago aprobado sí da el mes", async () => {
+      const company0 = fake.tables.companies.find(
+        (r) => r.id === companyId,
+      ) as { expires_at?: string };
+
+      company0.expires_at = "2020-01-01";
+      stubMp({
+        "preapproval/P2": {
+          body: { status: "authorized", external_reference: companyId },
+        },
+        "authorized_payments/PAYX": {
+          body: payment({ status: "rejected" }),
+        },
+        "authorized_payments/PAYOK": { body: payment() },
+      });
+
+      await call("subscription_preapproval", "P2");
+      await call("subscription_authorized_payment", "PAYX");
+      expect(expiresAt()).toBe(inDays(3));
+
+      await call("subscription_authorized_payment", "PAYOK");
       expect(expiresAt()).toBe(nextMonth());
     });
   });

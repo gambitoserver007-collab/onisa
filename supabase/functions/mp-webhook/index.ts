@@ -87,6 +87,20 @@ function oneMonthFromToday(): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Auditoría 2026-10 (6ª pasada): autorizar la suscripción NO es un pago. Antes, un
+// aviso "authorized" daba un mes completo aunque el primer cobro se rechazara; con una
+// tarjeta que Mercado Pago autoriza pero no cobra, repetir el ciclo regalaba un mes
+// por vuelta. Ahora la autorización solo da unos días de gracia, UNA vez por empresa
+// (company_subscriptions.authorization_grace_used); el mes lo da el primer pago
+// aprobado (subscription_authorized_payment), como las renovaciones.
+const AUTHORIZATION_GRACE_DAYS = 3;
+
+function daysFromToday(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 // Monto y moneda cobrados deben corresponder al plan guardado. Si Mercado
 // Pago no manda alguno de los dos campos no se puede comprobar y se acepta
 // (el recurso ya se re-consultó directo a su API); solo se rechaza una
@@ -205,7 +219,9 @@ Deno.serve(async (req) => {
         if (companyId) {
           const { data: sub } = await admin
             .from("company_subscriptions")
-            .select("plan_id, provider_subscription_id")
+            // "*": que un despliegue de esta función antes de correr el instalador
+            // (columna authorization_grace_used todavia inexistente) no rompa la lectura.
+            .select("*")
             .eq("company_id", companyId)
             .maybeSingle();
 
@@ -257,15 +273,24 @@ Deno.serve(async (req) => {
               // El cobro pactado no es el del plan: no se activa nada.
             } else {
               // Autorizar la suscripción NO es un pago: solo da acceso si la
-              // empresa no tiene vigencia (nueva o vencida). Cada pago
-              // aprobado extiende la vigencia (ver abajo); sin esta
-              // condición, pausar y reautorizar regalaba un mes por aviso.
+              // empresa no tiene vigencia (nueva o vencida), y solo unos días de
+              // gracia, una vez por empresa. Cada pago aprobado extiende la
+              // vigencia un mes (ver abajo); sin esto, pausar y reautorizar -o
+              // crear una preapproval nueva con una tarjeta que no cobra-
+              // regalaba un mes por aviso.
               const update: Record<string, unknown> = {
                 plan_id: sub.plan_id,
                 subscription_status: "active",
               };
-              if (!co?.expires_at || String(co.expires_at) < todayIso()) {
-                update.expires_at = oneMonthFromToday();
+              if (
+                (!co?.expires_at || String(co.expires_at) < todayIso()) &&
+                sub.authorization_grace_used !== true
+              ) {
+                update.expires_at = daysFromToday(AUTHORIZATION_GRACE_DAYS);
+                await admin
+                  .from("company_subscriptions")
+                  .update({ authorization_grace_used: true })
+                  .eq("company_id", companyId);
               }
               await admin.from("companies").update(update).eq("id", companyId);
             }

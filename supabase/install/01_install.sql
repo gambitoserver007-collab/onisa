@@ -13898,3 +13898,10 @@ drop trigger if exists profiles_log_audit_change on public.profiles;
 create trigger profiles_log_audit_change
   after update or delete on public.profiles
   for each row execute function public.log_audit_profile_change();
+
+-- Auditoría de seguridad 2026-10 (6ª pasada): mp-webhook ya no da un mes completo por
+-- un aviso "authorized" (la autorización no es un pago): da unos días de gracia UNA
+-- sola vez por empresa. Esta marca recuerda que esa gracia ya se usó; solo la
+-- escribe la service_role (la tabla es de solo lectura para los usuarios).
+alter table public.company_subscriptions
+  add column if not exists authorization_grace_used boolean not null default false;
