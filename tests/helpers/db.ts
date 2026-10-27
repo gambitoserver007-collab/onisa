@@ -340,6 +340,7 @@ export async function submitTillCount(
   sessionId: string,
   denominations: { denomination: number; quantity: number }[],
   manualAdjustment = 0,
+  declared: { card?: number | null; transfer?: number | null } = {},
 ): Promise<{
   count_id: string;
   count_number: number;
@@ -350,8 +351,14 @@ export async function submitTillCount(
   manual_adjustment: number;
 }> {
   const { rows } = await db.query<{ submit_till_count: unknown }>(
-    "select submit_till_count($1, $2::jsonb, $3) as submit_till_count",
-    [sessionId, JSON.stringify(denominations), manualAdjustment],
+    "select submit_till_count($1, $2::jsonb, $3, $4, $5) as submit_till_count",
+    [
+      sessionId,
+      JSON.stringify(denominations),
+      manualAdjustment,
+      declared.card ?? null,
+      declared.transfer ?? null,
+    ],
   );
 
   return rows[0].submit_till_count as {

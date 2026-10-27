@@ -142,11 +142,31 @@ describe("Apartados: el efectivo entra a un turno y el reembolso sigue el medio 
     expect(after.rows[0].n).toBe(before.rows[0].n);
   });
 
-  it("CONTROL: el mismo cajero sin caja sí puede recibir un anticipo con tarjeta, y un admin sin caja uno en efectivo", async () => {
-    expect(
-      await rejects(() => create(cashierNoSession, 30, "Tarjeta")),
-    ).toBeNull();
+  it("un cajero ya NO puede registrar un anticipo, un abono ni un pago final que no sea en efectivo", async () => {
+    const created = await rejects(() => create(cashier, 30, "Tarjeta"));
+
+    expect(created).toMatch(/no son en efectivo/i);
+
+    const id = (await create(cashier, 10)).rows[0].r.apartado_id;
+    const paid = await rejects(() => pay(cashier, id, 20, "Transferencia"));
+    const completed = await rejects(() =>
+      asUser(db, cashier, () =>
+        db.query("select complete_apartado($1, 90::numeric, 'Tarjeta')", [id]),
+      ),
+    );
+
+    expect(paid).toMatch(/no son en efectivo/i);
+    expect(completed).toMatch(/no son en efectivo/i);
+    expect(await paidTotal(id)).toBe(10);
+  });
+
+  it("CONTROL: un admin sin caja puede recibir un anticipo en efectivo o con tarjeta, y un abono con tarjeta", async () => {
     expect(await rejects(() => create(admin, 30))).toBeNull();
+
+    const id = (await create(admin, 30, "Tarjeta")).rows[0].r.apartado_id;
+
+    expect(await rejects(() => pay(admin, id, 20, "Transferencia"))).toBeNull();
+    expect(await paidTotal(id)).toBe(50);
   });
 
   it("un abono en efectivo sin caja abierta se rechaza y el saldo no cambia", async () => {
@@ -200,7 +220,7 @@ describe("Apartados: el efectivo entra a un turno y el reembolso sigue el medio 
   it("cancelar con reembolso: pago mixto (30 efectivo + 20 tarjeta) saca solo 30 del cajón", async () => {
     const id = (await create(cashier, 30)).rows[0].r.apartado_id;
 
-    await pay(cashier, id, 20, "Tarjeta");
+    await pay(admin, id, 20, "Tarjeta");
 
     const res = await asUser(db, admin, () =>
       db.query<{ r: { refunded_cash: number } }>(

@@ -25,7 +25,11 @@ export function DenominationCountForm({
   formatMoney,
 }: {
   busy: boolean;
-  onSubmit: (lines: DenominationLine[], manualAdjustment: number) => void;
+  onSubmit: (
+    lines: DenominationLine[],
+    manualAdjustment: number,
+    declared: { card: number | null; transfer: number | null },
+  ) => void;
   submitLabel?: string;
   formatMoney: (amount: number) => string;
 }) {
@@ -35,6 +39,19 @@ export function DenominationCountForm({
   // un corte con productos de precio decimal nunca podía cuadrar, porque la
   // denominación más chica es $0.50.
   const [manualAdjustmentInput, setManualAdjustmentInput] = useState("");
+  // Conciliación de cobros que no son efectivo: lo que dice la terminal de tarjeta
+  // y lo recibido por transferencia. Vacío = no se declara. El sistema lo compara
+  // con lo que registró al autorizar el corte; la cajera no ve esa comparación.
+  const [declaredCardInput, setDeclaredCardInput] = useState("");
+  const [declaredTransferInput, setDeclaredTransferInput] = useState("");
+
+  const parseDeclared = (value: string): number | null => {
+    if (!value.trim()) return null;
+
+    const n = Number(value);
+
+    return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
+  };
 
   const lines: DenominationLine[] = useMemo(
     () =>
@@ -103,6 +120,36 @@ export function DenominationCountForm({
           onChange={(event) => setManualAdjustmentInput(event.target.value)}
         />
       </div>
+      <div className="grid grid-cols-1 gap-3 border-t border-dashed border-border/60 pt-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">
+            Total de tarjeta según tu terminal (opcional)
+          </Label>
+          <Input
+            type="number"
+            min="0"
+            step="0.01"
+            inputMode="decimal"
+            placeholder="$0.00"
+            value={declaredCardInput}
+            onChange={(event) => setDeclaredCardInput(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">
+            Total de transferencias recibidas (opcional)
+          </Label>
+          <Input
+            type="number"
+            min="0"
+            step="0.01"
+            inputMode="decimal"
+            placeholder="$0.00"
+            value={declaredTransferInput}
+            onChange={(event) => setDeclaredTransferInput(event.target.value)}
+          />
+        </div>
+      </div>
       <div className="flex items-center justify-between rounded-2xl bg-muted/50 p-3">
         <span className="text-sm text-muted-foreground">Total contado</span>
         <span className="text-lg font-black tabular-nums">
@@ -117,6 +164,10 @@ export function DenominationCountForm({
           onSubmit(
             lines.filter((l) => l.quantity > 0),
             manualAdjustment,
+            {
+              card: parseDeclared(declaredCardInput),
+              transfer: parseDeclared(declaredTransferInput),
+            },
           )
         }
       >

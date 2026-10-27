@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/table";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useDemoSession } from "@/hooks/useDemoSession";
+import { canRecordNonCashPayments } from "@/lib/permissions";
 import { blockDemoAction } from "@/lib/demoMode";
 import {
   addApartadoPayment,
@@ -64,6 +65,7 @@ function ApartadoDetail() {
   const { formatMoney, settings } = useBusinessSettings();
   const { isDemo, role } = useDemoSession();
   const canCancel = role === "admin" || role === "finanzas";
+  const canNonCash = canRecordNonCashPayments(role);
 
   const [apartado, setApartado] = useState<Apartado | null>(null);
   const [items, setItems] = useState<ApartadoItem[]>([]);
@@ -435,10 +437,16 @@ function ApartadoDetail() {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="Efectivo">Efectivo</SelectItem>
-                              <SelectItem value="Tarjeta">Tarjeta</SelectItem>
-                              <SelectItem value="Transferencia">
-                                Transferencia
-                              </SelectItem>
+                              {canNonCash && (
+                                <>
+                                  <SelectItem value="Tarjeta">
+                                    Tarjeta
+                                  </SelectItem>
+                                  <SelectItem value="Transferencia">
+                                    Transferencia
+                                  </SelectItem>
+                                </>
+                              )}
                             </SelectContent>
                           </Select>
                         </div>
@@ -496,10 +504,16 @@ function ApartadoDetail() {
                                 <SelectItem value="Efectivo">
                                   Efectivo
                                 </SelectItem>
-                                <SelectItem value="Tarjeta">Tarjeta</SelectItem>
-                                <SelectItem value="Transferencia">
-                                  Transferencia
-                                </SelectItem>
+                                {canNonCash && (
+                                  <>
+                                    <SelectItem value="Tarjeta">
+                                      Tarjeta
+                                    </SelectItem>
+                                    <SelectItem value="Transferencia">
+                                      Transferencia
+                                    </SelectItem>
+                                  </>
+                                )}
                               </SelectContent>
                             </Select>
                           </div>

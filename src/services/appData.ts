@@ -2435,6 +2435,9 @@ export interface CashSession {
   tillId: string | null;
   reviewStatus: "pending" | "authorized";
   classification: "cuadrado" | "faltante" | "sobrante" | null;
+  /** Declarado en la terminal menos lo registrado por el sistema; null = no se declaró. */
+  cardDifference: number | null;
+  transferDifference: number | null;
 }
 
 export interface CashMovement {
@@ -2454,7 +2457,7 @@ export interface CashMovement {
 const CASH_SESSION_COLS_SAFE =
   "id, status, opening_amount, opened_at, closed_at, opened_by, closed_by, till_id, review_status";
 
-const CASH_SESSION_COLS_FULL = `${CASH_SESSION_COLS_SAFE}, real_amount, expected_amount, difference, classification`;
+const CASH_SESSION_COLS_FULL = `${CASH_SESSION_COLS_SAFE}, real_amount, expected_amount, difference, classification, card_difference, transfer_difference`;
 
 function mapCashSession(row: {
   id: string;
@@ -2470,6 +2473,8 @@ function mapCashSession(row: {
   till_id?: string | null;
   review_status?: string | null;
   classification?: string | null;
+  card_difference?: number | null;
+  transfer_difference?: number | null;
 }): CashSession {
   return {
     id: row.id,
@@ -2490,6 +2495,12 @@ function mapCashSession(row: {
       row.classification === "sobrante"
         ? row.classification
         : null,
+    cardDifference:
+      row.card_difference == null ? null : toNumber(row.card_difference),
+    transferDifference:
+      row.transfer_difference == null
+        ? null
+        : toNumber(row.transfer_difference),
   };
 }
 
@@ -2675,6 +2686,9 @@ export interface TillCount {
   otherTotal: number;
   /** Monto exacto capturado a mano (no representable con las denominaciones). */
   manualAdjustment: number;
+  /** Lo que la persona que contó declaró según su terminal / banco (null = no declaró). */
+  declaredCardTotal: number | null;
+  declaredTransferTotal: number | null;
   lines: TillCountLine[];
 }
 
@@ -2696,11 +2710,14 @@ export async function submitTillCount(
   sessionId: string,
   denominations: { denomination: number; quantity: number }[],
   manualAdjustment = 0,
+  declared: { card?: number | null; transfer?: number | null } = {},
 ): Promise<SubmitTillCountResult> {
   const { data, error } = await supabase.rpc("submit_till_count", {
     p_session_id: sessionId,
     p_denominations: denominations,
     p_manual_adjustment: manualAdjustment,
+    p_declared_card_total: declared.card ?? undefined,
+    p_declared_transfer_total: declared.transfer ?? undefined,
   });
 
   if (error) throw error;
@@ -2749,6 +2766,8 @@ export async function authorizeCashSession(
   realAmount: number;
   difference: number;
   classification: "cuadrado" | "faltante" | "sobrante";
+  cardDifference: number | null;
+  transferDifference: number | null;
 }> {
   const { data, error } = await supabase.rpc("authorize_cash_session", {
     p_session_id: sessionId,
@@ -2762,6 +2781,8 @@ export async function authorizeCashSession(
     real_amount: number;
     difference: number;
     classification: string;
+    card_difference?: number | null;
+    transfer_difference?: number | null;
   };
 
   return {
@@ -2769,11 +2790,17 @@ export async function authorizeCashSession(
     realAmount: toNumber(row.real_amount),
     difference: toNumber(row.difference),
     classification: row.classification as "cuadrado" | "faltante" | "sobrante",
+    cardDifference:
+      row.card_difference == null ? null : toNumber(row.card_difference),
+    transferDifference:
+      row.transfer_difference == null
+        ? null
+        : toNumber(row.transfer_difference),
   };
 }
 
 const TILL_COUNT_COLS =
-  "id, cash_session_id, count_number, counted_by, counted_at, counted_cash_total, card_total, transfer_total, other_total, manual_adjustment";
+  "id, cash_session_id, count_number, counted_by, counted_at, counted_cash_total, card_total, transfer_total, other_total, manual_adjustment, declared_card_total, declared_transfer_total";
 
 function mapTillCountRow(
   c: Record<string, unknown>,
@@ -2789,6 +2816,12 @@ function mapTillCountRow(
     transferTotal: toNumber(c.transfer_total),
     otherTotal: toNumber(c.other_total),
     manualAdjustment: toNumber(c.manual_adjustment),
+    declaredCardTotal:
+      c.declared_card_total == null ? null : toNumber(c.declared_card_total),
+    declaredTransferTotal:
+      c.declared_transfer_total == null
+        ? null
+        : toNumber(c.declared_transfer_total),
     lines: (linesByCount[c.id as string] ?? []).sort(
       (a, b) => b.denomination - a.denomination,
     ),

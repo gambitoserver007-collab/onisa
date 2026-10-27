@@ -46,6 +46,7 @@ import {
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useCompanyCatalog } from "@/hooks/useCompanyCatalog";
 import { useDemoSession } from "@/hooks/useDemoSession";
+import { canRecordNonCashPayments } from "@/lib/permissions";
 import { blockDemoAction } from "@/lib/demoMode";
 import {
   getLoyaltyTier,
@@ -74,6 +75,7 @@ function Clientes() {
   const { isDemo, role } = useDemoSession();
   const { formatMoney, settings } = useBusinessSettings();
   const isAdmin = role === "admin";
+  const canNonCash = canRecordNonCashPayments(role);
   const showLoyalty = settings.loyaltyEnabled;
   const showTiers = showLoyalty && settings.loyaltyTiersEnabled;
   const columnCount = 5 + (showLoyalty ? 1 : 0) + (showTiers ? 1 : 0);
@@ -559,12 +561,16 @@ function Clientes() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Efectivo">Efectivo</SelectItem>
-                    <SelectItem value="Tarjeta de débito">
-                      Tarjeta de débito
-                    </SelectItem>
-                    <SelectItem value="Transferencia bancaria">
-                      Transferencia bancaria
-                    </SelectItem>
+                    {canNonCash && (
+                      <>
+                        <SelectItem value="Tarjeta de débito">
+                          Tarjeta de débito
+                        </SelectItem>
+                        <SelectItem value="Transferencia bancaria">
+                          Transferencia bancaria
+                        </SelectItem>
+                      </>
+                    )}
                   </SelectContent>
                 </Select>
               </div>

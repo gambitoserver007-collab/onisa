@@ -52,6 +52,7 @@ import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useCompanyCatalog } from "@/hooks/useCompanyCatalog";
 import { useCurrentLocation } from "@/hooks/useCurrentLocation";
 import { useDemoSession } from "@/hooks/useDemoSession";
+import { canRecordNonCashPayments } from "@/lib/permissions";
 import { ALL_LOCATIONS } from "@/lib/currentLocation";
 import { blockDemoAction } from "@/lib/demoMode";
 import {
@@ -99,7 +100,8 @@ interface ApartadoCartItem {
 
 function ApartadosPage() {
   const { formatMoney, settings } = useBusinessSettings();
-  const { session, isDemo } = useDemoSession();
+  const { session, isDemo, role } = useDemoSession();
+  const canNonCash = canRecordNonCashPayments(role);
   const { products, customers } = useCompanyCatalog();
   const { locations, currentLocationId, hasMultiple } = useCurrentLocation();
 
@@ -484,10 +486,14 @@ function ApartadosPage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Efectivo">Efectivo</SelectItem>
-                        <SelectItem value="Tarjeta">Tarjeta</SelectItem>
-                        <SelectItem value="Transferencia">
-                          Transferencia
-                        </SelectItem>
+                        {canNonCash && (
+                          <>
+                            <SelectItem value="Tarjeta">Tarjeta</SelectItem>
+                            <SelectItem value="Transferencia">
+                              Transferencia
+                            </SelectItem>
+                          </>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>

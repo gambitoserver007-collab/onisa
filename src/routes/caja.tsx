@@ -89,6 +89,8 @@ const DEMO_SESSION: CashSession = {
   tillId: null,
   reviewStatus: "pending",
   classification: null,
+  cardDifference: null,
+  transferDifference: null,
 };
 
 const DEMO_MOVEMENTS: CashMovement[] = [
@@ -130,6 +132,8 @@ const DEMO_CLOSINGS: CashSession[] = [
     tillId: null,
     reviewStatus: "authorized",
     classification: "cuadrado",
+    cardDifference: null,
+    transferDifference: null,
   },
   {
     id: "CJ-0010",
@@ -145,6 +149,8 @@ const DEMO_CLOSINGS: CashSession[] = [
     tillId: null,
     reviewStatus: "authorized",
     classification: "faltante",
+    cardDifference: null,
+    transferDifference: null,
   },
 ];
 
@@ -279,6 +285,8 @@ function Caja() {
                 transferTotal: 0,
                 otherTotal: 0,
                 manualAdjustment: 0,
+                declaredCardTotal: null,
+                declaredTransferTotal: null,
                 lines: [],
               },
             ]
@@ -482,6 +490,7 @@ function Caja() {
   const handleSubmitCount = async (
     lines: DenominationLine[],
     manualAdjustment: number,
+    declared: { card: number | null; transfer: number | null },
   ) => {
     if (isDemo) return blockDemoAction();
 
@@ -489,7 +498,7 @@ function Caja() {
     setCountBusy(true);
 
     try {
-      await submitTillCount(activeSessionId, lines, manualAdjustment);
+      await submitTillCount(activeSessionId, lines, manualAdjustment, declared);
       const finish = await finishTillCount(activeSessionId);
       setCountDialog(false);
 
@@ -948,6 +957,12 @@ function Caja() {
                                 ? CLASSIFICATION_LABELS[closing.classification]
                                 : "—"}
                             </Badge>
+                            {((closing.cardDifference ?? 0) !== 0 ||
+                              (closing.transferDifference ?? 0) !== 0) && (
+                              <Badge variant="warm" className="ml-1">
+                                Tarjeta/transf. no cuadra
+                              </Badge>
+                            )}
                           </TableCell>
                         </>
                       ) : (

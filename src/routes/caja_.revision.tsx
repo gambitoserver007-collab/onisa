@@ -118,8 +118,22 @@ function CajaRevision() {
     setAuthorizing(true);
 
     try {
-      await authorizeCashSession(detail.id, notes.trim() || undefined);
-      toast.success("Corte autorizado.");
+      const result = await authorizeCashSession(
+        detail.id,
+        notes.trim() || undefined,
+      );
+      const cardGap = result.cardDifference ?? 0;
+      const transferGap = result.transferDifference ?? 0;
+
+      if (cardGap !== 0 || transferGap !== 0) {
+        // Declarado menos registrado: negativo = el sistema registró más de lo que
+        // dice la terminal (posible venta "Tarjeta" que no se cobró).
+        toast.warning(
+          `Corte autorizado, pero tarjeta/transferencia no cuadra (tarjeta ${formatMoney(cardGap)}, transferencia ${formatMoney(transferGap)}; declarado menos registrado).`,
+        );
+      } else {
+        toast.success("Corte autorizado.");
+      }
       setDetail(null);
       await load();
     } catch (error) {
@@ -297,12 +311,32 @@ function CajaRevision() {
                         </span>
                       </div>
                       <Row
-                        label="Tarjeta"
+                        label="Tarjeta (registrado)"
                         value={formatMoney(count.cardTotal)}
                       />
                       <Row
-                        label="Transferencia"
+                        label="Tarjeta (declarado en la terminal)"
+                        value={
+                          count.declaredCardTotal == null
+                            ? count.cardTotal > 0
+                              ? "No declaró"
+                              : "—"
+                            : formatMoney(count.declaredCardTotal)
+                        }
+                      />
+                      <Row
+                        label="Transferencia (registrado)"
                         value={formatMoney(count.transferTotal)}
+                      />
+                      <Row
+                        label="Transferencia (declarado)"
+                        value={
+                          count.declaredTransferTotal == null
+                            ? count.transferTotal > 0
+                              ? "No declaró"
+                              : "—"
+                            : formatMoney(count.declaredTransferTotal)
+                        }
                       />
                       <Row
                         label="Otros"

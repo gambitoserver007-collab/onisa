@@ -128,6 +128,8 @@ export type Database = {
       };
       cash_sessions: {
         Row: {
+          card_difference: number | null;
+          transfer_difference: number | null;
           classification: string | null;
           closed_at: string | null;
           closed_by: string | null;
@@ -152,6 +154,8 @@ export type Database = {
           updated_at: string;
         };
         Insert: {
+          card_difference?: number | null;
+          transfer_difference?: number | null;
           classification?: string | null;
           closed_at?: string | null;
           closed_by?: string | null;
@@ -176,6 +180,8 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          card_difference?: number | null;
+          transfer_difference?: number | null;
           classification?: string | null;
           closed_at?: string | null;
           closed_by?: string | null;
@@ -2873,6 +2879,8 @@ export type Database = {
       till_counts: {
         Row: {
           card_total: number;
+          declared_card_total: number | null;
+          declared_transfer_total: number | null;
           cash_session_id: string;
           company_id: string;
           count_number: number;
@@ -2890,6 +2898,8 @@ export type Database = {
         };
         Insert: {
           card_total?: number;
+          declared_card_total?: number | null;
+          declared_transfer_total?: number | null;
           cash_session_id: string;
           company_id: string;
           count_number: number;
@@ -2907,6 +2917,8 @@ export type Database = {
         };
         Update: {
           card_total?: number;
+          declared_card_total?: number | null;
+          declared_transfer_total?: number | null;
           cash_session_id?: string;
           company_id?: string;
           count_number?: number;
@@ -3529,6 +3541,8 @@ export type Database = {
       };
       submit_till_count: {
         Args: {
+          p_declared_card_total?: number;
+          p_declared_transfer_total?: number;
           p_denominations: Json;
           p_manual_adjustment?: number;
           p_session_id: string;

@@ -33,6 +33,8 @@ describe("Cobro de crédito: el efectivo entra a un turno y todo queda registrad
   let cashier: string;
   let cashierNoSession: string;
   let admin: string;
+  let manager: string;
+  let finanzas: string;
 
   const newCustomer = async (balance = 100) => {
     const id = crypto.randomUUID();
@@ -77,6 +79,8 @@ describe("Cobro de crédito: el efectivo entra a un turno y todo queda registrad
     cashier = await makeUser(db, C.id, "user");
     cashierNoSession = await makeUser(db, C.id, "user");
     admin = await makeUser(db, C.id, "admin");
+    manager = await makeUser(db, C.id, "gerente");
+    finanzas = await makeUser(db, C.id, "finanzas");
     await asUser(db, cashier, () =>
       db.query("select open_cash_session(0,$1)", [C.loc1]),
     );
@@ -109,21 +113,41 @@ describe("Cobro de crédito: el efectivo entra a un turno y todo queda registrad
     expect(await balanceOf(customer)).toBe(100);
   });
 
-  it("CONTROL: el cobro NO efectivo (tarjeta) del mismo cajero sigue permitido y no toca la caja", async () => {
+  it("un cajero ya NO puede registrar un cobro no efectivo (tarjeta, transferencia): la deuda no cambia", async () => {
+    const customer = await newCustomer(100);
+
+    for (const [method, kind] of [
+      ["Tarjeta", "other"],
+      ["Transferencia", "other"],
+      ["Efectivo", "card"], // un tipo distinto de cash también es no efectivo
+    ] as const) {
+      const err = await rejects(() =>
+        collect(cashier, customer, 30, method, kind),
+      );
+
+      expect(err, method).toMatch(/no son en efectivo/i);
+    }
+
+    expect(await balanceOf(customer)).toBe(100);
+  });
+
+  it("CONTROL: admin, gerente y finanzas sí registran un cobro con tarjeta, y no toca la caja", async () => {
     const customer = await newCustomer(100);
     const before = await db.query<{ n: string }>(
       "select count(*)::int as n from public.cash_movements where company_id=$1",
       [C.id],
     );
 
-    await collect(cashierNoSession, customer, 30, "Tarjeta", "other");
+    await collect(admin, customer, 30, "Tarjeta", "other");
+    await collect(manager, customer, 20, "Transferencia", "other");
+    await collect(finanzas, customer, 10, "Tarjeta", "other");
 
     const after = await db.query<{ n: string }>(
       "select count(*)::int as n from public.cash_movements where company_id=$1",
       [C.id],
     );
 
-    expect(await balanceOf(customer)).toBe(70);
+    expect(await balanceOf(customer)).toBe(40);
     expect(after.rows[0].n).toBe(before.rows[0].n);
   });
 
@@ -148,7 +172,7 @@ describe("Cobro de crédito: el efectivo entra a un turno y todo queda registrad
   it("cada cobro guarda el tipo declarado y deja una entrada en la bitácora con el saldo antes y después", async () => {
     const customer = await newCustomer(100);
 
-    await collect(cashierNoSession, customer, 30, "Tarjeta", "card");
+    await collect(admin, customer, 30, "Tarjeta", "card");
 
     const pay = await db.query<{ kind: string; amount: string }>(
       "select kind, amount from public.customer_credit_payments where customer_id=$1",

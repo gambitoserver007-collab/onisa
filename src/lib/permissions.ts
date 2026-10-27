@@ -270,3 +270,11 @@ export function canAccessSaaS(
   // (antes caía a role==='admin', lo que habilitaba a cualquier dueño de tienda).
   return session?.isSuperAdmin === true;
 }
+
+/** Cobros que no son en efectivo (tarjeta, transferencia...) de crédito de clientes y apartados:
+ *  el servidor solo los acepta de estos roles (assert_noncash_payment_allowed). */
+export function canRecordNonCashPayments(
+  role: string | null | undefined,
+): boolean {
+  return role === "admin" || role === "gerente" || role === "finanzas";
+}

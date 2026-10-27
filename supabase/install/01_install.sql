@@ -6088,6 +6088,17 @@ alter table public.till_counts add column if not exists manual_adjustment numeri
 
 drop function if exists public.submit_till_count(uuid, jsonb);
 
+-- Auditoría 2026-10 (16ª pasada): conciliación de cobros con tarjeta y transferencia.
+-- El sistema no puede comprobar que un pago con tarjeta existió (un cajero podía
+-- registrar una venta "Tarjeta" que no cobró y quedarse con la mercancía). Al contar,
+-- quien cierra declara lo que dice SU terminal / banco; al autorizar el corte se
+-- compara con lo que el sistema registró y la diferencia queda para el administrador.
+alter table public.till_counts add column if not exists declared_card_total numeric(12,2);
+alter table public.till_counts add column if not exists declared_transfer_total numeric(12,2);
+alter table public.cash_sessions add column if not exists card_difference numeric(12,2);
+alter table public.cash_sessions add column if not exists transfer_difference numeric(12,2);
+drop function if exists public.submit_till_count(uuid, jsonb, numeric);
+
 -- submit_till_count: RPC del arqueo ciego que llama la cajera. NUNCA
 -- calcula ni devuelve el esperado ni la diferencia -- solo recalcula (server-
 -- side, nunca confía en el total que mande el cliente) lo que ella misma
@@ -6095,7 +6106,9 @@ drop function if exists public.submit_till_count(uuid, jsonb);
 create or replace function public.submit_till_count(
   p_session_id uuid,
   p_denominations jsonb,
-  p_manual_adjustment numeric default 0
+  p_manual_adjustment numeric default 0,
+  p_declared_card_total numeric default null,
+  p_declared_transfer_total numeric default null
 ) returns jsonb
 language plpgsql
 security definer
@@ -6189,6 +6202,13 @@ begin
     raise exception 'Captura al menos una denominación.';
   end if;
 
+  if (p_declared_card_total is not null
+        and (p_declared_card_total = 'NaN'::numeric or p_declared_card_total < 0 or p_declared_card_total > 100000000))
+     or (p_declared_transfer_total is not null
+        and (p_declared_transfer_total = 'NaN'::numeric or p_declared_transfer_total < 0 or p_declared_transfer_total > 100000000)) then
+    raise exception 'El total de tarjeta o de transferencias declarado no es valido.';
+  end if;
+
   if p_manual_adjustment is null or p_manual_adjustment < 0 then
     raise exception 'El ajuste manual debe ser un monto válido (0 o mayor).';
   end if;
@@ -6236,9 +6256,11 @@ begin
     and s.sale_date <= v_cutoff;
 
   insert into public.till_counts
-    (company_id, cash_session_id, till_id, location_id, count_number, counted_by, card_total, transfer_total, other_total, manual_adjustment)
+    (company_id, cash_session_id, till_id, location_id, count_number, counted_by, card_total, transfer_total, other_total, manual_adjustment,
+     declared_card_total, declared_transfer_total)
   values
-    (v_company_id, p_session_id, v_session.till_id, v_session.location_id, v_count_number, auth.uid(), v_card_total, v_transfer_total, v_other_total, round(p_manual_adjustment, 2))
+    (v_company_id, p_session_id, v_session.till_id, v_session.location_id, v_count_number, auth.uid(), v_card_total, v_transfer_total, v_other_total, round(p_manual_adjustment, 2),
+     round(p_declared_card_total, 2), round(p_declared_transfer_total, 2))
   returning id into v_count_id;
 
   for v_item in select * from jsonb_array_elements(p_denominations) loop
@@ -6278,8 +6300,8 @@ begin
 end;
 $function$;
 
-revoke all on function public.submit_till_count(uuid, jsonb, numeric) from public, anon;
-grant execute on function public.submit_till_count(uuid, jsonb, numeric) to authenticated;
+revoke all on function public.submit_till_count(uuid, jsonb, numeric, numeric, numeric) from public, anon;
+grant execute on function public.submit_till_count(uuid, jsonb, numeric, numeric, numeric) to authenticated;
 
 -- finish_till_count: lo llama la cajera para terminar. Si el primer conteo
 -- cuadra exacto, cierra de una vez. Si no cuadra y todavía no hay segundo
@@ -6393,6 +6415,12 @@ declare
   v_diff numeric(12,2);
   v_classification text;
   v_rows int;
+  v_decl_card numeric(12,2);
+  v_decl_transfer numeric(12,2);
+  v_rec_card numeric(12,2);
+  v_rec_transfer numeric(12,2);
+  v_card_diff numeric(12,2);
+  v_transfer_diff numeric(12,2);
 begin
   if auth.uid() is null then raise exception 'No autenticado.'; end if;
   if public.current_user_is_demo() then
@@ -6435,6 +6463,17 @@ begin
   if v_real is null then raise exception 'Esta caja no tiene ningún conteo registrado.'; end if;
 
   v_diff := round(v_real - v_expected, 2);
+
+  -- Conciliación de tarjeta / transferencia: lo declarado (el último conteo que lo
+  -- trae) contra lo que el sistema registró hasta el corte. NULL = no declarado.
+  select (array_agg(declared_card_total order by count_number desc) filter (where declared_card_total is not null))[1],
+         (array_agg(declared_transfer_total order by count_number desc) filter (where declared_transfer_total is not null))[1],
+         max(card_total) filter (where count_number = 1),
+         max(transfer_total) filter (where count_number = 1)
+    into v_decl_card, v_decl_transfer, v_rec_card, v_rec_transfer
+    from public.till_counts where cash_session_id = p_session_id;
+  v_card_diff := case when v_decl_card is null then null else round(v_decl_card - coalesce(v_rec_card, 0), 2) end;
+  v_transfer_diff := case when v_decl_transfer is null then null else round(v_decl_transfer - coalesce(v_rec_transfer, 0), 2) end;
   v_classification := case when v_diff = 0 then 'cuadrado' when v_diff < 0 then 'faltante' else 'sobrante' end;
 
   update public.cash_sessions set
@@ -6442,6 +6481,8 @@ begin
     real_amount = v_real,
     difference = v_diff,
     classification = v_classification,
+    card_difference = v_card_diff,
+    transfer_difference = v_transfer_diff,
     review_status = 'authorized',
     reviewed_by = auth.uid(),
     reviewed_at = now(),
@@ -6454,7 +6495,9 @@ begin
   perform public.log_audit(v_company_id, 'cash_session', p_session_id, 'authorized',
     jsonb_build_object(
       'expected_amount', v_expected, 'real_amount', v_real,
-      'difference', v_diff, 'classification', v_classification
+      'difference', v_diff, 'classification', v_classification,
+      'card_difference', v_card_diff, 'transfer_difference', v_transfer_diff,
+      'card_declared', v_decl_card, 'card_recorded', v_rec_card
     ));
 
   return jsonb_build_object(
@@ -6462,7 +6505,9 @@ begin
     'expected_amount', v_expected,
     'real_amount', v_real,
     'difference', v_diff,
-    'classification', v_classification
+    'classification', v_classification,
+    'card_difference', v_card_diff,
+    'transfer_difference', v_transfer_diff
   );
 end;
 $function$;
@@ -8399,6 +8444,11 @@ begin
   -- se normaliza a 'cash' u 'other' (cualquier texto distinto de cash es no
   -- efectivo, como siempre) y queda guardado para revisión.
   v_kind := case when coalesce(nullif(btrim(p_kind), ''), 'cash') = 'cash' then 'cash' else 'other' end;
+  -- Auditoría 2026-10 (15ª pasada): el sistema no puede comprobar un pago con tarjeta o
+  -- transferencia; un cajero podía registrar uno que nunca existió para borrar una
+  -- deuda o liquidar un apartado. El efectivo se verifica en el arqueo de su caja;
+  -- los cobros que no son en efectivo los registra solo admin / gerente / finanzas.
+  if v_kind = 'other' then perform public.assert_noncash_payment_allowed(); end if;
   v_role := coalesce(public.current_user_role()::text, '');
   -- Un cobro en efectivo tiene que entrar al efectivo esperado de un turno: antes,
   -- si quien cobraba no tenía caja abierta, la deuda se borraba y el dinero no
@@ -11114,6 +11164,13 @@ begin
   -- ya no pasa; se trabaja siempre con centavos exactos.
   if p_deposit_amount = 'NaN'::numeric then raise exception 'Monto de anticipo invalido.'; end if;
   p_deposit_amount := round(coalesce(p_deposit_amount, 0), 2);
+  -- Auditoría 2026-10 (15ª pasada): el sistema no puede comprobar un pago con tarjeta o
+  -- transferencia; un cajero podía registrar uno que nunca existió para borrar una
+  -- deuda o liquidar un apartado. El efectivo se verifica en el arqueo de su caja;
+  -- los cobros que no son en efectivo los registra solo admin / gerente / finanzas.
+  if p_deposit_amount > 0 and lower(coalesce(p_payment_method, 'Efectivo')) <> 'efectivo' then
+    perform public.assert_noncash_payment_allowed();
+  end if;
 
   select name into v_customer_name from public.customers
     where id = p_customer_id and company_id = v_company_id and deleted_at is null;
@@ -11337,6 +11394,13 @@ begin
   if p_amount = 'NaN'::numeric then raise exception 'Ingresa un monto valido.'; end if;
   v_apply := least(coalesce(p_amount, 0), v_remaining);
   if v_apply <= 0 then raise exception 'Ingresa un monto valido.'; end if;
+  -- Auditoría 2026-10 (15ª pasada): el sistema no puede comprobar un pago con tarjeta o
+  -- transferencia; un cajero podía registrar uno que nunca existió para borrar una
+  -- deuda o liquidar un apartado. El efectivo se verifica en el arqueo de su caja;
+  -- los cobros que no son en efectivo los registra solo admin / gerente / finanzas.
+  if lower(coalesce(p_payment_method, 'Efectivo')) <> 'efectivo' then
+    perform public.assert_noncash_payment_allowed();
+  end if;
 
   update public.apartados set paid_total = paid_total + v_apply, updated_at = now()
     where id = p_apartado_id;
@@ -11433,6 +11497,13 @@ begin
   end if;
 
   if p_final_payment_amount = 'NaN'::numeric then raise exception 'Ingresa un monto valido.'; end if;
+  if coalesce(p_final_payment_amount, 0) > 0 and lower(coalesce(p_payment_method, 'Efectivo')) <> 'efectivo' then
+  -- Auditoría 2026-10 (15ª pasada): el sistema no puede comprobar un pago con tarjeta o
+  -- transferencia; un cajero podía registrar uno que nunca existió para borrar una
+  -- deuda o liquidar un apartado. El efectivo se verifica en el arqueo de su caja;
+  -- los cobros que no son en efectivo los registra solo admin / gerente / finanzas.
+    perform public.assert_noncash_payment_allowed();
+  end if;
   if coalesce(p_final_payment_amount, 0) > 0 then
     v_remaining := v_apartado.total - v_apartado.paid_total;
     if v_remaining > 0 then
@@ -13905,3 +13976,23 @@ create trigger profiles_log_audit_change
 -- escribe la service_role (la tabla es de solo lectura para los usuarios).
 alter table public.company_subscriptions
   add column if not exists authorization_grace_used boolean not null default false;
+
+-- Auditoría 2026-10 (15ª pasada): cobros que no son en efectivo (tarjeta, transferencia...)
+-- de crédito de clientes y de apartados: solo admin / gerente / finanzas / plataforma.
+-- Helper interno (lo llaman las RPC SECURITY DEFINER; no se expone a los clientes).
+create or replace function public.assert_noncash_payment_allowed()
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  if auth.uid() is not null
+     and coalesce(public.current_user_role()::text, '') not in ('admin', 'gerente', 'finanzas')
+     and not coalesce(public.current_user_is_platform_admin(), false) then
+    raise exception 'Solo un administrador, gerente o finanzas puede registrar cobros que no son en efectivo (tarjeta, transferencia...). El efectivo lo puede registrar quien tenga su caja abierta.';
+  end if;
+end;
+$$;
+
+revoke execute on function public.assert_noncash_payment_allowed() from public, anon, authenticated;
