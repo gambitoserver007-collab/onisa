@@ -55,14 +55,33 @@ exacto — casi siempre dice justo qué línea falló.
 ## Paso 4 — Vuélvete Super Admin de la plataforma
 
 Crear el usuario en Authentication no te da permisos todavía — ese es un paso aparte.
+Además, por seguridad, el sistema **solo** da permisos de Super Admin a una cuenta que
+tú hayas creado o marcado como tuya: si el registro público de Supabase seguía abierto,
+alguien pudo registrarse antes con tu correo y quedarse con su propia contraseña.
 
 1. Regresa a **SQL Editor → "+ New query"** (una consulta nueva, no reutilices la del
    Paso 2).
-2. Corre esta línea, cambiando el correo por el que usaste en el Paso 3:
+2. Revisa que la cuenta la acabas de crear tú (debe aparecer con fecha de hace unos
+   minutos, no de antes):
    ```sql
+   select id, email, created_at, last_sign_in_at
+   from auth.users where lower(email) = lower('tu-correo-real@ejemplo.com');
+   ```
+   Si la fecha es anterior a cuando hiciste el Paso 3, **no es tuya**: bórrala en
+   Authentication → Users y repite el Paso 3.
+3. Márcala como tuya y conviértela en Super Admin (cambia el correo en las dos líneas):
+   ```sql
+   update auth.users
+   set raw_app_meta_data = raw_app_meta_data || '{"owner_bootstrap": true}'::jsonb
+   where lower(email) = lower('tu-correo-real@ejemplo.com');
+
    select public.bootstrap_owner_profile('tu-correo-real@ejemplo.com');
    ```
-3. Debe decir "Success" de nuevo.
+4. Debe decir "Success" de nuevo.
+
+Alternativa por terminal: `scripts/create-owner-user.mjs` crea la cuenta ya marcada. Si el
+correo ya existía, el script se detiene y te explica qué hacer (ver el encabezado del
+script).
 
 ## Paso 5 — Conecta la app a tu proyecto
 

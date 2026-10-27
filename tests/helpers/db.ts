@@ -26,6 +26,7 @@ const AUTH_BOOTSTRAP_SQL = `
     id uuid primary key default gen_random_uuid(),
     email text,
     raw_user_meta_data jsonb not null default '{}'::jsonb,
+    raw_app_meta_data jsonb not null default '{}'::jsonb,
     created_at timestamptz not null default now()
   );
   create or replace function auth.uid() returns uuid

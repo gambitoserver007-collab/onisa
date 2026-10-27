@@ -1173,12 +1173,22 @@ execute function public.sync_profile_email_from_auth_user();
 create or replace function public.bootstrap_owner_profile(
   p_owner_email text default 'owner@example.com'
 ) returns void language plpgsql security definer set search_path = public as $$
-declare v_user_id uuid; v_email text;
+declare v_user_id uuid; v_email text; v_marked boolean;
 begin
-  select id, email into v_user_id, v_email
+  select id, email, coalesce(raw_app_meta_data ->> 'owner_bootstrap' = 'true', false)
+    into v_user_id, v_email, v_marked
   from auth.users where lower(email) = lower(p_owner_email) limit 1;
   if v_user_id is null then
     raise exception 'Create Auth user % first, then run bootstrap_owner_profile().', p_owner_email;
+  end if;
+  -- Auditoría 2026-10 (6ª pasada): solo se promueve a Super Admin una cuenta que el
+  -- OPERADOR creó o marcó. Si el registro público seguía abierto, alguien pudo
+  -- registrarse con el correo del dueño antes y conservar su propia contraseña;
+  -- raw_app_meta_data solo lo escribe la service_role (el registro público escribe
+  -- raw_user_meta_data, que NO cuenta). create-owner-user.mjs pone la marca al
+  -- crear la cuenta; en el camino manual se pone con el UPDATE del README_SUPABASE.
+  if not v_marked then
+    raise exception 'La cuenta % no fue creada ni marcada por el operador (falta raw_app_meta_data.owner_bootstrap). Verifica que es tuya y marcala (README_SUPABASE, Paso 4) o borrala en Authentication > Users y crea una nueva.', p_owner_email;
   end if;
   update public.companies set contact_email = v_email, updated_at = now()
   where id = '00000000-0000-4000-8000-000000000010';

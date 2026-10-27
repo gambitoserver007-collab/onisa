@@ -57,7 +57,8 @@ El instalador **no** crea ninguna cuenta de administrador por sí solo — eso e
 explicado con detalle en [`supabase/README_SUPABASE.md`](supabase/README_SUPABASE.md):
 
 1. Crea el usuario en **Supabase → Authentication → Users**, con tu correo y contraseña reales.
-2. En el SQL Editor, corre `select public.bootstrap_owner_profile('tu-correo@ejemplo.com');`
+2. Sigue el **Paso 4** de [`supabase/README_SUPABASE.md`](supabase/README_SUPABASE.md): verifica que la cuenta
+   la acabas de crear tú, márcala y corre `select public.bootstrap_owner_profile('tu-correo@ejemplo.com');`
    para darle permisos de Super Admin de plataforma.
 
 No hay contraseña "de fábrica" que cambiar después — desde el paso 1 ya usas tu contraseña real.
