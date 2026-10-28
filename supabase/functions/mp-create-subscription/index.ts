@@ -42,11 +42,11 @@ Deno.serve(async (req) => {
 
     const { data: caller, error: callerErr } = await admin
       .from("profiles")
-      .select("email, role, company_id, is_active, is_demo")
+      .select("email, role, company_id, is_active, is_demo, demo_mode")
       .eq("id", callerId)
       .maybeSingle();
     if (callerErr || !caller) return json({ error: "Perfil del llamador no encontrado." }, 403);
-    if (!caller.is_active || caller.is_demo) {
+    if (!caller.is_active || caller.is_demo || caller.demo_mode === "read_only") {
       return json({ error: "Esta acción no está disponible en este perfil." }, 403);
     }
     if (caller.role !== "admin" || !caller.company_id) {

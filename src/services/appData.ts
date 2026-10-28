@@ -5134,7 +5134,10 @@ export async function fetchQuoteRequests(companyId?: string): Promise<{
   let q = supabase
     .from("quote_requests")
     .select("id, created_at, customer_name, phone, email, notes, status")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    // Tope de lectura: la bandeja es pública (cualquier visitante puede dejar solicitudes) y
+    // pedir TODAS junto con un `.in()` de todos sus ids rompía la pantalla al acumularse.
+    .limit(200);
 
   if (companyId) q = q.eq("company_id", companyId);
 
@@ -5147,14 +5150,26 @@ export async function fetchQuoteRequests(companyId?: string): Promise<{
   const itemsByRequest = new Map<string, QuoteRequestItem[]>();
 
   if (requestIds.length) {
-    const { data: itemRows, error: itemsError } = await supabase
-      .from("quote_request_items")
-      .select("id, quote_request_id, product_id, product_name, qty")
-      .in("quote_request_id", requestIds);
+    // Los renglones se piden en bloques chicos: la lista de ids va en la URL.
+    const itemRows: {
+      id: string;
+      quote_request_id: string;
+      product_id: string;
+      product_name: string;
+      qty: number | string;
+    }[] = [];
 
-    if (itemsError) throw itemsError;
+    for (let i = 0; i < requestIds.length; i += 40) {
+      const { data: chunk, error: itemsError } = await supabase
+        .from("quote_request_items")
+        .select("id, quote_request_id, product_id, product_name, qty")
+        .in("quote_request_id", requestIds.slice(i, i + 40));
 
-    (itemRows ?? []).forEach((it) => {
+      if (itemsError) throw itemsError;
+      itemRows.push(...((chunk ?? []) as typeof itemRows));
+    }
+
+    itemRows.forEach((it) => {
       const list = itemsByRequest.get(it.quote_request_id) ?? [];
       list.push({
         id: it.id,

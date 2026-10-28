@@ -21,19 +21,31 @@ const AUTH_BOOTSTRAP_SQL = `
   create role anon nologin;
   create role authenticated nologin;
   create role service_role nologin bypassrls;
+  create role supabase_auth_admin nologin;
   create schema if not exists auth;
   create table auth.users (
     id uuid primary key default gen_random_uuid(),
     email text,
+    encrypted_password text,
     raw_user_meta_data jsonb not null default '{}'::jsonb,
     raw_app_meta_data jsonb not null default '{}'::jsonb,
     created_at timestamptz not null default now()
   );
+  create table auth.sessions (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null
+  );
+  create table auth.refresh_tokens (
+    id bigserial primary key,
+    user_id varchar,
+    session_id uuid references auth.sessions(id) on delete cascade
+  );
+  grant all on auth.users, auth.sessions, auth.refresh_tokens to supabase_auth_admin;
   create or replace function auth.uid() returns uuid
   language sql stable as $$
     select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
   $$;
-  grant usage on schema auth to anon, authenticated, service_role;
+  grant usage on schema auth to anon, authenticated, service_role, supabase_auth_admin;
   grant select on auth.users to anon, authenticated, service_role;
   grant execute on function auth.uid() to anon, authenticated, service_role, public;
 `;

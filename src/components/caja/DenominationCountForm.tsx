@@ -123,7 +123,8 @@ export function DenominationCountForm({
       <div className="grid grid-cols-1 gap-3 border-t border-dashed border-border/60 pt-3 sm:grid-cols-2">
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">
-            Total de tarjeta según tu terminal (opcional)
+            Total de tarjeta según tu terminal (captúralo si cobraste con
+            tarjeta)
           </Label>
           <Input
             type="number"
@@ -137,7 +138,8 @@ export function DenominationCountForm({
         </div>
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">
-            Total de transferencias recibidas (opcional)
+            Total de transferencias recibidas (captúralo si cobraste por
+            transferencia)
           </Label>
           <Input
             type="number"

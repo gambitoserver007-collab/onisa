@@ -11,6 +11,7 @@ export interface FakeSupabaseCalls {
   upserts: { table: string; row: FakeRow }[];
   inserts: { table: string; row: FakeRow }[];
   createUser: FakeRow[];
+  rpc: { name: string; args: unknown }[];
 }
 
 /** Hace fallar una escritura (como lo haría un trigger de la base). */
@@ -32,6 +33,7 @@ export interface FakeSupabase {
 interface QueryState {
   filters: [string, unknown][];
   neq: [string, unknown][];
+  nulls: string[];
   op: "select" | "update" | "insert" | "upsert" | "delete";
   payload: FakeRow | FakeRow[] | null;
   head: boolean;
@@ -50,6 +52,7 @@ export function createFakeSupabase(): FakeSupabase {
       upserts: [],
       inserts: [],
       createUser: [],
+      rpc: [],
     },
     failWrites: [],
     client: null,
@@ -62,6 +65,7 @@ export function createFakeSupabase(): FakeSupabase {
       fake.calls.upserts.length = 0;
       fake.calls.inserts.length = 0;
       fake.calls.createUser.length = 0;
+      fake.calls.rpc.length = 0;
       fake.failWrites.length = 0;
     },
   };
@@ -70,6 +74,7 @@ export function createFakeSupabase(): FakeSupabase {
     const state: QueryState = {
       filters: [],
       neq: [],
+      nulls: [],
       op: "select",
       payload: null,
       head: false,
@@ -77,11 +82,13 @@ export function createFakeSupabase(): FakeSupabase {
       onConflict: [],
     };
     const rows = () => (fake.tables[table] ??= []);
+    let lastInserted: FakeRow | null = null;
     const matching = () =>
       rows().filter(
         (r) =>
           state.filters.every(([c, v]) => r[c] === v) &&
-          state.neq.every(([c, v]) => r[c] !== v),
+          state.neq.every(([c, v]) => r[c] !== v) &&
+          state.nulls.every((c) => (r[c] ?? null) === null),
       );
 
     const exec = async () => {
@@ -117,7 +124,8 @@ export function createFakeSupabase(): FakeSupabase {
           : [state.payload as FakeRow];
 
         for (const p of payloads) {
-          rows().push({ ...p });
+          lastInserted = { id: `fake-${table}-${rows().length + 1}`, ...p };
+          rows().push(lastInserted);
           fake.calls.inserts.push({ table, row: p });
         }
       }
@@ -155,6 +163,12 @@ export function createFakeSupabase(): FakeSupabase {
 
         return b;
       },
+      is: (c: string, v: unknown) => {
+        if (v === null) state.nulls.push(c);
+        else state.filters.push([c, v]);
+
+        return b;
+      },
       in: () => b,
       maybeSingle: async () => ({ data: matching()[0] ?? null, error: null }),
       single: async () => {
@@ -163,7 +177,10 @@ export function createFakeSupabase(): FakeSupabase {
         }
         const res = await exec();
 
-        return { data: res.error ? null : state.payload, error: res.error };
+        return {
+          data: res.error ? null : (lastInserted ?? state.payload),
+          error: res.error,
+        };
       },
       update: (p: FakeRow) => {
         state.op = "update";
@@ -200,6 +217,11 @@ export function createFakeSupabase(): FakeSupabase {
 
   fake.client = {
     from,
+    rpc: async (name: string, args: unknown) => {
+      fake.calls.rpc.push({ name, args });
+
+      return { data: null, error: null };
+    },
     auth: {
       getUser: async (token: string) => {
         const id = fake.tokens.get(token);

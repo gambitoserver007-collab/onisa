@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
     // Validar que el llamador es admin de la empresa
     const { data: callerProfile, error: callerErr } = await admin
       .from("profiles")
-      .select("role, company_id, is_demo, is_active, is_platform_admin")
+      .select("role, company_id, is_demo, demo_mode, is_active, is_platform_admin")
       .eq("id", callerId)
       .maybeSingle();
 
@@ -96,6 +96,7 @@ Deno.serve(async (req) => {
     if (
       !callerProfile.is_active ||
       callerProfile.is_demo ||
+      callerProfile.demo_mode === "read_only" ||
       callerProfile.role !== "admin" ||
       callerProfile.company_id !== company_id
     ) {

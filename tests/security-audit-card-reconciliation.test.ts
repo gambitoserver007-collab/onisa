@@ -140,11 +140,12 @@ describe("Conciliación de tarjeta y transferencia al cerrar la caja", () => {
     expect(Number(rows[0].card_difference)).toBe(-200);
   });
 
-  it("si no se declara nada, la diferencia queda sin calcular (null) y el cierre no se bloquea", async () => {
+  it("si no se declara nada y hubo cobros con tarjeta, cuenta como declarar 0 (diferencia -total); sin cobros de transferencia queda null; el cierre no se bloquea", async () => {
+    // Auditoría 2026-10 (8ª pasada): dejar el campo vacío ya no esquiva la conciliación.
     const s = await shift({});
     const r = await authorize(s);
 
-    expect(r.card_difference).toBeNull();
+    expect(Number(r.card_difference)).toBe(-200);
     expect(r.transfer_difference).toBeNull();
   });
 

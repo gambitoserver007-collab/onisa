@@ -71,8 +71,8 @@ Instalador (un solo archivo):
 supabase/install/01_install.sql
 ```
 
-Aplícalo desde el SQL Editor de Supabase. No ejecutes la carpeta `migrations/` (es solo
-historial de desarrollo).
+Aplícalo desde el SQL Editor de Supabase. No ejecutes `docs/legacy-migrations/` (es solo
+historial de desarrollo; ya no está en `supabase/migrations/` para que ninguna herramienta lo aplique sola).
 
 La base crea tablas multiempresa, RLS, bloqueo de escrituras en Modo de Prueba, RPC `create_sale` y bootstrap del
 administrador inicial.

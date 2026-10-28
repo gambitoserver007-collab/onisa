@@ -153,8 +153,9 @@ Ve a **Mi Perfil** dentro de la app y cámbiala ahí directamente, sin necesitar
 
 ## Importante
 
-- **NO ejecutes la carpeta `migrations/`.** Es solo el historial de desarrollo. El único
-  instalador es `install/01_install.sql`.
+- **NO ejecutes `docs/legacy-migrations/`** (antes `supabase/migrations/`). Es solo el historial de
+  desarrollo y contiene definiciones viejas y más débiles. El único instalador es
+  `install/01_install.sql`. Si por error se aplicó, vuelve a correr el instalador completo.
 - `config.toml` es la configuración del proyecto Supabase (sin secretos).
 - Si el sitio queda público, desactiva también el registro nuevo en **Authentication →
   Providers** si no quieres que cualquiera pueda crear una cuenta.

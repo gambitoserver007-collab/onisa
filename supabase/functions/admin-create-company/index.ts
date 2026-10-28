@@ -40,11 +40,11 @@ Deno.serve(async (req) => {
 
     const { data: caller, error: callerErr } = await admin
       .from("profiles")
-      .select("is_platform_admin, is_active, is_demo")
+      .select("is_platform_admin, is_active, is_demo, demo_mode")
       .eq("id", callerId)
       .maybeSingle();
     if (callerErr || !caller) return json({ error: "Perfil del llamador no encontrado." }, 403);
-    if (!caller.is_active || caller.is_demo || !caller.is_platform_admin)
+    if (!caller.is_active || caller.is_demo || caller.demo_mode === "read_only" || !caller.is_platform_admin)
       return json({ error: "Solo el administrador de la plataforma puede crear tiendas." }, 403);
 
     const status = ["active", "trial", "expired", "suspended"].includes(subscription_status)

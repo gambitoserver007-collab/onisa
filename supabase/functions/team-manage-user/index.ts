@@ -20,6 +20,19 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
       { auth: { persistSession: false, autoRefreshToken: false } },
     );
+    // Cierra todas las sesiones y tokens de refresco de una cuenta (RPC revoke_user_sessions).
+    let sessionsRevoked: boolean | null = null;
+    const revokeSessions = async (userId: string): Promise<boolean> => {
+      try {
+        const { error } = await admin.rpc("revoke_user_sessions", { p_user_id: userId });
+        if (error) console.error("No se pudieron revocar las sesiones:", error.message);
+        return !error;
+      } catch (e: any) {
+        // Que falle la revocación no deshace el cambio ya hecho (contraseña / desactivación).
+        console.error("No se pudieron revocar las sesiones:", e?.message ?? e);
+        return false;
+      }
+    };
     const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
     if (!token) return json({ error: "No autenticado." }, 401);
     const { data: userRes, error: userErr } = await admin.auth.getUser(token);
@@ -44,11 +57,11 @@ Deno.serve(async (req) => {
 
     const { data: caller, error: callerErr } = await admin
       .from("profiles")
-      .select("role, company_id, is_demo, is_active, is_platform_admin")
+      .select("role, company_id, is_demo, demo_mode, is_active, is_platform_admin")
       .eq("id", callerId)
       .maybeSingle();
     if (callerErr || !caller) return json({ error: "Perfil del llamador no encontrado." }, 403);
-    if (!caller.is_active || caller.is_demo || caller.role !== "admin")
+    if (!caller.is_active || caller.is_demo || caller.demo_mode === "read_only" || caller.role !== "admin")
       return json({ error: "No autorizado para gestionar usuarios." }, 403);
 
     const { data: target, error: targetErr } = await admin
@@ -272,8 +285,18 @@ Deno.serve(async (req) => {
         return json({ error: "La contraseña debe tener al menos 6 caracteres." }, 400);
       const { error: pwErr } = await admin.auth.admin.updateUserById(target_user_id, { password });
       if (pwErr) return json({ error: pwErr.message }, 400);
+      // Auditoría 2026-10 (8ª pasada): cambiar la contraseña de un empleado no cerraba
+      // sus sesiones ni sus tokens de refresco ya emitidos (justo el caso de quien la
+      // restablece porque se la robaron). Se revocan; si falla, no se deshace el cambio
+      // pero queda registrado y se avisa en la respuesta.
+      sessionsRevoked = await revokeSessions(target_user_id);
     }
-    return json({ ok: true }, 200);
+    // ...y desactivar a alguien también cierra sus sesiones (la base ya le niega los
+    // datos, esto le cierra además la API de Auth).
+    if ("is_active" in updates && updates.is_active === false) {
+      sessionsRevoked = (await revokeSessions(target_user_id)) && sessionsRevoked !== false;
+    }
+    return json({ ok: true, sessions_revoked: sessionsRevoked }, 200);
   } catch (e: any) {
     return json({ error: e?.message ?? "Error inesperado." }, 500);
   }

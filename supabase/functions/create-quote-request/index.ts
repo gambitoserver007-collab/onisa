@@ -11,6 +11,11 @@ import { buildCorsHeaders } from "../_shared/cors.ts";
 //      confirmar que pertenece a esa empresa y sigue siendo público.
 const MAX_ITEMS = 60;
 const MAX_TEXT = 500;
+// Auditoría 2026-10 (8ª pasada): tope de solicitudes SIN atender por tienda. El endpoint es público
+// (solo lo frena Turnstile) y no había límite ni limpieza: un visitante podía llenar la bandeja
+// del negocio hasta romper la pantalla de Solicitudes.
+const MAX_PENDING_REQUESTS = 300;
+const MAX_QTY = 100000;
 
 Deno.serve(async (req) => {
   const headers = buildCorsHeaders(req);
@@ -71,7 +76,12 @@ Deno.serve(async (req) => {
       productId: String(it?.product_id ?? ""),
       qty: Number(it?.qty),
     }));
-    if (parsedItems.some((it) => !it.productId || !(it.qty > 0))) {
+    if (
+      parsedItems.some(
+        (it) =>
+          !it.productId || !Number.isFinite(it.qty) || !(it.qty >= 0.001) || it.qty > MAX_QTY,
+      )
+    ) {
       return json({ error: "Hay un producto o cantidad inválida en tu lista." }, 400);
     }
 
@@ -107,6 +117,18 @@ Deno.serve(async (req) => {
       return json({ error: "Ningún producto de tu lista está disponible." }, 400);
     }
 
+    const { count: pendingCount } = await admin
+      .from("quote_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", company.id)
+      .eq("status", "nueva");
+    if ((pendingCount ?? 0) >= MAX_PENDING_REQUESTS) {
+      return json(
+        { error: "Esta tienda tiene demasiadas solicitudes pendientes. Inténtalo más tarde." },
+        429,
+      );
+    }
+
     const { data: request, error: requestErr } = await admin
       .from("quote_requests")
       .insert({
@@ -131,7 +153,11 @@ Deno.serve(async (req) => {
         qty: it.qty,
       })),
     );
-    if (itemsErr) return json({ error: "No se pudo guardar tu solicitud." }, 500);
+    if (itemsErr) {
+      // Sin renglones no hay solicitud: no se deja un encabezado huérfano en la bandeja.
+      await admin.from("quote_requests").delete().eq("id", request.id);
+      return json({ error: "No se pudo guardar tu solicitud." }, 500);
+    }
 
     return json({ ok: true }, 200);
   } catch (e: any) {

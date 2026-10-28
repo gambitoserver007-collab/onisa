@@ -10,7 +10,8 @@
 -- Despues crea el usuario admin en Auth y ejecuta:
 --   select public.bootstrap_owner_profile('superadmin@user.test');
 --
--- NO ejecutes la carpeta migrations/ (es solo historial de desarrollo).
+-- NO ejecutes docs/legacy-migrations/ (es solo historial de desarrollo; ya no vive en
+-- supabase/migrations/ para que ninguna herramienta lo aplique por su cuenta).
 -- No incluye cuentas demo ni limpiezas especificas de produccion.
 -- ==================================================================
 
@@ -36,6 +37,20 @@ begin
 exception
   when duplicate_object then null;
 end $$;
+
+-- Auditoría 2026-10 (8ª pasada): los valores nuevos de un enum no se pueden usar en la
+-- misma transacción en que se agregan, y por eso este archivo traía `begin;`/`commit;`
+-- en medio -- que lo partían en TRES transacciones: si algo fallaba tras el segundo
+-- `commit`, la base se quedaba con las políticas, permisos y funciones VIEJAS que las
+-- primeras secciones recrean en cada corrida y que solo la última sección corrige.
+-- Ahora los tres valores se agregan aquí, de una vez y en su propia transacción
+-- (son idempotentes y no debilitan nada), y TODO lo demás corre como UNA sola
+-- transacción: un error en cualquier punto la deshace completa.
+begin;
+alter type public.app_role add value if not exists 'finanzas';
+alter type public.app_role add value if not exists 'operador';
+alter type public.app_role add value if not exists 'gerente';
+commit;
 
 create or replace function public.touch_updated_at()
 returns trigger
@@ -1261,7 +1276,7 @@ create unique index if not exists products_company_barcode_unique
 -- ============================================================
 
 -- 1) Add 'finanzas' to app_role enum (safe if not used in same tx)
-ALTER TYPE public.app_role ADD VALUE IF NOT EXISTS 'finanzas';
+-- (el valor 'finanzas' se agrega al inicio del archivo, en su propia transacción)
 
 -- 2) Add is_platform_admin column to profiles
 ALTER TABLE public.profiles
@@ -1920,7 +1935,7 @@ end
 $mig$;
 
 -- c) Enum operador
-alter type public.app_role add value if not exists 'operador';
+-- (el valor 'operador' se agrega al inicio del archivo, en su propia transacción)
 
 -- d) allowed_sections en profiles
 alter table public.profiles add column if not exists allowed_sections text[];
@@ -2099,7 +2114,7 @@ alter table public.stock_movements add column if not exists product_variant_id u
 -- ============================================================
 -- 20260622075914_eb4d779d-5252-4eb2-a0a5-9f7f24468500.sql
 -- ============================================================
-begin;
+-- (auditoría 2026-10, 8ª pasada: se quitó el 'begin' intermedio; el instalador es UNA sola transacción, así que un error en cualquier punto lo deshace completo en vez de dejar a medias políticas y permisos viejos)
 
 -- handle_new_user() de esta tercera pasada también se eliminó -- misma
 -- razón que las anteriores (auditoría 2026-09, hallazgo #9): quedaba
@@ -2111,7 +2126,7 @@ begin;
 -- profiles.email lo puede escribir el propio empleado, bastaba ponerse ese
 -- correo para quedar como admin en la siguiente corrida. Se eliminó.
 
-commit;
+-- (auditoría 2026-10, 8ª pasada: se quitó el 'commit' intermedio; el instalador es UNA sola transacción, así que un error en cualquier punto lo deshace completo en vez de dejar a medias políticas y permisos viejos)
 
 -- ============================================================
 -- 20260622140921_47f4a492-aefe-4c95-8d35-af20d0524423.sql
@@ -3093,7 +3108,7 @@ GRANT EXECUTE ON FUNCTION public.sync_product_variants(uuid, text[], jsonb)    T
 -- ============================================================
 -- 20260622205645_a1f85919-4d7f-4df2-afd0-709e7a5e9f0e.sql
 -- ============================================================
-begin;
+-- (auditoría 2026-10, 8ª pasada: se quitó el 'begin' intermedio; el instalador es UNA sola transacción, así que un error en cualquier punto lo deshace completo en vez de dejar a medias políticas y permisos viejos)
 
 -- 1) Hardening del trigger de perfil: bloquear auto-otorgarse permisos.
 create or replace function public.protect_profile_sensitive_columns()
@@ -3172,7 +3187,7 @@ create policy "categories write scoped" on public.categories
   using (public.can_admin_company(company_id))
   with check (public.can_admin_company(company_id));
 
-commit;
+-- (auditoría 2026-10, 8ª pasada: se quitó el 'commit' intermedio; el instalador es UNA sola transacción, así que un error en cualquier punto lo deshace completo en vez de dejar a medias políticas y permisos viejos)
 
 -- ============================================================
 -- 20260622212903_b161a95a-ccd2-46b7-b421-ef10f5ae62c0.sql
@@ -3360,6 +3375,7 @@ begin
   if not public.user_can_access_location(v_location_id) then
     raise exception 'No tienes acceso a esta sucursal.';
   end if;
+  perform public.assert_location_active(v_location_id);
 
   -- Pre-compute total + validar has_variants
   for v_item in select * from jsonb_array_elements(p_items) loop
@@ -3695,20 +3711,18 @@ begin
       end loop;
       v_variant_label := array_to_string(v_label_parts, ' / ');
 
+      -- Auditoría 2026-10 (8ª pasada): una variante que el admin ya retiró NO se
+      -- reactiva con una devolución (antes el upsert la dejaba activa y su stock
+      -- volvía a contar en el total del producto): el stock se le devuelve a su fila
+      -- pero la fila conserva su estado, y el total del producto cuenta solo activas.
       insert into public.product_variant_locations (company_id, product_variant_id, location_id, stock, is_active)
-      values (v_company_id, v_variant.id, v_location_id, v_qty, true)
+      values (v_company_id, v_variant.id, v_location_id, v_qty,
+              (v_variant.is_active is true and v_variant.deleted_at is null))
       on conflict (product_variant_id, location_id)
         do update set stock = public.product_variant_locations.stock + excluded.stock,
-                      is_active = true,
                       updated_at = now();
 
-      update public.products set stock = (
-        select coalesce(sum(pvl.stock),0)
-        from public.product_variant_locations pvl
-        join public.product_variants pv on pv.id = pvl.product_variant_id
-        where pv.product_id = v_product.id and pvl.is_active = true
-      ), updated_at = now()
-      where id = v_product.id;
+      perform public.recompute_product_stock(v_product.id);
 
       insert into public.stock_movements (company_id, location_id, product_id, product_variant_id,
                                           movement_type, qty, reference_type, reference_id, notes)
@@ -3754,6 +3768,15 @@ begin
                   'return', v_return_id,
                   'Devolucion ' || v_return_number || ' (pieza del combo: ' || v_product.name || ')');
         end loop;
+      elsif v_product.product_type = 'standard' and v_product.has_variants then
+        -- Auditoría 2026-10 (8ª pasada): el renglón se vendió ANTES de que el producto
+        -- pasara a manejar variantes. No se puede devolver a una variante (no se sabe
+        -- cuál) ni a una fila "plana" (create_sale ya no vende de ahí): antes la
+        -- devolución reactivaba esa fila plana y pisaba el total del producto con
+        -- ella. Se registra el reembolso y se deja constancia para ajustar a mano.
+        perform public.log_audit(v_company_id, 'product', v_product.id, 'return_stock_not_restored',
+          jsonb_build_object('return_id', v_return_id, 'qty', v_qty, 'location_id', v_location_id,
+                             'reason', 'producto con variantes; ajustar el inventario manualmente'));
       elsif v_product.product_type = 'standard' then
         insert into public.product_locations (company_id, product_id, location_id, stock, is_active)
         values (v_company_id, v_product.id, v_location_id, v_qty, true)
@@ -3762,11 +3785,7 @@ begin
                         is_active = true,
                         updated_at = now();
 
-        update public.products set stock = (
-          select coalesce(sum(stock),0) from public.product_locations
-          where product_id = v_product.id and is_active = true
-        ), updated_at = now()
-        where id = v_product.id;
+        perform public.recompute_product_stock(v_product.id);
 
         insert into public.stock_movements (company_id, location_id, product_id,
                                             movement_type, qty, reference_type, reference_id, notes)
@@ -4527,6 +4546,7 @@ begin
   if not public.user_can_access_location(p_location_id) then
     raise exception 'No tienes acceso a esta sucursal.';
   end if;
+  perform public.assert_location_active(p_location_id);
 
   select id, stock into v_row_id, v_current
   from public.product_locations
@@ -4639,11 +4659,13 @@ begin
   if not public.user_can_access_location(p_from_location) then
     raise exception 'No tienes acceso a esta sucursal.';
   end if;
+  perform public.assert_location_active(p_from_location);
   perform 1 from public.locations where id = p_to_location and company_id = v_company_id;
   if not found then raise exception 'Sucursal destino invalida.'; end if;
   if not public.user_can_access_location(p_to_location) then
     raise exception 'No tienes acceso a esta sucursal.';
   end if;
+  perform public.assert_location_active(p_to_location);
 
   if p_from_location < p_to_location then
     v_first := p_from_location; v_second := p_to_location;
@@ -5478,6 +5500,7 @@ begin
   if not public.user_can_access_location(v_location_id) then
     raise exception 'No tienes acceso a esta sucursal.';
   end if;
+  perform public.assert_location_active(v_location_id);
 
   v_till_id := p_till_id;
   if v_till_id is not null then
@@ -5507,6 +5530,12 @@ begin
   -- sucursal y dejarlas abiertas (solo él o un administrador las puede cerrar),
   -- bloqueando a sus compañeros. Un cajero tiene una sola caja abierta a la vez;
   -- admin / gerente / finanzas no tienen ese límite.
+  -- Auditoría 2026-10 (8ª pasada): revisar y luego insertar no era atómico: N llamadas
+  -- simultáneas del mismo cajero (una por caja) pasaban todas la revisión. El candado
+  -- (por empresa y usuario, hasta el commit) serializa la revisión con el alta.
+  if public.current_user_role()::text = 'user' then
+    perform pg_advisory_xact_lock(hashtextextended(v_company_id::text || ':cash-open:' || auth.uid()::text, 0));
+  end if;
   if public.current_user_role()::text = 'user' and exists (
     select 1 from public.cash_sessions
     where company_id = v_company_id and opened_by = auth.uid() and status = 'open'
@@ -6543,8 +6572,19 @@ begin
          max(transfer_total) filter (where count_number = 1)
     into v_decl_card, v_decl_transfer, v_rec_card, v_rec_transfer
     from public.till_counts where cash_session_id = p_session_id;
-  v_card_diff := case when v_decl_card is null then null else round(v_decl_card - coalesce(v_rec_card, 0), 2) end;
-  v_transfer_diff := case when v_decl_transfer is null then null else round(v_decl_transfer - coalesce(v_rec_transfer, 0), 2) end;
+  -- Auditoría 2026-10 (8ª pasada): "no declaró" con cobros de tarjeta/transferencia
+  -- registrados YA NO es neutral (NULL = sin señal): quien cierra puede dejar el campo
+  -- vacío para saltarse la conciliación. Se trata como si hubiera declarado 0, así que
+  -- queda una diferencia negativa igual al total registrado (y la marca en pantalla).
+  -- Solo queda NULL cuando no hubo cobros de ese tipo.
+  v_card_diff := case
+    when v_decl_card is not null then round(v_decl_card - coalesce(v_rec_card, 0), 2)
+    when coalesce(v_rec_card, 0) > 0 then round(0 - v_rec_card, 2)
+    else null end;
+  v_transfer_diff := case
+    when v_decl_transfer is not null then round(v_decl_transfer - coalesce(v_rec_transfer, 0), 2)
+    when coalesce(v_rec_transfer, 0) > 0 then round(0 - v_rec_transfer, 2)
+    else null end;
   v_classification := case when v_diff = 0 then 'cuadrado' when v_diff < 0 then 'faltante' else 'sobrante' end;
 
   update public.cash_sessions set
@@ -8573,7 +8613,7 @@ begin
     where id = p_customer_id;
 
   insert into public.customer_credit_payments (company_id, customer_id, amount, method, notes, created_by, kind)
-  values (v_company_id, p_customer_id, v_apply, left(coalesce(nullif(btrim(p_method), ''), 'Efectivo'), 60), nullif(btrim(coalesce(p_notes,'')),''), auth.uid(), v_kind);
+  values (v_company_id, p_customer_id, v_apply, left(coalesce(nullif(btrim(p_method), ''), 'Efectivo'), 60), left(nullif(btrim(coalesce(p_notes,'')),''), 500), auth.uid(), v_kind);
 
   -- Solo si es efectivo: el cobro entra al efectivo esperado del turno de quien
   -- cobra (la caja se resolvió arriba).
@@ -8587,7 +8627,7 @@ begin
   -- Bitácora: cada cobro (y, por tanto, cada condonación disfrazada de cobro no
   -- efectivo) queda con quién, cuánto, cómo y el saldo antes / después.
   perform public.log_audit(v_company_id, 'customer', p_customer_id, 'credit_collected',
-    jsonb_build_object('amount', v_apply, 'method', coalesce(p_method, 'Efectivo'), 'kind', v_kind,
+    jsonb_build_object('amount', v_apply, 'method', left(coalesce(p_method, 'Efectivo'), 100), 'kind', v_kind,
                        'balance_before', v_balance_before, 'balance_after', v_balance_before - v_apply));
 
   return jsonb_build_object(
@@ -9483,6 +9523,7 @@ begin
   if not public.user_can_access_location(v_location_id) then
     raise exception 'No tienes acceso a esta sucursal.';
   end if;
+  perform public.assert_location_active(v_location_id);
 
   -- Resolución de caja (till_id): nunca bloquea la venta, solo intenta
   -- atribuirla correctamente para el arqueo. Prioridad: (1) la caja que
@@ -9593,7 +9634,7 @@ begin
       v_unit_cost  := coalesce(v_variant.cost_override, v_product.cost);
 
       select stock into v_loc_stock from public.product_variant_locations
-        where product_variant_id = v_variant.id and location_id = v_location_id for update;
+        where product_variant_id = v_variant.id and location_id = v_location_id and is_active = true for update;
       if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_product.name; end if;
       if v_loc_stock < v_qty then raise exception 'Stock insuficiente para % en este local.', v_product.name; end if;
 
@@ -9654,12 +9695,7 @@ begin
       update public.product_variant_locations set stock = stock - v_qty, updated_at = now()
         where product_variant_id = v_variant.id and location_id = v_location_id;
 
-      update public.products set stock = (
-        select coalesce(sum(pvl.stock),0)
-        from public.product_variant_locations pvl
-        join public.product_variants pv on pv.id = pvl.product_variant_id
-        where pv.product_id = v_product.id
-      ) where id = v_product.id;
+      perform public.recompute_product_stock(v_product.id);
 
       insert into public.stock_movements (company_id, location_id, product_id, product_variant_id, movement_type, qty, reference_type, reference_id, notes)
       values (v_company_id, v_location_id, v_product.id, v_variant.id, 'sale', -v_qty, 'sale', v_sale_id, 'Venta POS');
@@ -9686,15 +9722,13 @@ begin
           v_unit_cost := v_unit_cost + (v_combo_item.component_cost * v_combo_item.component_qty);
 
           select stock into v_loc_stock from public.product_locations
-            where product_id = v_combo_item.component_product_id and location_id = v_location_id for update;
+            where product_id = v_combo_item.component_product_id and location_id = v_location_id and is_active = true for update;
           if not found then raise exception 'La pieza % del combo % no esta asignada a este punto de venta.', v_combo_item.component_name, v_product.name; end if;
           if v_loc_stock < v_combo_needed then raise exception 'Stock insuficiente de % para armar % unidad(es) de %.', v_combo_item.component_name, v_qty, v_product.name; end if;
 
           update public.product_locations set stock = stock - v_combo_needed, updated_at = now()
             where product_id = v_combo_item.component_product_id and location_id = v_location_id;
-          update public.products set stock = (
-            select coalesce(sum(stock),0) from public.product_locations where product_id = v_combo_item.component_product_id
-          ) where id = v_combo_item.component_product_id;
+          perform public.recompute_product_stock(v_combo_item.component_product_id);
           insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty, reference_type, reference_id, notes)
           values (v_company_id, v_location_id, v_combo_item.component_product_id, 'sale', -v_combo_needed, 'sale', v_sale_id, 'Venta POS (pieza del combo: ' || v_product.name || ')');
         end loop;
@@ -9706,7 +9740,7 @@ begin
         v_unit_cost := v_product.cost;
       else
         v_unit_cost := v_product.cost;
-        select stock into v_loc_stock from public.product_locations where product_id = v_product.id and location_id = v_location_id for update;
+        select stock into v_loc_stock from public.product_locations where product_id = v_product.id and location_id = v_location_id and is_active = true for update;
         if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_product.name; end if;
         if v_loc_stock < v_qty then raise exception 'Stock insuficiente para % en este local.', v_product.name; end if;
       end if;
@@ -9761,7 +9795,7 @@ begin
 
       if v_product.product_type = 'standard' then
         update public.product_locations set stock = stock - v_qty, updated_at = now() where product_id = v_product.id and location_id = v_location_id;
-        update public.products set stock = (select coalesce(sum(stock),0) from public.product_locations where product_id = v_product.id) where id = v_product.id;
+        perform public.recompute_product_stock(v_product.id);
         insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty, reference_type, reference_id, notes)
         values (v_company_id, v_location_id, v_product.id, 'sale', -v_qty, 'sale', v_sale_id, 'Venta POS');
       end if;
@@ -10116,6 +10150,7 @@ begin
   if not public.user_can_access_location(p_location_id) then
     raise exception 'No tienes acceso a esta sucursal.';
   end if;
+  perform public.assert_location_active(p_location_id);
 
   if p_reason_category not in ('danado', 'vencido', 'error_impresion', 'error_caja', 'robo_interno', 'otro') then
     raise exception 'Motivo invalido.';
@@ -10456,6 +10491,7 @@ begin
     if not public.user_can_access_location(p_location_id) then
       raise exception 'No tienes acceso a esta sucursal.';
     end if;
+    perform public.assert_location_active(p_location_id);
   end if;
 
   v_valid_until := coalesce(p_valid_until, (current_date + interval '15 days')::date);
@@ -10716,6 +10752,12 @@ begin
     raise exception 'Esta cotizacion vencio el % y ya no se puede convertir.',
       to_char(v_quote.valid_until, 'DD/MM/YYYY');
   end if;
+  -- Auditoría 2026-10 (8ª pasada): el tope de 90 días solo se revisaba al CREAR; una
+  -- cotización anterior a ese tope (o con la fecha alterada) conservaba su precio
+  -- congelado indefinidamente. También se revisa al usarla.
+  if v_quote.valid_until > v_quote.created_at::date + 90 then
+    raise exception 'La vigencia de esta cotizacion excede el maximo de 90 dias; creala de nuevo.';
+  end if;
 
   -- Auditoría 2026-10 (18ª pasada): igual que create_sale/create_quote, no se vende
   -- (ni a crédito ni con puntos) a un cliente archivado.
@@ -10731,6 +10773,7 @@ begin
   if not public.user_can_access_location(p_location_id) then
     raise exception 'No tienes acceso a esta sucursal.';
   end if;
+  perform public.assert_location_active(p_location_id);
   -- Auditoría 2026-10 (10ª pasada): también la sucursal de la propia cotización.
   if not public.user_can_access_location(v_quote.location_id) then
     raise exception 'No tienes acceso a esta sucursal.';
@@ -10816,12 +10859,7 @@ begin
 
       update public.product_variant_locations set stock = stock - v_item.qty, updated_at = now()
         where product_variant_id = v_item.product_variant_id and location_id = p_location_id;
-      update public.products set stock = (
-        select coalesce(sum(pvl.stock), 0) from public.product_variant_locations pvl
-        join public.product_variants pv on pv.id = pvl.product_variant_id
-        where pv.product_id = v_product.id
-          and pv.is_active = true and pv.deleted_at is null and pvl.is_active = true
-      ) where id = v_product.id;
+      perform public.recompute_product_stock(v_product.id);
       insert into public.stock_movements (company_id, location_id, product_id, product_variant_id,
                                           movement_type, qty, reference_type, reference_id, notes)
       values (v_company_id, p_location_id, v_product.id, v_item.product_variant_id, 'sale', -v_item.qty,
@@ -10847,15 +10885,13 @@ begin
         v_combo_unit_cost := v_combo_unit_cost + (v_combo_item.component_cost * v_combo_item.component_qty);
 
         select stock into v_loc_stock from public.product_locations
-          where product_id = v_combo_item.component_product_id and location_id = p_location_id for update;
+          where product_id = v_combo_item.component_product_id and location_id = p_location_id and is_active = true for update;
         if not found then raise exception 'La pieza % del combo % no esta asignada a este punto de venta.', v_combo_item.component_name, v_product.name; end if;
         if v_loc_stock < v_combo_needed then raise exception 'Stock insuficiente de % para armar % unidad(es) de %.', v_combo_item.component_name, v_item.qty, v_product.name; end if;
 
         update public.product_locations set stock = stock - v_combo_needed, updated_at = now()
           where product_id = v_combo_item.component_product_id and location_id = p_location_id;
-        update public.products set stock = (
-          select coalesce(sum(stock), 0) from public.product_locations where product_id = v_combo_item.component_product_id
-        ) where id = v_combo_item.component_product_id;
+        perform public.recompute_product_stock(v_combo_item.component_product_id);
         insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty,
                                             reference_type, reference_id, notes)
         values (v_company_id, p_location_id, v_combo_item.component_product_id, 'sale', -v_combo_needed, 'sale', v_sale_id,
@@ -10870,15 +10906,13 @@ begin
       v_item_cost := coalesce(v_product.cost, 0);
     else
       select stock into v_loc_stock from public.product_locations
-        where product_id = v_product.id and location_id = p_location_id for update;
+        where product_id = v_product.id and location_id = p_location_id and is_active = true for update;
       if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_item.product_name; end if;
       if v_loc_stock < v_item.qty then raise exception 'Stock insuficiente para % en este local.', v_item.product_name; end if;
 
       update public.product_locations set stock = stock - v_item.qty, updated_at = now()
         where product_id = v_product.id and location_id = p_location_id;
-      update public.products set stock = (
-        select coalesce(sum(stock), 0) from public.product_locations where product_id = v_product.id
-      ) where id = v_product.id;
+      perform public.recompute_product_stock(v_product.id);
       insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty,
                                           reference_type, reference_id, notes)
       values (v_company_id, p_location_id, v_product.id, 'sale', -v_item.qty, 'sale', v_sale_id,
@@ -11307,6 +11341,7 @@ begin
   if not public.user_can_access_location(p_location_id) then
     raise exception 'No tienes acceso a esta sucursal.';
   end if;
+  perform public.assert_location_active(p_location_id);
 
   v_due_date := coalesce(p_due_date, (current_date + interval '30 days')::date);
   if v_due_date < current_date then
@@ -11380,15 +11415,13 @@ begin
         v_item_cost := v_item_cost + (v_combo_item.component_cost * v_combo_item.component_qty);
 
         select stock into v_loc_stock from public.product_locations
-          where product_id = v_combo_item.component_product_id and location_id = p_location_id for update;
+          where product_id = v_combo_item.component_product_id and location_id = p_location_id and is_active = true for update;
         if not found then raise exception 'La pieza % del combo % no esta asignada a este punto de venta.', v_combo_item.component_name, v_product.name; end if;
         if v_loc_stock < v_combo_needed then raise exception 'Stock insuficiente de % para armar % unidad(es) de %.', v_combo_item.component_name, v_qty, v_product.name; end if;
 
         update public.product_locations set stock = stock - v_combo_needed, updated_at = now()
           where product_id = v_combo_item.component_product_id and location_id = p_location_id;
-        update public.products set stock = (
-          select coalesce(sum(stock), 0) from public.product_locations where product_id = v_combo_item.component_product_id
-        ) where id = v_combo_item.component_product_id;
+        perform public.recompute_product_stock(v_combo_item.component_product_id);
         insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty,
                                             reference_type, reference_id, notes)
         values (v_company_id, p_location_id, v_combo_item.component_product_id, 'apartado', -v_combo_needed,
@@ -11400,15 +11433,13 @@ begin
     else
       v_item_cost := coalesce(v_product.cost, 0);
       select stock into v_loc_stock from public.product_locations
-        where product_id = v_product.id and location_id = p_location_id for update;
+        where product_id = v_product.id and location_id = p_location_id and is_active = true for update;
       if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_product.name; end if;
       if v_loc_stock < v_qty then raise exception 'Stock insuficiente para % en este local.', v_product.name; end if;
 
       update public.product_locations set stock = stock - v_qty, updated_at = now()
         where product_id = v_product.id and location_id = p_location_id;
-      update public.products set stock = (
-        select coalesce(sum(stock), 0) from public.product_locations where product_id = v_product.id
-      ) where id = v_product.id;
+      perform public.recompute_product_stock(v_product.id);
       insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty,
                                           reference_type, reference_id, notes)
       values (v_company_id, p_location_id, v_product.id, 'apartado', -v_qty, 'apartado', v_apartado_id,
@@ -11815,9 +11846,7 @@ begin
       do update set stock = public.product_locations.stock + excluded.stock,
                     is_active = true,
                     updated_at = now();
-    update public.products set stock = (
-      select coalesce(sum(stock), 0) from public.product_locations where product_id = v_movement.product_id
-    ) where id = v_movement.product_id;
+    perform public.recompute_product_stock(v_movement.product_id);
     insert into public.stock_movements (company_id, location_id, product_id, movement_type, qty,
                                         reference_type, reference_id, notes)
     values (v_company_id, v_apartado.location_id, v_movement.product_id, 'apartado_cancelado', v_movement.qty_to_restore,
@@ -12451,6 +12480,13 @@ begin
     return new;
   end if;
   if coalesce(current_setting('app.bypass_customer_credit_loyalty', true), '') = 'true' then
+    -- Auditoría 2026-10 (8ª pasada): la autorización es de UN SOLO USO. Antes el GUC
+    -- quedaba encendido hasta el final de la transacción: quien lograra encadenar
+    -- una RPC de ventas/cobros con un UPDATE directo a customers en la misma
+    -- transacción (p.ej. un documento de GraphQL con varias mutaciones) podía
+    -- poner sus puntos o su saldo en lo que quisiera. Cada RPC lo prende justo
+    -- antes de SU UPDATE; el trigger lo apaga al usarlo.
+    perform set_config('app.bypass_customer_credit_loyalty', '', true);
     return new;
   end if;
 
@@ -13054,7 +13090,7 @@ end $$;
 -- purchases/cash_sessions/stock_movements/returns sin volver a crearla) --
 -- así que ni admin ni gerente pueden editar el descuento de una venta ya
 -- hecha por ningún camino salvo una RPC nueva que nadie pidió crear.
-alter type public.app_role add value if not exists 'gerente';
+-- (el valor 'gerente' se agrega al inicio del archivo, en su propia transacción)
 
 create or replace function public.can_manage_discounts(p_company_id uuid)
 returns boolean
@@ -14226,3 +14262,219 @@ update public.cash_movements cm
   from public.cash_sessions cs
  where cs.id = cm.cash_session_id and cs.company_id = cm.company_id
    and cm.location_id is null and cs.location_id is not null;
+
+-- ============================================================
+-- Auditoría 2026-10 (8ª pasada de seguridad): puertas "por validar" que se cierran sin
+-- depender de un dato de despliegue.
+-- ============================================================
+
+-- (a) Largo máximo de los textos que escriben los roles bajos. Ninguna columna de
+-- texto tenía tope: un cajero podía guardar megabytes en un nombre de cliente, el
+-- concepto de un movimiento de caja (que además se copia a la bitácora, que nadie
+-- puede borrar) o el método de pago de una venta, y volver inusables las pantallas
+-- del administrador. NOT VALID: los datos existentes no se tocan, lo nuevo sí se acota.
+do $$
+declare
+  r record;
+  v_name text;
+begin
+  for r in
+    select * from (values
+      ('customers', 'name', 200), ('customers', 'document_number', 60),
+      ('customers', 'phone', 60), ('customers', 'email', 200), ('customers', 'address', 300),
+      ('profiles', 'full_name', 200),
+      ('sales', 'payment_method', 100), ('sales', 'document_type', 100), ('sales', 'customer_name', 200),
+      ('sale_payments', 'method', 100),
+      ('cash_movements', 'concept', 500),
+      ('voided_sales', 'reason', 500),
+      ('mermas', 'notes', 1000),
+      ('customer_credit_payments', 'notes', 500), ('customer_credit_payments', 'method', 100),
+      ('locations', 'name', 200), ('locations', 'address', 300),
+      ('apartados', 'notes', 1000), ('apartados', 'customer_name', 200),
+      ('quotes', 'notes', 2000), ('quotes', 'customer_name', 200)
+    ) as t(tbl, col, max_len)
+  loop
+    if exists (select 1 from information_schema.columns
+               where table_schema = 'public' and table_name = r.tbl and column_name = r.col) then
+      v_name := r.tbl || '_' || r.col || '_len_chk';
+      if not exists (select 1 from pg_constraint where conname = v_name
+                     and conrelid = ('public.' || r.tbl)::regclass) then
+        execute format('alter table public.%I add constraint %I check (char_length(%I) <= %s) not valid',
+                       r.tbl, v_name, r.col, r.max_len);
+      end if;
+    end if;
+  end loop;
+end $$;
+
+-- (b) is_demo_data lo decide el servidor. Esa marca es la que le da a la cuenta demo
+-- pública (admin de solo lectura) alcance sobre filas de CUALQUIER empresa; como
+-- cualquier miembro la podía escribir, un empleado podía marcar filas suyas (clientes
+-- con teléfonos y saldos, productos con costos) y exponerlas a quien tenga la
+-- contraseña demo, o inyectar contenido en lo que ve la demo. Al insertar hereda la
+-- de su empresa; al actualizar no cambia; solo el administrador de la plataforma y
+-- los procesos de servicio (sin auth.uid()) la fijan.
+create or replace function public.protect_is_demo_data()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  if auth.uid() is null or public.current_user_is_platform_admin() then
+    return new;
+  end if;
+  if tg_op = 'INSERT' then
+    if tg_table_name = 'companies' then
+      new.is_demo_data := false;
+    else
+      new.is_demo_data := coalesce(
+        (select c.is_demo_data from public.companies c where c.id = new.company_id), false);
+    end if;
+  else
+    new.is_demo_data := old.is_demo_data;
+  end if;
+  return new;
+end;
+$$;
+revoke execute on function public.protect_is_demo_data() from public, anon, authenticated;
+
+do $$
+declare
+  t text;
+begin
+  for t in
+    select c.table_name
+    from information_schema.columns c
+    join information_schema.columns k
+      on k.table_schema = c.table_schema and k.table_name = c.table_name and k.column_name = 'company_id'
+    join information_schema.tables tb
+      on tb.table_schema = c.table_schema and tb.table_name = c.table_name and tb.table_type = 'BASE TABLE'
+    where c.table_schema = 'public' and c.column_name = 'is_demo_data'
+      and c.table_name not in ('audit_log', 'subscription_plans')
+  loop
+    execute format('drop trigger if exists protect_is_demo_data_trg on public.%I', t);
+    execute format('create trigger protect_is_demo_data_trg before insert or update of is_demo_data on public.%I '
+                   'for each row execute function public.protect_is_demo_data()', t);
+  end loop;
+end $$;
+
+-- companies no tiene company_id: su propia marca la fija solo la plataforma.
+drop trigger if exists protect_is_demo_data_trg on public.companies;
+create trigger protect_is_demo_data_trg
+  before insert or update of is_demo_data on public.companies
+  for each row execute function public.protect_is_demo_data();
+
+-- (c) Revocar las sesiones de una cuenta (Edge Functions, service_role): cambiar la
+-- contraseña de un empleado o desactivarlo no cerraba sus sesiones ni sus tokens de
+-- refresco ya emitidos. Borrar sus filas de auth.sessions (los refresh tokens se
+-- borran en cascada) deja la cuenta sin sesiones; el acceso a datos ya se cierra solo
+-- al desactivar el perfil, esto cierra también el acceso a la API de Auth.
+create or replace function public.revoke_user_sessions(p_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path to 'public', 'auth'
+as $$
+begin
+  delete from auth.sessions where user_id = p_user_id;
+  begin
+    delete from auth.refresh_tokens where user_id = p_user_id::text;
+  exception when undefined_table or undefined_column or datatype_mismatch then
+    null;
+  end;
+end;
+$$;
+revoke execute on function public.revoke_user_sessions(uuid) from public, anon, authenticated;
+grant execute on function public.revoke_user_sessions(uuid) to service_role;
+
+-- (d) La cuenta demo pública (admin de solo lectura, credenciales en el cliente) no
+-- cambia su correo ni su contraseña por la API de Auth: el candado de "solo lectura"
+-- cubría las tablas, pero updateUser() va a Auth, no a Postgres. GoTrue se conecta
+-- como supabase_auth_admin; el SQL Editor (para que el dueño la rote) como postgres.
+create or replace function public.protect_demo_auth_credentials()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  if session_user::text = 'supabase_auth_admin'
+     and exists (select 1 from public.profiles p
+                 where p.id = new.id and (p.is_demo or p.demo_mode::text = 'read_only')) then
+    raise exception 'La cuenta de demostracion es de solo lectura: su correo y su contrasena no se pueden cambiar desde la aplicacion.';
+  end if;
+  return new;
+end;
+$$;
+revoke execute on function public.protect_demo_auth_credentials() from public, anon, authenticated;
+
+drop trigger if exists protect_demo_auth_credentials_trg on auth.users;
+create trigger protect_demo_auth_credentials_trg
+  before update of encrypted_password, email on auth.users
+  for each row
+  when (old.encrypted_password is distinct from new.encrypted_password or old.email is distinct from new.email)
+  execute function public.protect_demo_auth_credentials();
+
+-- (e) Cotizaciones con vigencia anterior al tope de 90 días: se recortan a la fecha de
+-- creación + 90 (las ya vencidas siguen vencidas). convert_quote_to_sale también lo
+-- revisa al convertir.
+update public.quotes
+   set valid_until = created_at::date + 90
+ where status = 'pendiente' and valid_until > created_at::date + 90;
+
+-- (f) Un solo cálculo del total de stock de un producto (products.stock). Había ~15 copias
+-- con DOS reglas distintas: create_sale / convertir cotización / apartados sumaban TODAS
+-- las filas (incluso variantes retiradas y sucursales desasignadas) y ajustes, compras,
+-- mermas y devoluciones solo las activas, así que el total dependía de cuál RPC corrió
+-- al último y alertas de stock bajo, proyección de compras y disponibilidad en la tienda
+-- en línea leían un número inflado. Regla única: solo filas y variantes activas.
+create or replace function public.recompute_product_stock(p_product_id uuid)
+returns numeric
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_has_variants boolean;
+  v_total numeric;
+begin
+  select has_variants into v_has_variants from public.products where id = p_product_id;
+  if v_has_variants then
+    select coalesce(sum(pvl.stock), 0) into v_total
+      from public.product_variant_locations pvl
+      join public.product_variants pv on pv.id = pvl.product_variant_id
+      where pv.product_id = p_product_id
+        and pv.is_active = true and pv.deleted_at is null and pvl.is_active = true;
+  else
+    select coalesce(sum(stock), 0) into v_total
+      from public.product_locations
+      where product_id = p_product_id and is_active = true;
+  end if;
+  update public.products set stock = v_total, updated_at = now() where id = p_product_id;
+  return v_total;
+end;
+$$;
+revoke execute on function public.recompute_product_stock(uuid) from public, anon, authenticated;
+
+-- (g) Sucursal desactivada = no opera. Solo el selector del cliente la ocultaba: ningún
+-- RPC de venta, caja, compra o inventario miraba locations.is_active, así que el
+-- personal asignado a una sucursal que el admin acababa de apagar seguía vendiendo,
+-- abriendo caja y moviendo stock (por una pestaña abierta o llamando la RPC directo).
+-- Cerrar un turno ya abierto, contar, autorizar y devolver NO se bloquean.
+create or replace function public.assert_location_active(p_location_id uuid)
+returns void
+language plpgsql
+stable
+security definer
+set search_path to 'public'
+as $$
+begin
+  if p_location_id is null then
+    return;
+  end if;
+  if exists (select 1 from public.locations where id = p_location_id and is_active is false) then
+    raise exception 'Esta sucursal esta desactivada.';
+  end if;
+end;
+$$;
+revoke execute on function public.assert_location_active(uuid) from public, anon, authenticated;
