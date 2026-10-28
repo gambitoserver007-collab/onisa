@@ -229,11 +229,20 @@ describe("Movimientos directos de caja: tipo, signo y sucursal", () => {
     }
   });
 
-  it("un movimiento con la sucursal de OTRA caja se rechaza; con la suya o sin sucursal se acepta", async () => {
-    const wrong = await rejects(() => insert("ingreso", 5, C.loc2));
-
-    expect(wrong).toMatch(/row-level security/i);
+  it("la sucursal de un movimiento SIEMPRE es la de su caja (la que mande el cliente se ignora)", async () => {
+    // Auditoría 2026-10 (18ª pasada): antes una sucursal ajena se rechazaba y una
+    // ausente quedaba NULL (visible para todas las sucursales). Ahora un trigger
+    // copia la de la caja: lo que mande el cliente no importa.
+    expect(await rejects(() => insert("ingreso", 5, C.loc2))).toBeNull();
     expect(await rejects(() => insert("ingreso", 5, C.loc1))).toBeNull();
+    expect(await rejects(() => insert("ingreso", 5, null))).toBeNull();
+
+    const { rows } = await db.query<{ location_id: string | null }>(
+      "select distinct location_id from public.cash_movements where cash_session_id=$1",
+      [sessionId],
+    );
+
+    expect(rows.map((r) => r.location_id)).toEqual([C.loc1]);
   });
 
   it("CONTROL: cancelar un apartado con reembolso sigue registrando un 'egreso' negativo", async () => {

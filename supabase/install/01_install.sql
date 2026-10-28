@@ -863,7 +863,11 @@ drop policy if exists "products select scoped" on public.products;
 create policy "products select scoped" on public.products for select to authenticated using (public.can_select_company(company_id, is_demo_data));
 
 drop policy if exists "customers select scoped" on public.customers;
-create policy "customers select scoped" on public.customers for select to authenticated using (public.can_select_company(company_id, is_demo_data));
+-- Auditoría 2026-10 (18ª pasada): la pantalla de Clientes (y su saldo de crédito, teléfono,
+-- correo...) no es del almacenista (operador); el menú lo ocultaba pero la API no.
+create policy "customers select scoped" on public.customers for select to authenticated
+  using (public.can_select_company(company_id, is_demo_data)
+         and (select public.current_user_role())::text is distinct from 'operador');
 drop policy if exists "customers write scoped" on public.customers;
 create policy "customers write scoped" on public.customers for all to authenticated using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 
@@ -2468,7 +2472,8 @@ ALTER TABLE public.return_items ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "return_items select scoped" ON public.return_items;
 CREATE POLICY "return_items select scoped" ON public.return_items
   FOR SELECT TO authenticated
-  USING (can_select_company(company_id, is_demo_data) AND user_can_access_location(location_id));
+  USING (can_select_company(company_id, is_demo_data) AND user_can_access_location(location_id)
+         AND (select public.current_user_role())::text IS DISTINCT FROM 'operador');
 
 DROP POLICY IF EXISTS "return_items write scoped" ON public.return_items;
 CREATE POLICY "return_items write scoped" ON public.return_items
@@ -3533,6 +3538,12 @@ declare
   v_sale_method text;
   v_redeemed_points numeric;
   v_already_restored numeric;
+  -- Auditoría 2026-10 (18ª pasada): comisión y gasto anual siguen a lo devuelto.
+  v_cum_ret_all numeric;
+  v_this_ret_gross numeric;
+  v_frac_now numeric;
+  v_frac_prev numeric;
+  v_sale_year integer;
   v_this_restore numeric;
   v_cum_returned_gross numeric;
 begin
@@ -3818,7 +3829,15 @@ begin
         -- RPC prenda este GUC justo antes -- mismo patrón que create_sale.
         perform set_config('app.bypass_customer_credit_loyalty', 'true', true);
         update public.customers
-          set loyalty_points = greatest(0, coalesce(loyalty_points, 0) - v_this_clawback),
+          -- Auditoría 2026-10 (18ª pasada): antes se recortaba en cero
+          -- (greatest(0, ...)): si el cliente ya había gastado esos puntos en
+          -- otra compra, la parte que no se podía quitar se perdía, y al
+          -- devolver esa otra compra se le restituían los puntos canjeados ->
+          -- el ciclo "vender A, canjear en B, devolver A, devolver B" dejaba
+          -- puntos regalados. Ahora el saldo puede quedar negativo (puntos
+          -- que debe); create_sale no canjea con saldo <= 0 y lo que gane
+          -- después primero salda ese faltante.
+          set loyalty_points = coalesce(loyalty_points, 0) - v_this_clawback,
               updated_at = now()
           where id = v_sale_customer_id and company_id = v_company_id;
       end if;
@@ -3855,6 +3874,42 @@ begin
           set loyalty_points = coalesce(loyalty_points, 0) + v_this_restore, updated_at = now()
           where id = v_sale_customer_id and company_id = v_company_id;
       end if;
+    end if;
+  end if;
+
+  -- Auditoría 2026-10 (18ª pasada): la devolución también deshace la comisión del
+  -- vendedor y el gasto anual del cliente (el que decide su nivel de lealtad).
+  -- Antes ambos eran una foto escrita al vender: un cajero podía vender y devolver
+  -- (la caja y el stock quedaban en cero) y conservar la comisión, y el cliente
+  -- subía de nivel con compras que ya no tenía. Proporcional a lo devuelto, de
+  -- forma acumulada (se recalcula desde el total original, así que repetir o
+  -- partir devoluciones no duplica nada).
+  if coalesce(v_gross_total, 0) > 0 then
+    select coalesce(sum((si.total / nullif(si.qty, 0)) * ri.qty), 0) into v_cum_ret_all
+      from public.return_items ri
+      join public.sale_items si on si.id = ri.sale_item_id
+      where si.sale_id = p_sale_id and ri.company_id = v_company_id;
+    select coalesce(sum((si.total / nullif(si.qty, 0)) * ri.qty), 0) into v_this_ret_gross
+      from public.return_items ri
+      join public.sale_items si on si.id = ri.sale_item_id
+      where ri.return_id = v_return_id and ri.company_id = v_company_id;
+    v_frac_now := least(1, v_cum_ret_all / v_gross_total);
+    v_frac_prev := least(1, greatest(0, v_cum_ret_all - v_this_ret_gross) / v_gross_total);
+
+    update public.sales
+      set commission_amount = round(round(total * coalesce(commission_rate, 0), 2) * (1 - v_frac_now), 2)
+      where id = p_sale_id and company_id = v_company_id and coalesce(commission_rate, 0) > 0;
+
+    if v_sale_customer_id is not null and v_frac_now > v_frac_prev then
+      select extract(year from created_at)::int into v_sale_year
+        from public.sales where id = p_sale_id and company_id = v_company_id;
+      perform set_config('app.bypass_customer_credit_loyalty', 'true', true);
+      update public.customers
+        set loyalty_year_spend = greatest(0, coalesce(loyalty_year_spend, 0)
+                                          - round(coalesce(v_paid_total, 0) * (v_frac_now - v_frac_prev), 2)),
+            updated_at = now()
+        where id = v_sale_customer_id and company_id = v_company_id
+          and loyalty_year_spend_year = v_sale_year;
     end if;
   end if;
 
@@ -5160,6 +5215,16 @@ begin
   end if;
 
   if public.current_user_is_platform_admin() then
+    return new;
+  end if;
+
+  -- Auditoría 2026-10 (18ª pasada): este trigger corre ANTES de la política RLS, y
+  -- usaba el company_id que manda el cliente: cualquier usuario autenticado podía
+  -- insertar con el company_id de otra empresa y distinguir por el mensaje si esa
+  -- empresa estaba en su límite de plan. Si quien escribe no administra esa empresa,
+  -- no se mira su plan ni se toma su candado: la política RLS rechaza con el error
+  -- de siempre. Las Edge Functions (service role, sin auth.uid()) siguen validando.
+  if auth.uid() is not null and not public.can_admin_company(new.company_id) then
     return new;
   end if;
 
@@ -6709,8 +6774,22 @@ grant all on public.employee_attendance to service_role;
 alter table public.employee_attendance enable row level security;
 
 drop policy if exists "employee_attendance select scoped" on public.employee_attendance;
+-- Auditoría 2026-10 (18ª pasada): asistencia y faltas/vacaciones (con notas libres) son
+-- datos de RH que administra el admin (la pantalla /empleados es solo-admin y las
+-- políticas de escritura también); la lectura solo exigía la empresa, así que
+-- cualquier cajero las leía por la API. Ahora: admin, el propio empleado y, para
+-- asistencia, gerente/finanzas de las sucursales a las que tienen acceso.
 create policy "employee_attendance select scoped" on public.employee_attendance for select to authenticated
-  using (public.can_select_company(company_id, is_demo_data));
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and (
+      (select public.current_user_role())::text = 'admin'
+      or (select public.current_user_is_platform_admin())
+      or profile_id = (select auth.uid())
+      or ((select public.current_user_role())::text in ('gerente', 'finanzas')
+          and public.user_can_access_location(location_id))
+    )
+  );
 drop policy if exists "employee_attendance write scoped admin" on public.employee_attendance;
 create policy "employee_attendance write scoped admin" on public.employee_attendance for all to authenticated
   using (public.can_admin_company(company_id)) with check (public.can_admin_company(company_id));
@@ -6739,7 +6818,14 @@ alter table public.employee_time_events enable row level security;
 
 drop policy if exists "employee_time_events select scoped" on public.employee_time_events;
 create policy "employee_time_events select scoped" on public.employee_time_events for select to authenticated
-  using (public.can_select_company(company_id, is_demo_data));
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and (
+      (select public.current_user_role())::text = 'admin'
+      or (select public.current_user_is_platform_admin())
+      or profile_id = (select auth.uid())
+    )
+  );
 drop policy if exists "employee_time_events write scoped admin" on public.employee_time_events;
 create policy "employee_time_events write scoped admin" on public.employee_time_events for all to authenticated
   using (public.can_admin_company(company_id)) with check (public.can_admin_company(company_id));
@@ -9229,8 +9315,11 @@ begin
            order by m.first_pos), '[]'::jsonb)
     into v_result
   from (
-    select t.item ->> 'product_id' as pid,
-           nullif(t.item ->> 'variant_id', '') as vid,
+    -- Auditoría 2026-10 (18ª pasada): se agrupa por el uuid, no por el texto: el
+    -- mismo id escrito en mayúsculas, con llaves o sin guiones no se unía y cada
+    -- fragmento se redondeaba por separado.
+    select (t.item ->> 'product_id')::uuid as pid,
+           nullif(t.item ->> 'variant_id', '')::uuid as vid,
            sum(coalesce((t.item ->> 'qty')::numeric, 0)) as qty,
            min(t.pos) as first_pos
     from jsonb_array_elements(p_items) with ordinality as t(item, pos)
@@ -9447,8 +9536,11 @@ begin
   -- empresa de quien vende antes se aceptaba en silencio (nombre "Publico
   -- general") y las ramas de lealtad/crédito terminaban escribiendo sobre el
   -- cliente de OTRA empresa. Se rechaza de entrada.
+  -- Auditoría 2026-10 (18ª pasada): tampoco uno archivado (deleted_at): un cajero
+  -- archivaba a un cliente sin deuda y le cargaba ventas a crédito, dejando el
+  -- saldo en un registro que ninguna pantalla ni alerta muestra.
   if p_customer_id is not null and not exists (
-    select 1 from public.customers where id = p_customer_id and company_id = v_company_id
+    select 1 from public.customers where id = p_customer_id and company_id = v_company_id and deleted_at is null
   ) then
     raise exception 'Cliente no encontrado.';
   end if;
@@ -9702,7 +9794,7 @@ begin
     if coalesce(p_points_redeemed, 0) > 0 and coalesce(v_point_value, 0) > 0 then
       v_points_redeemed_actual := least(
         p_points_redeemed::numeric,
-        coalesce(v_customer_balance, 0),
+        greatest(0, coalesce(v_customer_balance, 0)),  -- el saldo negativo (puntos que debe) no se canjea
         floor(v_total / v_point_value)
       );
       if v_points_redeemed_actual > 0 then
@@ -10041,7 +10133,15 @@ begin
     if v_qty <= 0 then raise exception 'La cantidad debe ser mayor a cero.'; end if;
 
     v_unit_cost := coalesce(nullif(v_product.cost, 0), v_product.price, 0);
-    v_loss := coalesce(p_estimated_loss, round(v_unit_cost * v_qty, 2));
+    -- Auditoría 2026-10 (18ª pasada): la pérdida de una merma CON producto la calcula
+    -- el servidor (costo x cantidad); solo admin/finanzas pueden fijarla a mano. La
+    -- pantalla ya mandaba null, pero llamando la RPC directo un cajero podía bajar
+    -- el stock y dejar la pérdida registrada en 0.
+    if v_role in ('admin', 'finanzas') then
+      v_loss := coalesce(p_estimated_loss, round(v_unit_cost * v_qty, 2));
+    else
+      v_loss := round(v_unit_cost * v_qty, 2);
+    end if;
 
     select id, stock into v_row_id, v_current
     from public.product_locations
@@ -10617,6 +10717,15 @@ begin
       to_char(v_quote.valid_until, 'DD/MM/YYYY');
   end if;
 
+  -- Auditoría 2026-10 (18ª pasada): igual que create_sale/create_quote, no se vende
+  -- (ni a crédito ni con puntos) a un cliente archivado.
+  if v_quote.customer_id is not null and not exists (
+    select 1 from public.customers
+      where id = v_quote.customer_id and company_id = v_company_id and deleted_at is null
+  ) then
+    raise exception 'El cliente de esta cotizacion esta archivado; restauralo o crea una venta nueva.';
+  end if;
+
   perform 1 from public.locations where id = p_location_id and company_id = v_company_id;
   if not found then raise exception 'Sucursal invalida.'; end if;
   if not public.user_can_access_location(p_location_id) then
@@ -10690,8 +10799,18 @@ begin
     if v_item.product_variant_id is not null then
       -- Variante: solo aplica a productos estándar (un combo/servicio
       -- cotizado nunca lleva variant_id).
+      -- Auditoría 2026-10 (18ª pasada): create_sale y create_quote exigen la variante
+      -- activa; una cotización vieja no debe vender una variante que el admin ya
+      -- retiró (ni sacar su stock oculto).
+      perform 1 from public.product_variants
+        where id = v_item.product_variant_id and product_id = v_product.id
+          and company_id = v_company_id and is_active = true and deleted_at is null;
+      if not found then
+        raise exception 'La variante de "%" ya no esta disponible.', v_item.product_name;
+      end if;
       select stock into v_loc_stock from public.product_variant_locations
-        where product_variant_id = v_item.product_variant_id and location_id = p_location_id for update;
+        where product_variant_id = v_item.product_variant_id and location_id = p_location_id
+          and is_active = true for update;
       if not found then raise exception 'El producto % no esta asignado a este punto de venta.', v_item.product_name; end if;
       if v_loc_stock < v_item.qty then raise exception 'Stock insuficiente para % en este local.', v_item.product_name; end if;
 
@@ -10701,6 +10820,7 @@ begin
         select coalesce(sum(pvl.stock), 0) from public.product_variant_locations pvl
         join public.product_variants pv on pv.id = pvl.product_variant_id
         where pv.product_id = v_product.id
+          and pv.is_active = true and pv.deleted_at is null and pvl.is_active = true
       ) where id = v_product.id;
       insert into public.stock_movements (company_id, location_id, product_id, product_variant_id,
                                           movement_type, qty, reference_type, reference_id, notes)
@@ -10798,7 +10918,7 @@ begin
       if coalesce(p_points_redeemed, 0) > 0 and coalesce(v_point_value, 0) > 0 then
         v_points_redeemed_actual := least(
           p_points_redeemed::numeric,
-          coalesce(v_customer_balance, 0),
+          greatest(0, coalesce(v_customer_balance, 0)),  -- el saldo negativo (puntos que debe) no se canjea
           floor(v_total / v_point_value)
         );
         if v_points_redeemed_actual > 0 then
@@ -11965,6 +12085,11 @@ begin
   if p_location_id is not null then
     perform 1 from public.locations where id = p_location_id and company_id = v_company_id;
     if not found then raise exception 'Sucursal invalida.'; end if;
+    -- Auditoría 2026-10 (18ª pasada): como el resto de las RPC por sucursal, un
+    -- empleado restringido no registra anulaciones (señal de fraude) en otra.
+    if not public.user_can_access_location(p_location_id) then
+      raise exception 'No tienes acceso a esta sucursal.';
+    end if;
   end if;
 
   insert into public.voided_sales (company_id, location_id, reason, created_by)
@@ -12859,7 +12984,7 @@ using (
   case
     when (select auth.uid()) is null then false
     when (select public.current_user_is_platform_admin()) then true
-    when (select public.current_user_is_demo()) and (select public.current_user_role()) = 'admin'::public.app_role
+    when (select public.current_user_is_demo()) and (select public.current_user_role())::text = 'admin'
       then coalesce(is_demo_data, false)
     when (select public.current_user_is_demo())
       then company_id = (select public.current_user_company_id()) and coalesce(is_demo_data, false)
@@ -12885,7 +13010,27 @@ begin
       || 'when (select public.current_user_is_demo()) '
       || 'then company_id = (select public.current_user_company_id()) and coalesce(is_demo_data, false) '
       || 'else company_id = (select public.current_user_company_id()) '
-      || 'end) and public.user_can_access_location(location_id))',
+      || 'end) and public.user_can_access_location(location_id)'
+      -- Auditoría 2026-10 (18ª pasada): el almacenista (operador) no ve ventas, cajas ni
+      -- devoluciones (el menú se las oculta; la API se las daba). Sí sigue viendo
+      -- movimientos de stock y compras.
+      || case when t in ('sales','sale_items','cash_sessions','cash_movements','returns')
+              then ' and (select public.current_user_role())::text is distinct from ''operador'''
+              else '' end
+      -- ...un cajero no lee por la API las cifras (esperado/real/diferencia) de los
+      -- cortes YA AUTORIZADOS de otras personas (arqueo ciego); sí los propios, los
+      -- que siguen abiertos/pendientes, y todo admin/finanzas/gerente.
+      || case when t = 'cash_sessions'
+              then ' and (opened_by = (select auth.uid()) or review_status is distinct from ''authorized'' '
+                   || 'or (select public.current_user_role())::text in (''admin'', ''finanzas'', ''gerente'') '
+                   || 'or (select public.current_user_is_platform_admin()) or (select public.current_user_is_demo()))'
+              else '' end
+      -- ...y un movimiento de caja es de la sucursal de SU caja, aunque la fila no traiga location_id.
+      || case when t = 'cash_movements'
+              then ' and (cash_session_id is null or exists (select 1 from public.cash_sessions cs '
+                   || 'where cs.id = cash_movements.cash_session_id and public.user_can_access_location(cs.location_id)))'
+              else '' end
+      || ')',
       t, t);
   end loop;
 end $$;
@@ -13661,6 +13806,7 @@ create policy "sale_payments select scoped" on public.sale_payments for select t
       select 1 from public.sales s
       where s.id = sale_payments.sale_id and public.user_can_access_location(s.location_id)
     )
+    and (select public.current_user_role())::text is distinct from 'operador'
   );
 
 drop policy if exists "purchase_items select scoped" on public.purchase_items;
@@ -13763,6 +13909,13 @@ begin
     return new;
   end if;
   if new.company_id is null or public.current_user_is_platform_admin() then
+    return new;
+  end if;
+  -- Auditoría 2026-10 (18ª pasada): mismo oráculo que en productos -- un usuario
+  -- que se pone el company_id de otra empresa (el trigger de perfiles lo rechaza
+  -- después) no debe averiguar su límite de usuarios. Las Edge Functions no tienen
+  -- auth.uid() y siguen validando.
+  if auth.uid() is not null and new.company_id is distinct from public.current_user_company_id() then
     return new;
   end if;
 
@@ -14036,3 +14189,40 @@ drop trigger if exists protect_location_ticket on public.locations;
 create trigger protect_location_ticket
   before update of ticket_footer_text, ticket_qz_printer_name on public.locations
   for each row execute function public.protect_location_ticket();
+
+-- ============================================================
+-- Auditoría 2026-10 (18ª pasada, 7ª pasada de seguridad): la sucursal de un movimiento de
+-- caja es la de SU caja. Los movimientos manuales de la pantalla y el egreso de
+-- create_return se guardaban con location_id NULL, y user_can_access_location(NULL)
+-- es verdadero: un empleado restringido a la sucursal A leía por la API los retiros,
+-- depósitos y reembolsos de las cajas de B y C (aunque sus cajas ya estaban ocultas).
+-- Un trigger copia la sucursal de la caja (pisando lo que mande el cliente), se
+-- rellenan las filas viejas y la política de lectura (arriba) también mira la caja.
+-- ============================================================
+create or replace function public.set_cash_movement_location()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  if new.cash_session_id is not null then
+    select cs.location_id into new.location_id
+      from public.cash_sessions cs
+      where cs.id = new.cash_session_id and cs.company_id = new.company_id;
+  end if;
+  return new;
+end;
+$$;
+revoke execute on function public.set_cash_movement_location() from public, anon, authenticated;
+
+drop trigger if exists cash_movements_set_location on public.cash_movements;
+create trigger cash_movements_set_location
+  before insert on public.cash_movements
+  for each row execute function public.set_cash_movement_location();
+
+update public.cash_movements cm
+   set location_id = cs.location_id
+  from public.cash_sessions cs
+ where cs.id = cm.cash_session_id and cs.company_id = cm.company_id
+   and cm.location_id is null and cs.location_id is not null;
