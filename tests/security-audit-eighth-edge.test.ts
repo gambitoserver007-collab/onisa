@@ -272,13 +272,66 @@ describe("create-quote-request: tope, cantidades y encabezados huérfanos", () =
     expect(fake.tables.quote_request_items).toHaveLength(1);
   });
 
-  it("con 300 solicitudes sin atender ya no se aceptan más (429)", async () => {
-    seed(300);
+  it("con 500 solicitudes sin atender ya no se aceptan más (429)", async () => {
+    seed(500);
 
     const res = await request();
 
     expect(res.status).toBe(429);
-    expect(fake.tables.quote_requests).toHaveLength(300);
+    expect(fake.tables.quote_requests).toHaveLength(500);
+  });
+
+  it("9ª pasada: un mismo origen no manda más de 5 listas por hora; otro origen sí pasa", async () => {
+    seed();
+    const fromIp = (ip: string, phone: string) =>
+      handlers["create-quote-request"](
+        new Request("http://localhost/create-quote-request", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "CF-Connecting-IP": ip,
+          },
+          body: JSON.stringify({
+            company_slug: "tienda",
+            customer_name: "V",
+            phone,
+            turnstile_token: "ok",
+            items,
+          }),
+        }),
+      );
+
+    for (let i = 0; i < 5; i++) {
+      expect((await fromIp("1.1.1.1", `55500000${i}`)).status).toBe(200);
+    }
+    expect((await fromIp("1.1.1.1", "5559999999")).status).toBe(429);
+    expect((await fromIp("2.2.2.2", "5559999999")).status).toBe(200);
+    // la IP nunca se guarda, solo su huella
+    expect(JSON.stringify(fake.tables.quote_requests)).not.toContain("1.1.1.1");
+  });
+
+  it("9ª pasada: un mismo contacto no acumula más de 3 solicitudes pendientes", async () => {
+    seed();
+
+    for (let i = 0; i < 3; i++) {
+      expect((await request()).status).toBe(200);
+    }
+    expect((await request()).status).toBe(429);
+    expect((await request({ phone: "5550000000" })).status).toBe(200);
+  });
+
+  it("9ª pasada: el mismo producto repetido se junta en un solo renglón", async () => {
+    seed();
+
+    const res = await request({
+      items: Array.from({ length: 60 }, () => ({ product_id: "p1", qty: 1 })),
+    });
+
+    expect(res.status).toBe(200);
+    expect(fake.tables.quote_request_items).toHaveLength(1);
+    expect((fake.tables.quote_request_items[0] as { qty: number }).qty).toBe(
+      60,
+    );
   });
 
   it("cantidades fuera de rango (1e9, 0.0004, Infinity) se rechazan antes de tocar la base", async () => {

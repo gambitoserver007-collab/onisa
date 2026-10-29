@@ -33,6 +33,7 @@ export interface FakeSupabase {
 interface QueryState {
   filters: [string, unknown][];
   neq: [string, unknown][];
+  gte: [string, unknown][];
   nulls: string[];
   op: "select" | "update" | "insert" | "upsert" | "delete";
   payload: FakeRow | FakeRow[] | null;
@@ -74,6 +75,7 @@ export function createFakeSupabase(): FakeSupabase {
     const state: QueryState = {
       filters: [],
       neq: [],
+      gte: [],
       nulls: [],
       op: "select",
       payload: null,
@@ -88,6 +90,7 @@ export function createFakeSupabase(): FakeSupabase {
         (r) =>
           state.filters.every(([c, v]) => r[c] === v) &&
           state.neq.every(([c, v]) => r[c] !== v) &&
+          state.gte.every(([c, v]) => (r[c] as string) >= (v as string)) &&
           state.nulls.every((c) => (r[c] ?? null) === null),
       );
 
@@ -124,7 +127,17 @@ export function createFakeSupabase(): FakeSupabase {
           : [state.payload as FakeRow];
 
         for (const p of payloads) {
-          lastInserted = { id: `fake-${table}-${rows().length + 1}`, ...p };
+          // Valores por defecto de la base (columnas con default) que las pruebas necesitan.
+          const dbDefaults: FakeRow =
+            table === "quote_requests"
+              ? { status: "nueva", created_at: new Date().toISOString() }
+              : {};
+
+          lastInserted = {
+            id: `fake-${table}-${rows().length + 1}`,
+            ...dbDefaults,
+            ...p,
+          };
           rows().push(lastInserted);
           fake.calls.inserts.push({ table, row: p });
         }
@@ -160,6 +173,11 @@ export function createFakeSupabase(): FakeSupabase {
       },
       neq: (c: string, v: unknown) => {
         state.neq.push([c, v]);
+
+        return b;
+      },
+      gte: (c: string, v: unknown) => {
+        state.gte.push([c, v]);
 
         return b;
       },

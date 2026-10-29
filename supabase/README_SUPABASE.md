@@ -151,6 +151,19 @@ usa solo en tu máquina, un momento — no la compartas con nadie más.
 **Ya tengo sesión iniciada pero no recuerdo mi contraseña para el futuro**
 Ve a **Mi Perfil** dentro de la app y cámbiala ahí directamente, sin necesitar correo.
 
+## Revisión de empresas marcadas como demo (después de actualizar el instalador)
+
+El instalador desmarca solo las **filas** que un inquilino había marcado como demo dentro de
+su empresa. La marca de la propia fila de `companies` no se toca (no se puede distinguir de la
+empresa demo de verdad). Revisa que solo estén marcadas las que tú reconoces como demo:
+
+```sql
+select id, name, contact_email, is_demo_data from public.companies where is_demo_data is true;
+```
+
+Si aparece alguna empresa real, desmárcala: `update public.companies set is_demo_data = false where id = '...';`
+(solo la plataforma puede cambiar esa marca; el SQL Editor corre como administrador).
+
 ## Importante
 
 - **NO ejecutes `docs/legacy-migrations/`** (antes `supabase/migrations/`). Es solo el historial de

@@ -655,3 +655,272 @@ describe("9ª pasada: los 9 confirmados", () => {
     });
   });
 });
+
+// ============================================================ puertas "por validar"
+describe("9ª pasada: los 9 por validar", () => {
+  let db: PGlite;
+
+  beforeAll(async () => {
+    db = await createTestDb();
+  }, 120_000);
+
+  afterAll(async () => {
+    await db.close();
+  });
+
+  it("A. filas viejas con textos largos NO rompen la venta a crédito y el instalador las recorta", async () => {
+    const C = await makeCompany(db, "Legado largo");
+    const cashier = await makeUser(db, C.id, "user");
+    const p = await makeProduct(db, C.id, C.loc1, "P", 1, 10, 50);
+    const customer = await makeCustomer(db, C.id, "Cli");
+
+    // base "vieja": sin topes, con un cliente de nombre y dirección enormes
+    for (const c of ["customers_name_len_chk", "customers_address_len_chk"]) {
+      await db.query(`alter table public.customers drop constraint ${c}`);
+    }
+    await db.query(
+      "update public.customers set name=$2, address=$3, credit_limit=1000 where id=$1",
+      [customer, "N".repeat(500), "D".repeat(900)],
+    );
+    // se vuelve a correr el instalador (como hace el dueño al actualizar)
+    const { readFileSync } = await import("node:fs");
+
+    await db.exec(readFileSync("supabase/install/01_install.sql", "utf-8"));
+    const row = (
+      await db.query<{ n: number; a: number }>(
+        "select char_length(name) n, char_length(address) a from public.customers where id=$1",
+        [customer],
+      )
+    ).rows[0];
+
+    expect(row.n).toBe(200);
+    expect(row.a).toBe(300);
+    await db.query("select 1");
+    await asUser(db, cashier, () =>
+      db.query("select open_cash_session(0,$1)", [C.loc1]),
+    );
+    const sale = await asUser(db, cashier, () =>
+      createSale(
+        db,
+        [{ product_id: p, qty: 1, unit_price: 10 }],
+        C.loc1,
+        undefined,
+        {
+          customerId: customer,
+          payments: [{ method: "Crédito", amount: 10, kind: "credit" }],
+        },
+      ),
+    );
+
+    expect(Number(sale.total)).toBeCloseTo(10, 2);
+    // el tope sigue vigente para lo nuevo
+    expect(
+      await rejects(() =>
+        db.query("update public.customers set name=$2 where id=$1", [
+          customer,
+          "x".repeat(201),
+        ]),
+      ),
+    ).toMatch(/customers_name_len_chk/i);
+  }, 120_000);
+
+  it("B. un movimiento de caja viejo con signo inválido NO aborta el instalador", async () => {
+    const C = await makeCompany(db, "Legado caja");
+    const cashier = await makeUser(db, C.id, "user");
+    const { readFileSync } = await import("node:fs");
+
+    const session = (
+      await asUser(db, cashier, () =>
+        db.query<{ s: string }>("select open_cash_session(0,$1) as s", [
+          C.loc1,
+        ]),
+      )
+    ).rows[0].s;
+
+    await db.exec(
+      "alter table public.cash_movements drop constraint cash_movements_type_sign_chk",
+    );
+    await db.exec(
+      "alter table public.cash_movements disable trigger cash_movements_set_location",
+    );
+    await db.query(
+      "insert into public.cash_movements (company_id, cash_session_id, movement_type, concept, amount) values ($1,$2,'ingreso','viejo',-50)",
+      [C.id, session],
+    );
+    await db.exec(
+      "alter table public.cash_movements enable trigger cash_movements_set_location",
+    );
+
+    expect(
+      await rejects(() =>
+        db.exec(readFileSync("supabase/install/01_install.sql", "utf-8")),
+      ),
+    ).toBeNull();
+    const loc = (
+      await db.query<{ location_id: string | null }>(
+        "select location_id from public.cash_movements where concept='viejo'",
+      )
+    ).rows[0].location_id;
+
+    expect(loc).toBe(C.loc1); // el relleno de sucursal sí se hizo
+  }, 120_000);
+
+  it("C. filas marcadas como demo por un inquilino dentro de una empresa normal se desmarcan", async () => {
+    const C = await makeCompany(db, "Empresa real");
+    const customer = await makeCustomer(db, C.id, "Cli");
+    const { readFileSync } = await import("node:fs");
+
+    await db.query(
+      "update public.customers set is_demo_data=true where id=$1",
+      [customer],
+    );
+    await db.exec(readFileSync("supabase/install/01_install.sql", "utf-8"));
+    const flag = (
+      await db.query<{ is_demo_data: boolean }>(
+        "select is_demo_data from public.customers where id=$1",
+        [customer],
+      )
+    ).rows[0].is_demo_data;
+
+    expect(flag).toBe(false);
+  }, 120_000);
+
+  it("D. venta a crédito contra un cliente archivado se rechaza aunque el chequeo previo pasara", async () => {
+    const C = await makeCompany(db, "Archivado");
+    const cashier = await makeUser(db, C.id, "user");
+    const p = await makeProduct(db, C.id, C.loc1, "P", 1, 10, 50);
+    const customer = await makeCustomer(db, C.id, "Cli");
+
+    await db.query(
+      "update public.customers set credit_limit=1000 where id=$1",
+      [customer],
+    );
+    await asUser(db, cashier, () =>
+      db.query("select open_cash_session(0,$1)", [C.loc1]),
+    );
+    // control: cliente activo, venta a crédito normal
+    await asUser(db, cashier, () =>
+      createSale(
+        db,
+        [{ product_id: p, qty: 1, unit_price: 10 }],
+        C.loc1,
+        undefined,
+        {
+          customerId: customer,
+          payments: [{ method: "Crédito", amount: 10, kind: "credit" }],
+        },
+      ),
+    );
+    await db.query("update public.customers set deleted_at=now() where id=$1", [
+      customer,
+    ]);
+    const err = await asUser(db, cashier, () =>
+      rejects(() =>
+        createSale(
+          db,
+          [{ product_id: p, qty: 1, unit_price: 10 }],
+          C.loc1,
+          undefined,
+          {
+            customerId: customer,
+            payments: [{ method: "Crédito", amount: 10, kind: "credit" }],
+          },
+        ),
+      ),
+    );
+
+    expect(err).toMatch(/archivado|no encontrado/i);
+    // La carrera real (archivar entre el chequeo y el candado) necesita dos conexiones; aquí se
+    // comprueba que cada candado de crédito vuelve a exigir que el cliente siga activo.
+    const { readFileSync } = await import("node:fs");
+    const sql = readFileSync("supabase/install/01_install.sql", "utf-8");
+    const lastSale = sql.lastIndexOf(
+      "create or replace function public.create_sale(",
+    );
+    const saleBody = sql.slice(
+      lastSale,
+      sql.indexOf("\n$function$;", lastSale),
+    );
+    const lastConv = sql.lastIndexOf(
+      "create or replace function public.convert_quote_to_sale(",
+    );
+    const convBody = sql.slice(lastConv, sql.indexOf("\n$$;", lastConv));
+    const locks = (b: string) =>
+      b.match(/select credit_limit, credit_balance[^;]*for update;/g) ?? [];
+
+    expect(locks(saleBody)).toHaveLength(2);
+    expect(locks(convBody)).toHaveLength(1);
+    for (const l of [...locks(saleBody), ...locks(convBody)]) {
+      expect(l).toMatch(/deleted_at is null/);
+    }
+    const bal = (
+      await db.query<{ b: string }>(
+        "select credit_balance b from public.customers where id=$1",
+        [customer],
+      )
+    ).rows[0].b;
+
+    expect(Number(bal)).toBeCloseTo(10, 2); // solo la venta previa
+  }, 120_000);
+
+  it("E. create_return bloquea la venta antes de leer lo devuelto (la carrera de comisión queda serializada)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const sql = readFileSync("supabase/install/01_install.sql", "utf-8");
+    const i = sql.lastIndexOf(
+      "create or replace function public.create_return(",
+    );
+    const body = sql.slice(i, sql.indexOf("\n$$;", i));
+    const lockAt = body.indexOf("deleted_at is null for update;");
+    const readAt = body.indexOf("from public.return_items ri");
+
+    expect(lockAt).toBeGreaterThan(0);
+    expect(lockAt).toBeLessThan(readAt);
+    // y devolver líneas distintas de una venta sin cliente sigue bajando la comisión al cero
+    const C = await makeCompany(db, "Carrera");
+    const admin = await makeUser(db, C.id, "admin");
+    const cashier = await makeUser(db, C.id, "user");
+    const a = await makeProduct(db, C.id, C.loc1, "A", 1, 100, 50);
+    const b = await makeProduct(db, C.id, C.loc1, "B", 1, 100, 50);
+
+    await asUser(db, admin, () =>
+      db.query("select set_employee_commission($1, 0.1)", [cashier]),
+    );
+    await asUser(db, cashier, () =>
+      db.query("select open_cash_session(0,$1)", [C.loc1]),
+    );
+    const sale = await asUser(db, cashier, () =>
+      createSale(
+        db,
+        [
+          { product_id: a, qty: 1, unit_price: 100 },
+          { product_id: b, qty: 1, unit_price: 100 },
+        ],
+        C.loc1,
+      ),
+    );
+    const items = (
+      await db.query<{ id: string }>(
+        "select id from public.sale_items where sale_id=$1 order by id",
+        [sale.sale_id],
+      )
+    ).rows;
+
+    for (const it of items) {
+      await asUser(db, cashier, () =>
+        db.query("select create_return($1,'x',$2::jsonb,$3,true)", [
+          sale.sale_id,
+          JSON.stringify([{ sale_item_id: it.id, qty: 1 }]),
+          C.loc1,
+        ]),
+      );
+    }
+    const c = (
+      await db.query<{ commission_amount: string }>(
+        "select commission_amount from public.sale_commissions where sale_id=$1",
+        [sale.sale_id],
+      )
+    ).rows[0].commission_amount;
+
+    expect(Number(c)).toBe(0);
+  }, 120_000);
+});

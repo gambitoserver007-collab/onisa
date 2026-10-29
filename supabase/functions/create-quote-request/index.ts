@@ -14,8 +14,23 @@ const MAX_TEXT = 500;
 // Auditoría 2026-10 (8ª pasada): tope de solicitudes SIN atender por tienda. El endpoint es público
 // (solo lo frena Turnstile) y no había límite ni limpieza: un visitante podía llenar la bandeja
 // del negocio hasta romper la pantalla de Solicitudes.
-const MAX_PENDING_REQUESTS = 300;
+const MAX_PENDING_REQUESTS = 500;
+// Auditoría 2026-10 (9ª pasada): el tope global solo lo llenaba un visitante y dejaba sin servicio a
+// los clientes reales. Ahora cada origen (IP) y cada contacto tienen su propio tope, así que llenar
+// la bandeja exige cientos de orígenes y contactos distintos, no uno solo.
+const MAX_REQUESTS_PER_SOURCE_PER_HOUR = 5;
+const MAX_PENDING_PER_CONTACT = 3;
 const MAX_QTY = 100000;
+
+async function sourceHash(companyId: string, ip: string): Promise<string | null> {
+  if (!ip) return null;
+  const data = new TextEncoder().encode(`${companyId}:${ip}`);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 Deno.serve(async (req) => {
   const headers = buildCorsHeaders(req);
@@ -112,7 +127,14 @@ Deno.serve(async (req) => {
     if (productsErr) return json({ error: "No se pudo validar tu lista." }, 500);
 
     const nameById = new Map((products ?? []).map((p) => [p.id, p.name as string]));
-    const validItems = parsedItems.filter((it) => nameById.has(it.productId));
+    // Un mismo producto repetido se junta en un solo renglón (la cantidad se suma, acotada): así
+    // una solicitud nunca trae más renglones que productos distintos (MAX_ITEMS).
+    const merged = new Map<string, number>();
+    for (const it of parsedItems) {
+      if (!nameById.has(it.productId)) continue;
+      merged.set(it.productId, Math.min(MAX_QTY, (merged.get(it.productId) ?? 0) + it.qty));
+    }
+    const validItems = [...merged.entries()].map(([productId, qty]) => ({ productId, qty }));
     if (validItems.length === 0) {
       return json({ error: "Ningún producto de tu lista está disponible." }, 400);
     }
@@ -129,6 +151,37 @@ Deno.serve(async (req) => {
       );
     }
 
+    const ip =
+      req.headers.get("CF-Connecting-IP") ??
+      (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
+    const source = await sourceHash(company.id, ip);
+    if (source) {
+      const { count: recentFromSource } = await admin
+        .from("quote_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("company_id", company.id)
+        .eq("source_hash", source)
+        .gte("created_at", new Date(Date.now() - 60 * 60 * 1000).toISOString());
+      if ((recentFromSource ?? 0) >= MAX_REQUESTS_PER_SOURCE_PER_HOUR) {
+        return json({ error: "Enviaste varias listas seguidas. Inténtalo más tarde." }, 429);
+      }
+    }
+    for (const [column, value] of [["phone", phone], ["email", email]] as const) {
+      if (!value) continue;
+      const { count: samePending } = await admin
+        .from("quote_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("company_id", company.id)
+        .eq("status", "nueva")
+        .eq(column, value);
+      if ((samePending ?? 0) >= MAX_PENDING_PER_CONTACT) {
+        return json(
+          { error: "Ya tienes solicitudes pendientes con este contacto. El negocio te responderá pronto." },
+          429,
+        );
+      }
+    }
+
     const { data: request, error: requestErr } = await admin
       .from("quote_requests")
       .insert({
@@ -137,6 +190,7 @@ Deno.serve(async (req) => {
         phone,
         email,
         notes,
+        source_hash: source,
       })
       .select("id")
       .single();

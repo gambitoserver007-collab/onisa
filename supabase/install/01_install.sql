@@ -3638,7 +3638,10 @@ begin
     raise exception 'No tienes acceso a esta sucursal.';
   end if;
 
-  perform 1 from public.sales where id = p_sale_id and company_id = v_company_id and deleted_at is null;
+  -- Auditoría 2026-10 (9ª pasada): la venta se bloquea ANTES de leer lo ya devuelto. Dos devoluciones
+  -- simultáneas de renglones distintos de la misma venta se serializan aquí; antes calculaban la
+  -- fracción acumulada sin verse y la última en escribir pisaba la reversión de comisión de la otra.
+  perform 1 from public.sales where id = p_sale_id and company_id = v_company_id and deleted_at is null for update;
   if not found then raise exception 'Venta no encontrada.'; end if;
   -- Auditoría 2026-10 (4ª pasada): además de la sucursal elegida, el empleado debe
   -- tener acceso a la sucursal de la VENTA que devuelve (antes bastaba nombrar la propia).
@@ -9523,6 +9526,8 @@ $$;
 revoke execute on function public.normalize_sale_payment_kind(text, text) from public, anon, authenticated;
 
 -- ...y la columna misma ya no admite texto libre (NOT VALID: las filas existentes no se tocan).
+update public.sale_payments set kind = 'other'
+ where kind not in ('cash','card','bank_transfer','instant_transfer','wallet','qr','voucher','bnpl','crypto','credit','other');
 do $$
 begin
   if not exists (select 1 from pg_constraint where conname = 'sale_payments_kind_chk'
@@ -10077,8 +10082,9 @@ begin
             raise exception 'Elige un cliente para vender a credito.';
           end if;
           select credit_limit, credit_balance into v_credit_limit, v_credit_balance
-            from public.customers where id = p_customer_id and company_id = v_company_id
+            from public.customers where id = p_customer_id and company_id = v_company_id and deleted_at is null
             for update;
+            if not found then raise exception 'Este cliente esta archivado.'; end if;
           if v_credit_limit is null or v_credit_limit <= 0 then
             raise exception 'Este cliente no tiene credito habilitado.';
           end if;
@@ -10109,8 +10115,9 @@ begin
           raise exception 'Elige un cliente para vender a credito.';
         end if;
         select credit_limit, credit_balance into v_credit_limit, v_credit_balance
-          from public.customers where id = p_customer_id and company_id = v_company_id
+          from public.customers where id = p_customer_id and company_id = v_company_id and deleted_at is null
           for update;
+          if not found then raise exception 'Este cliente esta archivado.'; end if;
         if v_credit_limit is null or v_credit_limit <= 0 then
           raise exception 'Este cliente no tiene credito habilitado.';
         end if;
@@ -11160,8 +11167,9 @@ begin
         raise exception 'Esta cotizacion no tiene cliente asignado; no se puede vender a credito.';
       end if;
       select credit_limit, credit_balance into v_credit_limit, v_credit_balance
-        from public.customers where id = v_quote.customer_id and company_id = v_company_id
+        from public.customers where id = v_quote.customer_id and company_id = v_company_id and deleted_at is null
         for update;
+        if not found then raise exception 'Este cliente esta archivado.'; end if;
       if v_credit_limit is null or v_credit_limit <= 0 then
         raise exception 'Este cliente no tiene credito habilitado.';
       end if;
@@ -12960,6 +12968,11 @@ create index if not exists quote_requests_company_idx
 create index if not exists quote_request_items_request_idx
   on public.quote_request_items (quote_request_id);
 
+-- Auditoría 2026-10 (9ª pasada): huella (hash) del origen de la solicitud pública, solo para limitar
+-- cuántas listas manda un mismo origen por hora; nunca se guarda la IP.
+alter table public.quote_requests add column if not exists source_hash text;
+create index if not exists quote_requests_source_idx on public.quote_requests (company_id, source_hash, created_at desc);
+
 alter table public.quote_requests enable row level security;
 alter table public.quote_request_items enable row level security;
 
@@ -14421,11 +14434,17 @@ create trigger cash_movements_set_location
   before insert on public.cash_movements
   for each row execute function public.set_cash_movement_location();
 
+-- Auditoría 2026-10 (9ª pasada): el tope de signo (NOT VALID) también se evalúa sobre la fila
+-- nueva de este UPDATE; una fila vieja con signo o tipo inválido hacía fallar el instalador
+-- entero (y todo se revertía). Se quita un momento, se rellena la sucursal y se vuelve a poner.
+alter table public.cash_movements drop constraint if exists cash_movements_type_sign_chk;
 update public.cash_movements cm
    set location_id = cs.location_id
   from public.cash_sessions cs
  where cs.id = cm.cash_session_id and cs.company_id = cm.company_id
    and cm.location_id is null and cs.location_id is not null;
+alter table public.cash_movements add constraint cash_movements_type_sign_chk
+  check ((movement_type = 'ingreso' and amount > 0) or (movement_type = 'egreso' and amount < 0)) not valid;
 
 -- ============================================================
 -- Auditoría 2026-10 (8ª pasada de seguridad): puertas "por validar" que se cierran sin
@@ -14441,8 +14460,9 @@ do $$
 declare
   r record;
   v_name text;
+  v_over boolean;
 begin
-  for r in
+  create temp table _len_specs on commit drop as
     select * from (values
       ('customers', 'name', 200), ('customers', 'document_number', 60),
       ('customers', 'phone', 60), ('customers', 'email', 200), ('customers', 'address', 300),
@@ -14465,16 +14485,42 @@ begin
       ('suppliers', 'name', 200), ('suppliers', 'document_number', 60),
       ('suppliers', 'phone', 60), ('suppliers', 'email', 200),
       ('returns', 'reason', 500), ('apartado_payments', 'notes', 500)
-    ) as t(tbl, col, max_len)
+    ) as t(tbl, col, max_len);
+
+  -- Auditoría 2026-10 (9ª pasada): las filas que YA existían con un texto más largo que el tope
+  -- hacían fallar cualquier INSERT/UPDATE posterior de esa fila (un NOT VALID se evalúa sobre la fila
+  -- nueva completa): p. ej. un cliente con nombre de 500 letras dejaba de poder comprar a crédito. Se
+  -- recortan una sola vez (left) antes de volver a poner los topes. Primero se quitan todos los topes
+  -- de la lista (así recortar una columna no choca con otra de la misma fila), luego se recorta y al
+  -- final se vuelven a poner.
+  for r in select * from _len_specs
+  loop
+    if exists (select 1 from information_schema.columns
+               where table_schema = 'public' and table_name = r.tbl and column_name = r.col) then
+      execute format('alter table public.%I drop constraint if exists %I', r.tbl, r.tbl || '_' || r.col || '_len_chk');
+    end if;
+  end loop;
+
+  for r in select * from _len_specs
+  loop
+    if exists (select 1 from information_schema.columns
+               where table_schema = 'public' and table_name = r.tbl and column_name = r.col) then
+      execute format('select exists (select 1 from public.%I where char_length(%I) > %s)', r.tbl, r.col, r.max_len)
+        into v_over;
+      if v_over then
+        execute format('update public.%I set %I = left(%I, %s) where char_length(%I) > %s',
+                       r.tbl, r.col, r.col, r.max_len, r.col, r.max_len);
+      end if;
+    end if;
+  end loop;
+
+  for r in select * from _len_specs
   loop
     if exists (select 1 from information_schema.columns
                where table_schema = 'public' and table_name = r.tbl and column_name = r.col) then
       v_name := r.tbl || '_' || r.col || '_len_chk';
-      if not exists (select 1 from pg_constraint where conname = v_name
-                     and conrelid = ('public.' || r.tbl)::regclass) then
-        execute format('alter table public.%I add constraint %I check (char_length(%I) <= %s) not valid',
-                       r.tbl, v_name, r.col, r.max_len);
-      end if;
+      execute format('alter table public.%I add constraint %I check (char_length(%I) <= %s) not valid',
+                     r.tbl, v_name, r.col, r.max_len);
     end if;
   end loop;
 end $$;
@@ -14528,6 +14574,31 @@ begin
     execute format('drop trigger if exists protect_is_demo_data_trg on public.%I', t);
     execute format('create trigger protect_is_demo_data_trg before insert or update of is_demo_data on public.%I '
                    'for each row execute function public.protect_is_demo_data()', t);
+  end loop;
+end $$;
+
+-- Auditoría 2026-10 (9ª pasada): limpieza de lo que un inquilino marcó ANTES de este candado. Una fila
+-- marcada como demo dentro de una empresa que NO es demo solo pudo ponerla el propio inquilino (y la
+-- cuenta demo pública, de solo lectura, la leía). Se desmarcan. La marca de la propia fila de
+-- companies no se toca aquí (no se puede distinguir de una empresa demo legítima): ver la consulta
+-- de revisión en el README.
+do $$
+declare
+  t text;
+begin
+  for t in
+    select c.table_name
+    from information_schema.columns c
+    join information_schema.columns k
+      on k.table_schema = c.table_schema and k.table_name = c.table_name and k.column_name = 'company_id'
+    join information_schema.tables tb
+      on tb.table_schema = c.table_schema and tb.table_name = c.table_name and tb.table_type = 'BASE TABLE'
+    where c.table_schema = 'public' and c.column_name = 'is_demo_data'
+      and c.table_name not in ('audit_log', 'subscription_plans')
+  loop
+    execute format(
+      'update public.%I x set is_demo_data = false where x.is_demo_data is true '
+      'and exists (select 1 from public.companies co where co.id = x.company_id and co.is_demo_data is not true)', t);
   end loop;
 end $$;
 

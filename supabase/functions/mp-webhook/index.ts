@@ -191,6 +191,7 @@ Deno.serve(async (req) => {
     }
 
     let companyId: string | null = null;
+    let paymentApproved = false;
 
     if (resourcePath) {
       const resRes = await fetch(`https://api.mercadopago.com/${resourcePath}`, {
@@ -278,21 +279,28 @@ Deno.serve(async (req) => {
               // vigencia un mes (ver abajo); sin esto, pausar y reautorizar -o
               // crear una preapproval nueva con una tarjeta que no cobra-
               // regalaba un mes por aviso.
-              const update: Record<string, unknown> = {
-                plan_id: sub.plan_id,
-                subscription_status: "active",
-              };
+              //
+              // Auditoría 2026-10 (9ª pasada): tampoco cambia el plan ni el estado de una
+              // empresa que aún tiene vigencia (antes los cambiaba aunque no hubiera cobro:
+              // pasar a un plan más caro o reactivar una empresa cancelada por la plataforma
+              // solo con autorizar). Eso lo hace el primer pago aprobado (abajo).
               if (
                 (!co?.expires_at || String(co.expires_at) < todayIso()) &&
                 sub.authorization_grace_used !== true
               ) {
-                update.expires_at = daysFromToday(AUTHORIZATION_GRACE_DAYS);
                 await admin
                   .from("company_subscriptions")
                   .update({ authorization_grace_used: true })
                   .eq("company_id", companyId);
+                await admin
+                  .from("companies")
+                  .update({
+                    plan_id: sub.plan_id,
+                    subscription_status: "active",
+                    expires_at: daysFromToday(AUTHORIZATION_GRACE_DAYS),
+                  })
+                  .eq("id", companyId);
               }
-              await admin.from("companies").update(update).eq("id", companyId);
             }
           } else if (status === "paused" || status === "cancelled") {
             await admin
@@ -304,6 +312,7 @@ Deno.serve(async (req) => {
       } else if (eventType === "subscription_authorized_payment" && resRes.ok) {
         const preapprovalId: string | undefined = resource.preapproval_id;
         const approved = resource.status === "approved" || resource.status === "processed";
+        paymentApproved = approved;
 
         if (preapprovalId) {
           const { data: sub } = await admin
@@ -342,6 +351,7 @@ Deno.serve(async (req) => {
                 .from("companies")
                 .update({
                   subscription_status: "active",
+                  ...(sub?.plan_id ? { plan_id: sub.plan_id } : {}),
                   expires_at:
                     co?.expires_at && String(co.expires_at) > next
                       ? String(co.expires_at)
@@ -354,6 +364,12 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Auditoría 2026-10 (9ª pasada): un pago autorizado que aún NO está aprobado
+    // (programado, en reintento...) se registra pero no se marca como procesado; si
+    // Mercado Pago avisa después con el mismo id ya aprobado, se procesa entonces.
+    // Antes la deduplicación lo descartaba y el cliente pagaba sin recibir su mes.
+    const finalized =
+      eventType !== "subscription_authorized_payment" || paymentApproved;
     await admin.from("company_subscription_events").upsert(
       {
         company_id: companyId,
@@ -361,13 +377,15 @@ Deno.serve(async (req) => {
         provider_event_type: eventType,
         provider_resource_id: String(dataId),
         raw_payload: body,
-        processed_at: new Date().toISOString(),
+        processed_at: finalized ? new Date().toISOString() : null,
       },
       { onConflict: "provider,provider_event_type,provider_resource_id" },
     );
 
     return json({ ok: true }, 200);
   } catch (e: any) {
-    return json({ error: e?.message ?? "Error inesperado." }, 200);
+    // Auditoría 2026-10 (9ª pasada): un fallo inesperado (red, base) responde 500 para que
+    // Mercado Pago reintente; con 200 el aviso se perdía sin quedar marcado como procesado.
+    return json({ error: e?.message ?? "Error inesperado." }, 500);
   }
 });

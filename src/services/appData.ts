@@ -5146,26 +5146,46 @@ export async function fetchQuoteRequests(companyId?: string): Promise<{
   requests: QuoteRequest[];
   itemsByRequest: Map<string, QuoteRequestItem[]>;
 }> {
-  let q = supabase
+  // Auditoría 2026-10 (9ª pasada): antes se leían las 200 más nuevas de CUALQUIER estado, así que las
+  // ya atendidas / descartadas empujaban fuera de la lista a una solicitud 'nueva' más vieja (se
+  // contaba en la insignia pero no se podía abrir). Ahora TODAS las pendientes se piden aparte (el
+  // servidor las acota) y el historial se limita a las 100 más recientes.
+  const columns = "id, created_at, customer_name, phone, email, notes, status";
+  let pendingQuery = supabase
     .from("quote_requests")
-    .select("id, created_at, customer_name, phone, email, notes, status")
+    .select(columns)
+    .eq("status", "nueva")
     .order("created_at", { ascending: false })
-    // Tope de lectura: la bandeja es pública (cualquier visitante puede dejar solicitudes) y
-    // pedir TODAS junto con un `.in()` de todos sus ids rompía la pantalla al acumularse.
-    .limit(200);
+    .limit(600);
+  let historyQuery = supabase
+    .from("quote_requests")
+    .select(columns)
+    .neq("status", "nueva")
+    .order("created_at", { ascending: false })
+    .limit(100);
 
-  if (companyId) q = q.eq("company_id", companyId);
+  if (companyId) {
+    pendingQuery = pendingQuery.eq("company_id", companyId);
+    historyQuery = historyQuery.eq("company_id", companyId);
+  }
 
-  const { data, error } = await q;
+  const [pendingRes, historyRes] = await Promise.all([
+    pendingQuery,
+    historyQuery,
+  ]);
 
-  if (error) throw error;
-  const rows = data ?? [];
+  if (pendingRes.error) throw pendingRes.error;
+  if (historyRes.error) throw historyRes.error;
+  const rows = [...(pendingRes.data ?? []), ...(historyRes.data ?? [])].sort(
+    (a, b) => String(b.created_at).localeCompare(String(a.created_at)),
+  );
 
   const requestIds = rows.map((row) => row.id);
   const itemsByRequest = new Map<string, QuoteRequestItem[]>();
 
   if (requestIds.length) {
-    // Los renglones se piden en bloques chicos: la lista de ids va en la URL.
+    // Los renglones se piden en bloques chicos: la lista de ids va en la URL, y 10 solicitudes x
+    // 60 renglones como máximo quedan bajo el tope de 1000 filas por respuesta de la API.
     const itemRows: {
       id: string;
       quote_request_id: string;
@@ -5174,12 +5194,21 @@ export async function fetchQuoteRequests(companyId?: string): Promise<{
       qty: number | string;
     }[] = [];
 
-    for (let i = 0; i < requestIds.length; i += 40) {
-      const { data: chunk, error: itemsError } = await supabase
-        .from("quote_request_items")
-        .select("id, quote_request_id, product_id, product_name, qty")
-        .in("quote_request_id", requestIds.slice(i, i + 40));
+    const chunks: string[][] = [];
 
+    for (let i = 0; i < requestIds.length; i += 10) {
+      chunks.push(requestIds.slice(i, i + 10));
+    }
+    const results = await Promise.all(
+      chunks.map((ids) =>
+        supabase
+          .from("quote_request_items")
+          .select("id, quote_request_id, product_id, product_name, qty")
+          .in("quote_request_id", ids),
+      ),
+    );
+
+    for (const { data: chunk, error: itemsError } of results) {
       if (itemsError) throw itemsError;
       itemRows.push(...((chunk ?? []) as typeof itemRows));
     }

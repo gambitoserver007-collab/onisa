@@ -463,8 +463,59 @@ describe("mp-webhook (puertas 5 y 12)", () => {
 
       await call("subscription_preapproval", "P2");
 
-      expect(company().subscription_status).toBe("active");
+      // 9ª pasada: con vigencia todavía no se toca ni el estado ni el plan.
+      expect(company().subscription_status).toBe("trial");
+      expect(company().plan_id).toBe("plan-A");
       expect(expiresAt()).toBe("2099-01-01");
+    });
+
+    it("9ª pasada: autorizar NO reactiva una empresa cancelada ni cambia su plan; el primer pago aprobado sí", async () => {
+      const company0 = fake.tables.companies.find(
+        (r) => r.id === companyId,
+      ) as { expires_at?: string };
+
+      company0.expires_at = "2099-01-01";
+      company().subscription_status = "cancelled";
+      stubMp({
+        "preapproval/P2": {
+          body: {
+            status: "authorized",
+            external_reference: companyId,
+            auto_recurring: { transaction_amount: 299, currency_id: "MXN" },
+          },
+        },
+        "authorized_payments/PAYOK": { body: payment() },
+      });
+
+      await call("subscription_preapproval", "P2");
+      expect(company().subscription_status).toBe("cancelled");
+      expect(company().plan_id).toBe("plan-A");
+
+      await call("subscription_authorized_payment", "PAYOK");
+      expect(company().subscription_status).toBe("active");
+      expect(company().plan_id).toBe("plan-B");
+    });
+
+    it("9ª pasada: un pago avisado primero como programado y después como aprobado SÍ da el mes", async () => {
+      stubMp({
+        "authorized_payments/PAYZ": { body: payment({ status: "scheduled" }) },
+      });
+      await call("subscription_authorized_payment", "PAYZ");
+      expect(company().subscription_status).toBe("trial");
+
+      stubMp({
+        "authorized_payments/PAYZ": { body: payment({ status: "processed" }) },
+      });
+      const res = await call("subscription_authorized_payment", "PAYZ");
+
+      expect(await res.json()).not.toHaveProperty("already_processed");
+      expect(company().subscription_status).toBe("active");
+      expect(expiresAt()).toBe(nextMonth());
+
+      // ...y ahora sí: repetir el aviso ya aprobado no vuelve a extender.
+      const again = await call("subscription_authorized_payment", "PAYZ");
+
+      expect(await again.json()).toHaveProperty("already_processed", true);
     });
 
     it("una preapproval autorizada SÍ da acceso si la vigencia ya venció", async () => {
