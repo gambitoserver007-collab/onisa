@@ -334,6 +334,28 @@ function mapSupplier(row: SupplierRow): Supplier {
   };
 }
 
+/** La comisión vive en `sale_commissions` (solo la lee el propio vendedor y el
+ * administrador); llega embebida en la fila de la venta, como objeto o arreglo. */
+function saleCommissionOf(
+  row: unknown,
+): { rate: number | null; amount: number } | null {
+  const raw = (row as { sale_commissions?: unknown }).sale_commissions;
+  const item = (Array.isArray(raw) ? raw[0] : raw) as
+    | {
+        commission_rate?: number | string | null;
+        commission_amount?: number | string | null;
+      }
+    | null
+    | undefined;
+
+  if (!item) return null;
+
+  return {
+    rate: item.commission_rate == null ? null : Number(item.commission_rate),
+    amount: toNumber(item.commission_amount),
+  };
+}
+
 function mapSale(row: SaleRow, items: SaleItemRow[]): Sale {
   return {
     id: row.sale_number || row.id,
@@ -347,17 +369,8 @@ function mapSale(row: SaleRow, items: SaleItemRow[]): Sale {
     createdBy: (row as { created_by?: string | null }).created_by ?? null,
     locationId: (row as { location_id?: string | null }).location_id ?? null,
     tillId: (row as { till_id?: string | null }).till_id ?? null,
-    commissionRate:
-      (row as { commission_rate?: number | string | null }).commission_rate ==
-      null
-        ? null
-        : Number(
-            (row as { commission_rate?: number | string | null })
-              .commission_rate,
-          ),
-    commissionAmount: toNumber(
-      (row as { commission_amount?: number | string | null }).commission_amount,
-    ),
+    commissionRate: saleCommissionOf(row)?.rate ?? null,
+    commissionAmount: saleCommissionOf(row)?.amount ?? 0,
     items: items.map((item) => ({
       productId: item.product_id ?? item.id,
       name: item.product_name,
@@ -869,7 +882,7 @@ export async function fetchCompanyAlerts(): Promise<CompanyAlerts> {
 }
 
 const SALE_WITH_ITEMS_COLUMNS =
-  "id, company_id, location_id, till_id, customer_id, sale_number, document_type, payment_method, customer_name, sale_date, subtotal, tax, total, status, created_by, commission_rate, commission_amount, is_demo_data, created_at, updated_at, deleted_at, sale_items(id, company_id, sale_id, product_id, product_name, variant_label, qty, unit_price, total, cost, is_demo_data, created_at)";
+  "id, company_id, location_id, till_id, customer_id, sale_number, document_type, payment_method, customer_name, sale_date, subtotal, tax, total, status, created_by, is_demo_data, created_at, updated_at, deleted_at, sale_commissions(commission_rate, commission_amount), sale_items(id, company_id, sale_id, product_id, product_name, variant_label, qty, unit_price, total, cost, is_demo_data, created_at)";
 
 export interface FetchSalesOptions {
   /** yyyy-mm-dd, inclusive. */
@@ -933,7 +946,7 @@ export async function fetchSales(
   if (error) throw error;
 
   return (data ?? []).map((row) => {
-    const { sale_items, ...saleRow } = row as SaleRow & {
+    const { sale_items, ...saleRow } = row as unknown as SaleRow & {
       sale_items: SaleItemRow[];
     };
 
@@ -1093,12 +1106,14 @@ export async function fetchMyCommissionSummary(
 ): Promise<MyCommissionSummary> {
   const start = periodStartDate(period, new Date());
 
+  // Las comisiones están en sale_commissions (solo el vendedor y el administrador las
+  // leen); `sales!inner` filtra por fecha y por ventas no canceladas de la venta ligada.
   let salesQuery = supabase
-    .from("sales")
-    .select("commission_amount")
+    .from("sale_commissions")
+    .select("commission_amount, sales!inner(sale_date, deleted_at)")
     .eq("created_by", userId)
-    .is("deleted_at", null)
-    .gte("sale_date", start.toISOString())
+    .is("sales.deleted_at", null)
+    .gte("sales.sale_date", start.toISOString())
     .gt("commission_amount", 0);
 
   if (companyId) salesQuery = salesQuery.eq("company_id", companyId);
@@ -1264,7 +1279,7 @@ export async function fetchSaleById(
 
   if (!data) return null;
 
-  const { sale_items, ...saleRow } = data as SaleRow & {
+  const { sale_items, ...saleRow } = data as unknown as SaleRow & {
     sale_items: SaleItemRow[];
   };
 
@@ -6207,7 +6222,7 @@ export async function fetchEmployeeCommissions(
 ): Promise<EmployeeCommissionSummary[]> {
   let q = supabase
     .from("sales")
-    .select("created_by, total, commission_amount")
+    .select("created_by, total, sale_commissions(commission_amount)")
     .is("deleted_at", null)
     .not("created_by", "is", null);
 
@@ -6242,7 +6257,7 @@ export async function fetchEmployeeCommissions(
     const entry = byEmployee.get(id) ?? { count: 0, total: 0, commission: 0 };
     entry.count += 1;
     entry.total += Number(row.total) || 0;
-    entry.commission += Number(row.commission_amount) || 0;
+    entry.commission += saleCommissionOf(row)?.amount ?? 0;
     byEmployee.set(id, entry);
   }
 

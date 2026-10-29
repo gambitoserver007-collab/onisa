@@ -2462,6 +2462,48 @@ export type Database = {
           },
         ];
       };
+      sale_commissions: {
+        Row: {
+          commission_amount: number;
+          commission_rate: number | null;
+          company_id: string;
+          created_by: string | null;
+          is_demo_data: boolean;
+          sale_id: string;
+        };
+        Insert: {
+          commission_amount?: number;
+          commission_rate?: number | null;
+          company_id: string;
+          created_by?: string | null;
+          is_demo_data?: boolean;
+          sale_id: string;
+        };
+        Update: {
+          commission_amount?: number;
+          commission_rate?: number | null;
+          company_id?: string;
+          created_by?: string | null;
+          is_demo_data?: boolean;
+          sale_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sale_commissions_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sale_commissions_sale_id_fkey";
+            columns: ["sale_id"];
+            isOneToOne: true;
+            referencedRelation: "sales";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       sale_payments: {
         Row: {
           amount: number;
@@ -2563,8 +2605,6 @@ export type Database = {
       };
       sales: {
         Row: {
-          commission_amount: number;
-          commission_rate: number | null;
           company_id: string;
           created_at: string;
           created_by: string | null;
@@ -2587,8 +2627,6 @@ export type Database = {
           updated_at: string;
         };
         Insert: {
-          commission_amount?: number;
-          commission_rate?: number | null;
           company_id: string;
           created_at?: string;
           created_by?: string | null;
@@ -2611,8 +2649,6 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
-          commission_amount?: number;
-          commission_rate?: number | null;
           company_id?: string;
           created_at?: string;
           created_by?: string | null;

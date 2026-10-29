@@ -92,7 +92,7 @@ describe("Pago dividido: los montos se validan en centavos", () => {
   it("CONTROL: un pago dividido normal cuadra y guarda ambos pagos", async () => {
     const sale = await sellWith([
       { method: "Efectivo", amount: 60, kind: "cash" },
-      { method: "Tarjeta", amount: 40, kind: "other" },
+      { method: "Tarjeta", amount: 40, kind: "card" },
     ]);
 
     expect(await storedSum(sale.sale_id)).toBe(100);
@@ -101,7 +101,7 @@ describe("Pago dividido: los montos se validan en centavos", () => {
   it("CONTROL: montos con ruido de punto flotante se redondean y cuadran", async () => {
     const sale = await sellWith([
       { method: "Efectivo", amount: 50.004, kind: "cash" },
-      { method: "Tarjeta", amount: 49.996, kind: "other" },
+      { method: "Tarjeta", amount: 49.996, kind: "card" },
     ]);
 
     expect(await storedSum(sale.sale_id)).toBe(100);

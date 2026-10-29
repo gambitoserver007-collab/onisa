@@ -886,8 +886,30 @@ create policy "customers select scoped" on public.customers for select to authen
 drop policy if exists "customers write scoped" on public.customers;
 create policy "customers write scoped" on public.customers for all to authenticated using (public.can_write_company(company_id)) with check (public.can_write_company(company_id));
 
+-- Auditoría 2026-10 (9ª pasada): el cajero (rol 'user') no tiene /proveedores y la API le
+-- daba igual los nombres, teléfonos y correos de los proveedores. Solo lo lee el cajero a
+-- quien el administrador le otorgó esa sección (profiles.allowed_sections).
+create or replace function public.current_user_can_read_section(p_section text)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path to 'public'
+as $$
+begin
+  -- plpgsql (no sql): profiles.allowed_sections se agrega más adelante en el instalador.
+  return coalesce(public.current_user_role()::text, '') <> 'user'
+      or exists (select 1 from public.profiles pr
+                 where pr.id = auth.uid() and p_section = any(coalesce(pr.allowed_sections, array[]::text[])));
+end;
+$$;
+revoke execute on function public.current_user_can_read_section(text) from public, anon;
+grant execute on function public.current_user_can_read_section(text) to authenticated;
+
 drop policy if exists "suppliers select scoped" on public.suppliers;
-create policy "suppliers select scoped" on public.suppliers for select to authenticated using (public.can_select_company(company_id, is_demo_data));
+create policy "suppliers select scoped" on public.suppliers for select to authenticated
+  using (public.can_select_company(company_id, is_demo_data)
+         and public.current_user_can_read_section('/proveedores'));
 -- "suppliers write scoped" se redefine más abajo, al final del archivo --
 -- necesita 'finanzas'/'operador' en el enum app_role, que todavía no
 -- existen en este punto del instalador (auditoría 2026-09, hallazgo #4).
@@ -3625,6 +3647,16 @@ begin
      ) then
     raise exception 'No tienes acceso a esta sucursal.';
   end if;
+  -- Auditoría 2026-10 (9ª pasada): el stock vuelve a la sucursal de la venta. Elegir otra
+  -- sucursal (p_location_id) queda para el administrador: ningún flujo de la pantalla la
+  -- manda, y a un cajero le permitía inyectar existencias en una sucursal ajena a la venta.
+  if p_location_id is not null
+     and coalesce(public.current_user_role()::text, '') <> 'admin'
+     and not public.current_user_is_platform_admin()
+     and p_location_id is distinct from
+         (select s3.location_id from public.sales s3 where s3.id = p_sale_id and s3.company_id = v_company_id) then
+    raise exception 'Solo puedes devolver a la sucursal de la venta.';
+  end if;
 
   v_return_number := 'NC-' || to_char(now(),'YYYYMMDD') || '-' ||
                      upper(substr(replace(gen_random_uuid()::text,'-',''),1,6));
@@ -3694,8 +3726,13 @@ begin
     select coalesce(sum(ri.total), 0) into v_refunded_prev
     from public.return_items ri
     where ri.sale_item_id = v_sale_item.id;
+    -- Auditoría 2026-10 (9ª pasada): se parte de lo que de verdad se cobró por unidad
+    -- (sale_items.total / qty, con el impuesto incluido en ambos modos de precio).
+    -- Con unit_price un renglón con IVA aparte reembolsaba solo el precio sin IVA
+    -- (pagó 116, le devolvían 100) y la cantidad ya agotada impedía reclamar el resto.
     v_line_total := greatest(0,
-      round(v_unit_price * (v_returned_prev + v_qty) * v_paid_ratio, 2) - v_refunded_prev);
+      round((v_sale_item.total / nullif(v_sale_item.qty, 0)) * (v_returned_prev + v_qty) * v_paid_ratio, 2)
+        - v_refunded_prev);
     v_total := v_total + v_line_total;
 
     if v_variant_id is not null then
@@ -3747,19 +3784,17 @@ begin
           where ci.combo_product_id = v_product.id and ci.company_id = v_company_id
             and pc.company_id = v_company_id and pc.deleted_at is null
         loop
+          -- Auditoría 2026-10 (9ª pasada): una devolución no activa ni crea la asignación
+          -- del producto a la sucursal (eso lo decide el administrador): el stock vuelve a
+          -- su fila conservando su estado, igual que ya hacen las variantes.
           insert into public.product_locations (company_id, product_id, location_id, stock, is_active)
           values (v_company_id, v_combo_item.component_product_id, v_location_id,
-                  v_combo_item.component_qty * v_qty, true)
+                  v_combo_item.component_qty * v_qty, false)
           on conflict (product_id, location_id)
             do update set stock = public.product_locations.stock + excluded.stock,
-                          is_active = true,
                           updated_at = now();
 
-          update public.products set stock = (
-            select coalesce(sum(stock),0) from public.product_locations
-            where product_id = v_combo_item.component_product_id and is_active = true
-          ), updated_at = now()
-          where id = v_combo_item.component_product_id;
+          perform public.recompute_product_stock(v_combo_item.component_product_id);
 
           insert into public.stock_movements (company_id, location_id, product_id,
                                               movement_type, qty, reference_type, reference_id, notes)
@@ -3779,10 +3814,9 @@ begin
                              'reason', 'producto con variantes; ajustar el inventario manualmente'));
       elsif v_product.product_type = 'standard' then
         insert into public.product_locations (company_id, product_id, location_id, stock, is_active)
-        values (v_company_id, v_product.id, v_location_id, v_qty, true)
+        values (v_company_id, v_product.id, v_location_id, v_qty, false)
         on conflict (product_id, location_id)
           do update set stock = public.product_locations.stock + excluded.stock,
-                        is_active = true,
                         updated_at = now();
 
         perform public.recompute_product_stock(v_product.id);
@@ -3814,7 +3848,7 @@ begin
   select customer_id, total into v_sale_customer_id, v_sale_total
     from public.sales where id = p_sale_id and company_id = v_company_id;
 
-  if v_sale_customer_id is not null and coalesce(v_sale_total, 0) > 0 then
+  if v_sale_customer_id is not null and coalesce(v_gross_total, 0) > 0 then
     select coalesce(sum(points), 0) into v_earned_points
       from public.loyalty_ledger
       where sale_id = p_sale_id and company_id = v_company_id and type = 'earned';
@@ -3836,7 +3870,11 @@ begin
         join public.sale_items si on si.id = ri.sale_item_id
         where si.sale_id = p_sale_id and ri.company_id = v_company_id;
 
-      v_target_clawback := floor(v_earned_points * least(1, v_cumulative_returned / v_sale_total));
+      -- Auditoría 2026-10 (9ª pasada): el denominador es el valor BRUTO de la venta (igual
+      -- que la restitución de puntos canjeados de abajo), no sales.total, que ya trae
+      -- restado el canje: con puntos canjeados una devolución parcial llegaba a 1 y
+      -- quitaba TODOS los puntos ganados.
+      v_target_clawback := floor(v_earned_points * least(1, v_cumulative_returned / v_gross_total));
       v_this_clawback := v_target_clawback - v_already_clawed;
 
       if v_this_clawback > 0 then
@@ -3859,6 +3897,7 @@ begin
           set loyalty_points = coalesce(loyalty_points, 0) - v_this_clawback,
               updated_at = now()
           where id = v_sale_customer_id and company_id = v_company_id;
+        perform set_config('app.bypass_customer_credit_loyalty', '', true);
       end if;
     end if;
   end if;
@@ -3892,6 +3931,7 @@ begin
         update public.customers
           set loyalty_points = coalesce(loyalty_points, 0) + v_this_restore, updated_at = now()
           where id = v_sale_customer_id and company_id = v_company_id;
+        perform set_config('app.bypass_customer_credit_loyalty', '', true);
       end if;
     end if;
   end if;
@@ -3915,9 +3955,11 @@ begin
     v_frac_now := least(1, v_cum_ret_all / v_gross_total);
     v_frac_prev := least(1, greatest(0, v_cum_ret_all - v_this_ret_gross) / v_gross_total);
 
-    update public.sales
-      set commission_amount = round(round(total * coalesce(commission_rate, 0), 2) * (1 - v_frac_now), 2)
-      where id = p_sale_id and company_id = v_company_id and coalesce(commission_rate, 0) > 0;
+    update public.sale_commissions sc
+      set commission_amount = round(round(s.total * coalesce(sc.commission_rate, 0), 2) * (1 - v_frac_now), 2)
+      from public.sales s
+      where sc.sale_id = p_sale_id and sc.company_id = v_company_id
+        and s.id = sc.sale_id and coalesce(sc.commission_rate, 0) > 0;
 
     if v_sale_customer_id is not null and v_frac_now > v_frac_prev then
       select extract(year from created_at)::int into v_sale_year
@@ -3929,6 +3971,10 @@ begin
             updated_at = now()
         where id = v_sale_customer_id and company_id = v_company_id
           and loyalty_year_spend_year = v_sale_year;
+      -- Auditoría 2026-10 (9ª pasada): este UPDATE puede no tocar ninguna fila (año
+      -- distinto o sin lealtad); entonces el disparador no consume la autorización y
+      -- quedaba encendida hasta el fin de la transacción. Se apaga siempre.
+      perform set_config('app.bypass_customer_credit_loyalty', '', true);
     end if;
   end if;
 
@@ -3977,6 +4023,7 @@ begin
       set credit_balance = greatest(0, coalesce(credit_balance, 0) - v_credit_part),
           updated_at = now()
       where id = v_sale_customer_id and company_id = v_company_id;
+    perform set_config('app.bypass_customer_credit_loyalty', '', true);
   end if;
 
   -- Cash refund: egreso con monto negativo (solo la parte pagada en efectivo)
@@ -6770,7 +6817,9 @@ alter table public.loyalty_ledger enable row level security;
 
 drop policy if exists "loyalty_ledger select scoped" on public.loyalty_ledger;
 create policy "loyalty_ledger select scoped" on public.loyalty_ledger for select to authenticated
-  using (public.can_select_company(company_id, is_demo_data));
+  using (public.can_select_company(company_id, is_demo_data)
+    and (select public.current_user_role())::text is distinct from 'operador'
+  );
 -- A propósito sin política de insert/update/delete para "authenticated":
 -- el saldo de puntos es dinero-equivalente (se puede canjear como
 -- descuento real), así que solo se escribe vía create_sale (SECURITY
@@ -8532,7 +8581,9 @@ alter table public.customer_credit_payments enable row level security;
 
 drop policy if exists "customer_credit_payments select scoped" on public.customer_credit_payments;
 create policy "customer_credit_payments select scoped" on public.customer_credit_payments for select to authenticated
-  using (public.can_select_company(company_id, is_demo_data));
+  using (public.can_select_company(company_id, is_demo_data)
+    and (select public.current_user_role())::text is distinct from 'operador'
+  );
 -- Sin política de insert/update/delete para "authenticated": el saldo de
 -- crédito es dinero-equivalente, solo se escribe vía collect_customer_credit
 -- (SECURITY DEFINER), mismo principio que loyalty_ledger/sale_payments.
@@ -9227,8 +9278,68 @@ grant execute on function public.soft_delete_product(uuid) to authenticated;
 -- ese momento).
 -- ============================================================
 alter table public.profiles add column if not exists commission_rate numeric(5,4);
-alter table public.sales add column if not exists commission_rate numeric(5,4);
-alter table public.sales add column if not exists commission_amount numeric(12,2) not null default 0;
+-- Auditoría 2026-10 (9ª pasada): la comisión ya NO vive en sales. sales se lee por toda la
+-- empresa (cualquier cajero con acceso a la sucursal), y con ella un cajero leía el % y lo
+-- acumulado de comisión de sus compañeros (dato de compensación). Ahora está en
+-- sale_commissions, que solo lee el propio vendedor y el administrador, y solo la escriben
+-- las RPC de venta / devolución (SECURITY DEFINER).
+create table if not exists public.sale_commissions (
+  sale_id uuid primary key references public.sales(id) on delete cascade,
+  company_id uuid not null references public.companies(id) on delete cascade,
+  created_by uuid,
+  commission_rate numeric(5,4),
+  commission_amount numeric(12,2) not null default 0,
+  is_demo_data boolean not null default false
+);
+create index if not exists sale_commissions_company_idx on public.sale_commissions(company_id, created_by);
+
+-- Migración de lo que ya estaba en sales (se ejecuta una sola vez: después la columna ya no existe).
+do $$
+begin
+  if exists (select 1 from information_schema.columns
+             where table_schema = 'public' and table_name = 'sales' and column_name = 'commission_amount') then
+    execute $q$
+      insert into public.sale_commissions (sale_id, company_id, created_by, commission_rate, commission_amount, is_demo_data)
+      select s.id, s.company_id, s.created_by, s.commission_rate, coalesce(s.commission_amount, 0), coalesce(s.is_demo_data, false)
+      from public.sales s
+      where coalesce(s.commission_rate, 0) > 0 or coalesce(s.commission_amount, 0) > 0
+      on conflict (sale_id) do nothing
+    $q$;
+    alter table public.sales drop column if exists commission_amount;
+    alter table public.sales drop column if exists commission_rate;
+  end if;
+end $$;
+
+grant select on public.sale_commissions to authenticated;
+grant all on public.sale_commissions to service_role;
+alter table public.sale_commissions enable row level security;
+
+drop policy if exists "sale_commissions select owner or admin" on public.sale_commissions;
+create policy "sale_commissions select owner or admin" on public.sale_commissions for select to authenticated
+  using (
+    public.can_select_company(company_id, is_demo_data)
+    and (created_by = (select auth.uid())
+         or (select public.current_user_role())::text = 'admin'
+         or (select public.current_user_is_platform_admin()))
+  );
+-- Sin política de insert/update/delete para "authenticated": solo vía record_sale_commission().
+
+create or replace function public.record_sale_commission(p_sale_id uuid, p_rate numeric, p_amount numeric)
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  if p_rate is null or p_rate <= 0 then return; end if;
+  insert into public.sale_commissions (sale_id, company_id, created_by, commission_rate, commission_amount, is_demo_data)
+  select s.id, s.company_id, s.created_by, p_rate, coalesce(p_amount, 0), coalesce(s.is_demo_data, false)
+  from public.sales s where s.id = p_sale_id
+  on conflict (sale_id) do update
+    set commission_rate = excluded.commission_rate, commission_amount = excluded.commission_amount;
+end;
+$$;
+revoke execute on function public.record_sale_commission(uuid, numeric, numeric) from public, anon, authenticated;
 
 -- protect_profile_sensitive_columns: se agrega commission_rate a la lista de
 -- campos protegidos -- si no, la propia política "profiles update scoped"
@@ -9372,6 +9483,54 @@ $$;
 
 revoke execute on function public.normalize_cart_items(jsonb) from public, anon;
 grant execute on function public.normalize_cart_items(jsonb) to authenticated;
+
+-- Auditoría 2026-10 (9ª pasada): el tipo de cobro (sale_payments.kind) decide qué dinero
+-- entra al efectivo esperado de la caja y qué se concilia como tarjeta / transferencia.
+-- Antes se aceptaba el texto que mandara el cliente: un cajero podía registrar un cobro
+-- en efectivo (o una tarjeta nunca cobrada) como kind 'other' y la caja cerraba "cuadrada"
+-- sin segundo conteo. Ahora el tipo se valida contra la lista de tipos conocidos y, para
+-- las etiquetas base cuyo tipo no admite duda (Efectivo, Tarjeta, Transferencia bancaria),
+-- tiene que coincidir con la etiqueta. Sin tipo, se deduce del método como siempre.
+create or replace function public.normalize_sale_payment_kind(p_method text, p_kind text)
+returns text
+language plpgsql
+immutable
+set search_path to 'public'
+as $$
+declare
+  v_method text := lower(btrim(coalesce(p_method, '')));
+  v_kind text := lower(nullif(btrim(coalesce(p_kind, '')), ''));
+  v_expected text;
+begin
+  if v_kind is null then
+    return case when v_method = 'efectivo' then 'cash' else 'other' end;
+  end if;
+  if v_kind not in ('cash','card','bank_transfer','instant_transfer','wallet','qr','voucher','bnpl','crypto','credit','other') then
+    raise exception 'Tipo de pago invalido.';
+  end if;
+  v_expected := case
+    when v_method = 'efectivo' then 'cash'
+    when v_method in ('tarjeta','tarjeta de débito','tarjeta de debito','tarjeta de crédito','tarjeta de credito') then 'card'
+    when v_method = 'transferencia bancaria' then 'bank_transfer'
+    else null end;
+  if v_expected is not null and v_kind <> v_expected then
+    raise exception 'El tipo de pago no corresponde al metodo de pago (%).', btrim(p_method);
+  end if;
+  return v_kind;
+end;
+$$;
+
+revoke execute on function public.normalize_sale_payment_kind(text, text) from public, anon, authenticated;
+
+-- ...y la columna misma ya no admite texto libre (NOT VALID: las filas existentes no se tocan).
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'sale_payments_kind_chk'
+                 and conrelid = 'public.sale_payments'::regclass) then
+    alter table public.sale_payments add constraint sale_payments_kind_chk
+      check (kind in ('cash','card','bank_transfer','instant_transfer','wallet','qr','voucher','bnpl','crypto','credit','other')) not valid;
+  end if;
+end $$;
 
 create or replace function public.create_sale(
   p_customer_id uuid,
@@ -9909,11 +10068,8 @@ begin
       for v_payment_item in select * from jsonb_array_elements(p_payments) loop
         v_payment_method := nullif(btrim(coalesce(v_payment_item ->> 'method', '')), '');
         v_payment_amount := (v_payment_item ->> 'amount')::numeric;
-        v_payment_kind := nullif(btrim(coalesce(v_payment_item ->> 'kind', '')), '');
-        if v_payment_kind is null then
-          v_payment_kind := case when lower(coalesce(v_payment_method,'')) = 'efectivo' then 'cash' else 'other' end;
-        end if;
         if v_payment_method is null then raise exception 'Metodo de pago invalido.'; end if;
+        v_payment_kind := public.normalize_sale_payment_kind(v_payment_method, v_payment_item ->> 'kind');
         if v_payment_amount is null or v_payment_amount <= 0 then raise exception 'Monto de pago invalido.'; end if;
 
         if v_payment_kind = 'credit' then
@@ -9946,10 +10102,7 @@ begin
       end if;
     else
       v_payment_method := coalesce(p_payment_method, 'Efectivo');
-      v_payment_kind := nullif(btrim(coalesce(p_payment_kind, '')), '');
-      if v_payment_kind is null then
-        v_payment_kind := case when lower(v_payment_method) = 'efectivo' then 'cash' else 'other' end;
-      end if;
+      v_payment_kind := public.normalize_sale_payment_kind(v_payment_method, p_payment_kind);
 
       if v_payment_kind = 'credit' then
         if p_customer_id is null then
@@ -9983,9 +10136,9 @@ begin
     v_commission_amount := round(v_total * v_commission_rate, 2);
   end if;
 
-  update public.sales set subtotal = v_subtotal, tax = v_tax, total = v_total, discount_total = v_discount + v_promo_discount,
-    commission_rate = v_commission_rate, commission_amount = v_commission_amount
+  update public.sales set subtotal = v_subtotal, tax = v_tax, total = v_total, discount_total = v_discount + v_promo_discount
   where id = v_sale_id;
+  perform public.record_sale_commission(v_sale_id, v_commission_rate, v_commission_amount);
 
   return jsonb_build_object(
     'sale_id', v_sale_id,
@@ -11000,10 +11153,7 @@ begin
   -- create_sale cuando el cajero no manda pago dividido.
   if v_total > 0 then
     v_payment_method := coalesce(p_payment_method, 'Efectivo');
-    v_payment_kind := nullif(btrim(coalesce(p_payment_kind, '')), '');
-    if v_payment_kind is null then
-      v_payment_kind := case when lower(v_payment_method) = 'efectivo' then 'cash' else 'other' end;
-    end if;
+    v_payment_kind := public.normalize_sale_payment_kind(v_payment_method, p_payment_kind);
 
     if v_payment_kind = 'credit' then
       if v_quote.customer_id is null then
@@ -11035,8 +11185,7 @@ begin
   if v_commission_rate is not null and v_commission_rate > 0 then
     v_commission_amount := round(v_total * v_commission_rate, 2);
   end if;
-  update public.sales set commission_rate = v_commission_rate, commission_amount = v_commission_amount
-    where id = v_sale_id;
+  perform public.record_sale_commission(v_sale_id, v_commission_rate, v_commission_amount);
 
   update public.quotes set status = 'convertida', converted_sale_id = v_sale_id, updated_at = now()
     where id = p_quote_id;
@@ -11710,8 +11859,7 @@ begin
   if v_commission_rate is not null and v_commission_rate > 0 then
     v_commission_amount := round(v_apartado.total * v_commission_rate, 2);
   end if;
-  update public.sales set commission_rate = v_commission_rate, commission_amount = v_commission_amount
-    where id = v_sale_id;
+  perform public.record_sale_commission(v_sale_id, v_commission_rate, v_commission_amount);
 
   -- Puntos de lealtad: solo se GANAN sobre el total (como cualquier
   -- compra) -- el canje no aplica aquí porque el precio del apartado ya
@@ -12094,6 +12242,10 @@ declare
   v_product_name text;
   v_total numeric(12,2) := 0;
   v_item_count integer := 0;
+  -- Auditoría 2026-10 (9ª pasada): UN solo valor acotado para la fila y para la bitácora.
+  -- Antes la bitácora (que nadie borra) guardaba el parámetro crudo: con espacios de
+  -- relleno pasaba el tope de 500 de voided_sales.reason y crecía sin límite.
+  v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
 begin
   if auth.uid() is null then raise exception 'No autenticado.'; end if;
   if public.current_user_is_demo() then
@@ -12122,7 +12274,7 @@ begin
   end if;
 
   insert into public.voided_sales (company_id, location_id, reason, created_by)
-  values (v_company_id, p_location_id, nullif(btrim(coalesce(p_reason, '')), ''), auth.uid())
+  values (v_company_id, p_location_id, v_reason, auth.uid())
   returning id into v_voided_id;
 
   for v_item in select * from jsonb_array_elements(p_items) loop
@@ -12150,7 +12302,7 @@ begin
   update public.voided_sales set total = v_total, item_count = v_item_count where id = v_voided_id;
 
   perform public.log_audit(v_company_id, 'voided_sale', v_voided_id, 'cancelled',
-    jsonb_build_object('total', v_total, 'item_count', v_item_count, 'reason', p_reason));
+    jsonb_build_object('total', v_total, 'item_count', v_item_count, 'reason', v_reason));
 
   return v_voided_id;
 end;
@@ -12813,11 +12965,15 @@ alter table public.quote_request_items enable row level security;
 
 drop policy if exists "quote_requests select scoped" on public.quote_requests;
 create policy "quote_requests select scoped" on public.quote_requests for select to authenticated
-  using (public.can_select_company(company_id, false));
+  using (public.can_select_company(company_id, false)
+    and (select public.current_user_role())::text is distinct from 'operador'
+  );
 
 drop policy if exists "quote_request_items select scoped" on public.quote_request_items;
 create policy "quote_request_items select scoped" on public.quote_request_items for select to authenticated
-  using (public.can_select_company(company_id, false));
+  using (public.can_select_company(company_id, false)
+    and (select public.current_user_role())::text is distinct from 'operador'
+  );
 
 grant select on public.quote_requests to authenticated;
 grant select on public.quote_request_items to authenticated;
@@ -13855,11 +14011,15 @@ create policy "purchase_items select scoped" on public.purchase_items for select
     )
   );
 
+-- Auditoría 2026-10 (9ª pasada): el rol operador (almacén) tampoco lee por la API los
+-- apartados, cotizaciones (y sus solicitudes), cobros de crédito ni puntos de lealtad:
+-- ninguna pantalla suya los usa, igual que ventas y cajas (18ª pasada).
 drop policy if exists "apartados select scoped" on public.apartados;
 create policy "apartados select scoped" on public.apartados for select to authenticated
   using (
     public.can_select_company(company_id, is_demo_data)
     and public.user_can_access_location(location_id)
+    and (select public.current_user_role())::text is distinct from 'operador'
   );
 
 drop policy if exists "apartado_items select scoped" on public.apartado_items;
@@ -13870,6 +14030,7 @@ create policy "apartado_items select scoped" on public.apartado_items for select
       select 1 from public.apartados a
       where a.id = apartado_items.apartado_id and public.user_can_access_location(a.location_id)
     )
+    and (select public.current_user_role())::text is distinct from 'operador'
   );
 
 drop policy if exists "apartado_payments select scoped" on public.apartado_payments;
@@ -13880,6 +14041,7 @@ create policy "apartado_payments select scoped" on public.apartado_payments for 
       select 1 from public.apartados a
       where a.id = apartado_payments.apartado_id and public.user_can_access_location(a.location_id)
     )
+    and (select public.current_user_role())::text is distinct from 'operador'
   );
 
 drop policy if exists "quotes select scoped" on public.quotes;
@@ -13887,6 +14049,7 @@ create policy "quotes select scoped" on public.quotes for select to authenticate
   using (
     public.can_select_company(company_id, is_demo_data)
     and public.user_can_access_location(location_id)
+    and (select public.current_user_role())::text is distinct from 'operador'
   );
 
 drop policy if exists "quote_items select scoped" on public.quote_items;
@@ -13897,6 +14060,7 @@ create policy "quote_items select scoped" on public.quote_items for select to au
       select 1 from public.quotes q
       where q.id = quote_items.quote_id and public.user_can_access_location(q.location_id)
     )
+    and (select public.current_user_role())::text is distinct from 'operador'
   );
 
 drop policy if exists "voided_sales select scoped" on public.voided_sales;
@@ -14134,7 +14298,7 @@ begin
                 (select left(coalesce(nullif(btrim(pr.full_name), ''), pr.email), 120) from public.profiles pr where pr.id = auth.uid()),
                 case when old.id = auth.uid() then left(coalesce(nullif(btrim(old.full_name), ''), old.email), 120) end),
               'profile', old.id, 'deleted',
-              jsonb_build_object('full_name', old.full_name, 'email', old.email, 'role', old.role));
+              jsonb_build_object('full_name', left(old.full_name, 200), 'email', left(old.email, 320), 'role', old.role));
     end if;
 
     return old;
@@ -14291,7 +14455,16 @@ begin
       ('customer_credit_payments', 'notes', 500), ('customer_credit_payments', 'method', 100),
       ('locations', 'name', 200), ('locations', 'address', 300),
       ('apartados', 'notes', 1000), ('apartados', 'customer_name', 200),
-      ('quotes', 'notes', 2000), ('quotes', 'customer_name', 200)
+      ('quotes', 'notes', 2000), ('quotes', 'customer_name', 200),
+      -- Auditoría 2026-10 (9ª pasada): columnas que también escriben roles bajos y
+      -- quedaban fuera de la lista (el correo del propio perfil, los datos de la
+      -- sucursal, los proveedores, el motivo de una devolución y las notas de un abono).
+      ('profiles', 'email', 320),
+      ('locations', 'city', 200), ('locations', 'phone', 60),
+      ('locations', 'manager_name', 200), ('locations', 'short_code', 30),
+      ('suppliers', 'name', 200), ('suppliers', 'document_number', 60),
+      ('suppliers', 'phone', 60), ('suppliers', 'email', 200),
+      ('returns', 'reason', 500), ('apartado_payments', 'notes', 500)
     ) as t(tbl, col, max_len)
   loop
     if exists (select 1 from information_schema.columns

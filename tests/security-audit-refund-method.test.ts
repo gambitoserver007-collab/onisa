@@ -154,7 +154,7 @@ describe("Devoluciones: el reembolso sigue la forma de pago original", () => {
 
   it("una venta con TARJETA devuelta no saca efectivo del cajón", async () => {
     const { saleId, item } = await sell([
-      { method: "Tarjeta", amount: 100, kind: "other" },
+      { method: "Tarjeta", amount: 100, kind: "card" },
     ]);
 
     await giveBack(cashier, saleId, item, 2, true);

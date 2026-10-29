@@ -4110,7 +4110,7 @@ describe("RPCs críticas de dinero y stock", () => {
         commission_rate: string;
         commission_amount: string;
       }>(
-        "select commission_rate, commission_amount from public.sales where id = $1",
+        "select commission_rate, commission_amount from public.sale_commissions where sale_id = $1",
         [sale.sale_id],
       );
 
@@ -4144,12 +4144,12 @@ describe("RPCs críticas de dinero y stock", () => {
         commission_rate: string | null;
         commission_amount: string;
       }>(
-        "select commission_rate, commission_amount from public.sales where id = $1",
+        "select commission_rate, commission_amount from public.sale_commissions where sale_id = $1",
         [sale.sale_id],
       );
 
-      expect(rows[0].commission_rate).toBeNull();
-      expect(Number(rows[0].commission_amount)).toBe(0);
+      // Sin % configurado no se guarda ninguna fila de comisión (sale_commissions).
+      expect(rows).toHaveLength(0);
     });
 
     it("cambiar el % después NO recalcula ventas ya hechas (snapshot histórico intacto)", async () => {
@@ -4189,12 +4189,12 @@ describe("RPCs críticas de dinero y stock", () => {
       );
 
       const { rows: rows1 } = await db.query<{ commission_amount: string }>(
-        "select commission_amount from public.sales where id = $1",
+        "select commission_amount from public.sale_commissions where sale_id = $1",
         [sale1.sale_id],
       );
 
       const { rows: rows2 } = await db.query<{ commission_amount: string }>(
-        "select commission_amount from public.sales where id = $1",
+        "select commission_amount from public.sale_commissions where sale_id = $1",
         [sale2.sale_id],
       );
 
@@ -5403,7 +5403,7 @@ describe("RPCs críticas de dinero y stock", () => {
         commission_amount: string;
         created_by: string;
       }>(
-        "select commission_amount, created_by from public.sales where id = $1",
+        "select commission_amount, created_by from public.sale_commissions where sale_id = $1",
         [result.sale_id],
       );
 

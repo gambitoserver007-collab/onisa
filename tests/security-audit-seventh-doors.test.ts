@@ -319,7 +319,7 @@ describe("7ª pasada: los 12 confirmados", () => {
         Number(
           (
             await db.query<{ commission_amount: string }>(
-              "select commission_amount from public.sales where id=$1",
+              "select commission_amount from public.sale_commissions where sale_id=$1",
               [sale.sale_id],
             )
           ).rows[0].commission_amount,
@@ -335,7 +335,7 @@ describe("7ª pasada: los 12 confirmados", () => {
     it("CONTROL 4: sin devolución la comisión se queda igual", async () => {
       const sale = await sell(p200, null);
       const { rows } = await db.query<{ c: string }>(
-        "select commission_amount as c from public.sales where id=$1",
+        "select commission_amount as c from public.sale_commissions where sale_id=$1",
         [sale.sale_id],
       );
 
