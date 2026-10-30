@@ -14722,3 +14722,219 @@ begin
 end;
 $$;
 revoke execute on function public.assert_location_active(uuid) from public, anon, authenticated;
+
+-- ============================================================
+-- Auditoría 2026-10 (9ª pasada, revisión en producción): ventas NETAS de devoluciones.
+-- El dashboard, /reportes y /ganancias sumaban lo vendido sin restar lo devuelto (una venta
+-- devuelta completa seguía contando), y "Ventas (rango)" sumaba las categorías SIN IVA mientras
+-- las demás cifras llevaban IVA ($200 contra $232). Ahora todas las cifras son lo realmente
+-- cobrado, con IVA, menos lo devuelto DE ESA MISMA VENTA: una devolución posterior corrige el
+-- día de la venta original (así dashboard, reportes y tabla por vendedor siempre cuadran).
+-- Se definen aquí, al final, porque son "language sql" y las tablas returns / return_items
+-- se crean mucho después de las primeras versiones de estas funciones.
+-- ============================================================
+
+create or replace function public.dashboard_sales_totals(
+  p_location_id uuid default null,
+  p_tz text default 'UTC'
+) returns table (
+  total_today numeric,
+  count_today bigint,
+  total_month numeric,
+  count_month bigint
+)
+language sql stable security definer set search_path = public as $$
+  with returned as (
+    select r.sale_id, sum(r.total) as amount
+    from public.returns r
+    where r.company_id = public.current_user_company_id() and r.status = 'processed'
+    group by r.sale_id
+  ), base as (
+    select s.total - coalesce(rt.amount, 0) as total,
+           (s.sale_date at time zone p_tz)::date as d_local,
+           date_trunc('month', (s.sale_date at time zone p_tz))::date as m_local
+    from public.sales s
+    left join returned rt on rt.sale_id = s.id
+    where s.company_id = public.current_user_company_id()
+      and s.deleted_at is null
+      and (p_location_id is null or s.location_id = p_location_id)
+      and public.user_can_access_location(s.location_id)
+      and s.sale_date >= (date_trunc('month', now() at time zone p_tz) at time zone p_tz)
+  ), today_ref as (
+    select (now() at time zone p_tz)::date as today,
+           date_trunc('month', (now() at time zone p_tz))::date as month_start
+  )
+  select
+    coalesce(sum(case when b.d_local = t.today then b.total end), 0)::numeric as total_today,
+    coalesce(count(*) filter (where b.d_local = t.today), 0)::bigint as count_today,
+    coalesce(sum(case when b.m_local = t.month_start then b.total end), 0)::numeric as total_month,
+    coalesce(count(*) filter (where b.m_local = t.month_start), 0)::bigint as count_month
+  from today_ref t left join base b on true
+  group by t.today, t.month_start;
+$$;
+
+create or replace function public.sales_by_day(
+  p_location_id uuid default null,
+  p_tz text default 'UTC',
+  p_days int default 7
+) returns table (day date, total numeric, count bigint)
+language sql stable security definer set search_path = public as $$
+  with days as (
+    select generate_series(
+      ((now() at time zone p_tz)::date - (p_days - 1)),
+      (now() at time zone p_tz)::date,
+      interval '1 day'
+    )::date as day
+  ), returned as (
+    select r.sale_id, sum(r.total) as amount
+    from public.returns r
+    where r.company_id = public.current_user_company_id() and r.status = 'processed'
+    group by r.sale_id
+  ), agg as (
+    select (s.sale_date at time zone p_tz)::date as d_local,
+           sum(s.total - coalesce(rt.amount, 0)) as total, count(*) as count
+    from public.sales s
+    left join returned rt on rt.sale_id = s.id
+    where s.company_id = public.current_user_company_id()
+      and s.deleted_at is null
+      and (p_location_id is null or s.location_id = p_location_id)
+      and public.user_can_access_location(s.location_id)
+      and s.sale_date >= (
+            ((now() at time zone p_tz)::date - (p_days - 1))::timestamp at time zone p_tz
+          )
+    group by 1
+  )
+  select d.day, coalesce(a.total, 0)::numeric, coalesce(a.count, 0)::bigint
+  from days d left join agg a on a.d_local = d.day
+  order by d.day;
+$$;
+
+-- Por categoría: lo cobrado de cada renglón (con IVA, en la proporción realmente pagada de la
+-- venta) menos lo reembolsado de ese renglón.
+create or replace function public.sales_by_category(
+  p_location_id uuid default null,
+  p_tz text default 'UTC',
+  p_from timestamptz default null,
+  p_to timestamptz default null
+) returns table (category text, total numeric)
+language sql stable security definer set search_path = public as $$
+  with gross as (
+    select si.sale_id, sum(si.total) as amount
+    from public.sale_items si
+    where si.company_id = public.current_user_company_id()
+    group by si.sale_id
+  ), returned as (
+    select ri.sale_item_id, sum(ri.total) as amount
+    from public.return_items ri
+    join public.returns r on r.id = ri.return_id
+    where r.company_id = public.current_user_company_id() and r.status = 'processed'
+    group by ri.sale_item_id
+  )
+  select coalesce(c.name, 'Sin categoría') as category,
+         sum(si.total * case when g.amount > 0 then s.total / g.amount else 1 end
+             - coalesce(rt.amount, 0))::numeric as total
+  from public.sale_items si
+  join public.sales s on s.id = si.sale_id
+  join gross g on g.sale_id = si.sale_id
+  left join returned rt on rt.sale_item_id = si.id
+  left join public.products p on p.id = si.product_id
+  left join public.categories c on c.id = p.category_id
+  where s.company_id = public.current_user_company_id()
+    and s.deleted_at is null
+    and (p_location_id is null or s.location_id = p_location_id)
+    and public.user_can_access_location(s.location_id)
+    and (p_from is null or s.sale_date >= p_from)
+    and (p_to is null or s.sale_date < p_to)
+  group by coalesce(c.name, 'Sin categoría')
+  order by total desc;
+$$;
+
+-- Por método de pago: lo devuelto de la venta se descuenta de sus métodos en proporción a lo
+-- que pagó cada uno (igual que create_return reparte el reembolso).
+create or replace function public.sales_by_payment_method(
+  p_location_id uuid default null,
+  p_tz text default 'UTC',
+  p_from timestamptz default null,
+  p_to timestamptz default null
+) returns table (method text, total numeric, count bigint)
+language sql stable security definer set search_path = public as $$
+  with paid as (
+    select sp.sale_id, sum(sp.amount) as amount
+    from public.sale_payments sp
+    where sp.company_id = public.current_user_company_id()
+    group by sp.sale_id
+  ), returned as (
+    select r.sale_id, sum(r.total) as amount
+    from public.returns r
+    where r.company_id = public.current_user_company_id() and r.status = 'processed'
+    group by r.sale_id
+  )
+  select coalesce(sp.method, 'Otro') as method,
+         sum(sp.amount - coalesce(rt.amount, 0) * sp.amount / nullif(pd.amount, 0))::numeric as total,
+         count(*)::bigint as count
+  from public.sale_payments sp
+  join public.sales s on s.id = sp.sale_id
+  join paid pd on pd.sale_id = sp.sale_id
+  left join returned rt on rt.sale_id = s.id
+  where s.company_id = public.current_user_company_id()
+    and s.deleted_at is null
+    and (p_location_id is null or s.location_id = p_location_id)
+    and public.user_can_access_location(s.location_id)
+    and (p_from is null or s.sale_date >= p_from)
+    and (p_to is null or s.sale_date < p_to)
+  group by coalesce(sp.method, 'Otro')
+  order by total desc;
+$$;
+
+-- Ganancias: ingreso neto (sin IVA) y costo de lo que NO se devolvió.
+create or replace function public.profit_report(
+  p_from timestamptz default null,
+  p_to   timestamptz default null,
+  p_location_id uuid default null
+) returns table (
+  product_id uuid,
+  product_name text,
+  qty numeric,
+  revenue numeric,
+  cost numeric,
+  profit numeric
+)
+language sql
+stable
+security definer
+set search_path to 'public'
+as $$
+  with returned as (
+    select ri.sale_item_id, sum(ri.qty) as qty
+    from public.return_items ri
+    join public.returns r on r.id = ri.return_id
+    where r.company_id = public.current_user_company_id() and r.status = 'processed'
+    group by ri.sale_item_id
+  )
+  select
+    si.product_id,
+    coalesce(max(si.product_name), 'Producto') as product_name,
+    sum(si.qty - coalesce(rt.qty, 0))::numeric as qty,
+    sum(si.net_revenue * (si.qty - coalesce(rt.qty, 0)) / nullif(si.qty, 0))::numeric as revenue,
+    sum((si.qty - coalesce(rt.qty, 0)) * coalesce(si.cost, 0))::numeric as cost,
+    (sum(si.net_revenue * (si.qty - coalesce(rt.qty, 0)) / nullif(si.qty, 0))
+       - sum((si.qty - coalesce(rt.qty, 0)) * coalesce(si.cost, 0)))::numeric as profit
+  from public.sale_items si
+  join public.sales s on s.id = si.sale_id
+  left join returned rt on rt.sale_item_id = si.id
+  where s.company_id = public.current_user_company_id()
+    and s.deleted_at is null
+    and (p_location_id is null or s.location_id = p_location_id)
+    and public.user_can_access_location(s.location_id)
+    and (p_from is null or s.sale_date >= p_from)
+    and (p_to   is null or s.sale_date <  p_to)
+  group by si.product_id
+  having sum(si.qty - coalesce(rt.qty, 0)) > 0
+  order by profit desc;
+$$;
+
+grant execute on function public.dashboard_sales_totals(uuid, text) to authenticated;
+grant execute on function public.sales_by_day(uuid, text, int) to authenticated;
+grant execute on function public.sales_by_category(uuid, text, timestamptz, timestamptz) to authenticated;
+grant execute on function public.sales_by_payment_method(uuid, text, timestamptz, timestamptz) to authenticated;
+grant execute on function public.profit_report(timestamptz, timestamptz, uuid) to authenticated;

@@ -191,7 +191,7 @@ function Ganancias() {
           />
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          Ganancia = Ingreso neto (sin IVA) − Costo. No descuenta devoluciones.
+          Ganancia = Ingreso neto (sin IVA) − Costo. Ya descuenta lo devuelto.
         </p>
 
         <Card className="mt-4">

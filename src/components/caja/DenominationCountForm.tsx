@@ -78,6 +78,10 @@ export function DenominationCountForm({
   );
 
   const hasAny = lines.some((l) => l.quantity > 0) || manualAdjustment > 0;
+  // Con $0 en caja (p. ej. todo se cobró con tarjeta o ya se retiró) no hay billetes que capturar:
+  // se pide confirmar de forma explícita que se contó cero, para no enviar un conteo vacío por error.
+  const [confirmedEmpty, setConfirmedEmpty] = useState(false);
+  const canSubmit = hasAny || confirmedEmpty;
 
   return (
     <div className="space-y-3">
@@ -158,13 +162,30 @@ export function DenominationCountForm({
           {formatMoney(total)}
         </span>
       </div>
+      {!hasAny && (
+        <label className="flex items-start gap-2 text-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={confirmedEmpty}
+            onChange={(event) => setConfirmedEmpty(event.target.checked)}
+          />
+          <span>
+            Confirmo que conté la caja y no hay efectivo ($0). Si no es así,
+            captura los billetes y monedas.
+          </span>
+        </label>
+      )}
       <Button
         variant="brand"
         className="w-full"
-        disabled={busy || !hasAny}
+        disabled={busy || !canSubmit}
         onClick={() =>
           onSubmit(
-            lines.filter((l) => l.quantity > 0),
+            // El servidor exige al menos una línea: con $0 se manda una en cero.
+            hasAny
+              ? lines.filter((l) => l.quantity > 0)
+              : [{ denomination: lines[0].denomination, quantity: 0 }],
             manualAdjustment,
             {
               card: parseDeclared(declaredCardInput),

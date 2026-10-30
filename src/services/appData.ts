@@ -424,6 +424,25 @@ function isSafeUserMessage(message: string): boolean {
   return SAFE_USER_MESSAGE_RE.test(message);
 }
 
+// Columna (sufijo del nombre de la restricción *_len_chk) -> nombre que ve el usuario.
+const LENGTH_FIELD_LABELS: Record<string, string> = {
+  document_number: "Documento",
+  customer_name: "Nombre del cliente",
+  payment_method: "Método de pago",
+  manager_name: "Encargado",
+  short_code: "Código corto",
+  full_name: "Nombre",
+  name: "Nombre",
+  phone: "Teléfono",
+  email: "Correo",
+  address: "Dirección",
+  city: "Ciudad",
+  notes: "Notas",
+  concept: "Concepto",
+  reason: "Motivo",
+  method: "Método",
+};
+
 export function getErrorMessage(
   error: unknown,
   fallback = "No se pudo completar la operación.",
@@ -441,6 +460,19 @@ export function getErrorMessage(
   // Map a few common Postgres signals to friendly Spanish.
   if (/permission denied|row-level security|policy/i.test(raw)) {
     return "No tienes permisos para realizar esta acción.";
+  }
+
+  // Tope de largo de un texto (restricción *_len_chk): dice cuál campo, sin mostrar SQL.
+  const tooLong = /"?([a-z_]+?)_len_chk"?/i.exec(raw);
+
+  if (tooLong) {
+    const column = Object.keys(LENGTH_FIELD_LABELS).find((c) =>
+      tooLong[1].endsWith(c),
+    );
+
+    return column
+      ? `El campo "${LENGTH_FIELD_LABELS[column]}" es demasiado largo. Acórtalo e inténtalo de nuevo.`
+      : "Uno de los textos es demasiado largo. Acórtalo e inténtalo de nuevo.";
   }
 
   if (/duplicate key value|unique constraint/i.test(raw)) {
@@ -5063,6 +5095,12 @@ export async function fetchPublicCatalog(
       "id, category_id, name, price, image_url, unit, is_public_available",
     )
     .eq("company_id", companyId)
+    // Lo mismo que ve un visitante sin sesión (la política del rol anon). Con sesión iniciada la
+    // política de la empresa deja ver TODO, así que sin estos filtros el dueño veía en su propia
+    // tienda pública productos ocultos, inactivos o borrados.
+    .eq("show_online", true)
+    .eq("active", true)
+    .is("deleted_at", null)
     .order("name")
     .range(page * pageSize, page * pageSize + pageSize);
 
@@ -6283,7 +6321,9 @@ export async function fetchEmployeeCommissions(
 ): Promise<EmployeeCommissionSummary[]> {
   let q = supabase
     .from("sales")
-    .select("created_by, total, sale_commissions(commission_amount)")
+    .select(
+      "created_by, total, sale_commissions(commission_amount), returns(total, status)",
+    )
     .is("deleted_at", null)
     .not("created_by", "is", null);
 
@@ -6317,7 +6357,15 @@ export async function fetchEmployeeCommissions(
     const id = row.created_by as string;
     const entry = byEmployee.get(id) ?? { count: 0, total: 0, commission: 0 };
     entry.count += 1;
-    entry.total += Number(row.total) || 0;
+    // Neto: lo devuelto de esa venta se descuenta (mismo criterio que dashboard y reportes).
+    const returned = (
+      (row as { returns?: { total: number | string; status: string }[] })
+        .returns ?? []
+    )
+      .filter((r) => r.status === "processed")
+      .reduce((sum, r) => sum + (Number(r.total) || 0), 0);
+
+    entry.total += (Number(row.total) || 0) - returned;
     entry.commission += saleCommissionOf(row)?.amount ?? 0;
     byEmployee.set(id, entry);
   }
