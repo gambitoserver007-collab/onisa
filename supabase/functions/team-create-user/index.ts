@@ -106,10 +106,12 @@ Deno.serve(async (req) => {
     // Verificar límite del plan
     const { data: company, error: companyErr } = await admin
       .from("companies")
-      .select("id, plan_id")
+      .select("id, plan_id, deleted_at")
       .eq("id", company_id)
       .maybeSingle();
     if (companyErr || !company) return json({ error: "Empresa no encontrada." }, 404);
+    // Auditoría 2026-10 (9ª pasada): a una empresa eliminada no se le agregan usuarios.
+    if (company.deleted_at) return json({ error: "Esta empresa fue eliminada." }, 403);
 
     let userLimit = 1;
     if (company.plan_id) {

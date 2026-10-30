@@ -2616,7 +2616,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -3280,7 +3280,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -3357,7 +3357,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -3602,7 +3602,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -4096,7 +4096,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -4263,7 +4263,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -4558,7 +4558,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -4672,7 +4672,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -5031,7 +5031,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -5216,6 +5216,7 @@ as $$
       or exists (
         select 1 from public.companies c
         where c.id = p_company_id
+          and c.deleted_at is null
           and c.subscription_status in ('active','trial')
           and (c.expires_at is null or c.expires_at >= now())
       )
@@ -5243,6 +5244,7 @@ as $$
       or exists (
         select 1 from public.companies c
         where c.id = p_company_id
+          and c.deleted_at is null
           and c.subscription_status in ('active','trial')
           and (c.expires_at is null or c.expires_at >= now())
       )
@@ -5521,7 +5523,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -5642,7 +5644,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -5756,7 +5758,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -6297,7 +6299,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -6490,7 +6492,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -6586,7 +6588,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -7364,7 +7366,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -7738,7 +7740,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -8160,7 +8162,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -9212,7 +9214,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -9629,7 +9631,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = v_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -12903,10 +12905,10 @@ create index if not exists products_public_catalog_idx on public.products (compa
 -- interruptor booleano) y así las políticas de products/categories de
 -- abajo pueden evaluar su EXISTS(...) sin depender de si el rol que
 -- ejecuta la consulta tiene permiso de columna sobre ella.
-grant select (id, name, slug, locale, currency_code, online_catalog_enabled) on public.companies to anon;
+grant select (id, name, slug, locale, currency_code, online_catalog_enabled, deleted_at) on public.companies to anon;
 drop policy if exists "companies select public catalog" on public.companies;
 create policy "companies select public catalog" on public.companies for select to anon
-  using (online_catalog_enabled = true and slug is not null);
+  using (online_catalog_enabled = true and slug is not null and deleted_at is null);
 
 -- active/deleted_at también se otorgan (no son sensibles) por la misma
 -- razón: el USING de la política los necesita evaluables para el rol anon.
@@ -12920,7 +12922,7 @@ create policy "products select public catalog" on public.products for select to 
     show_online and active and deleted_at is null
     and exists (
       select 1 from public.companies c
-      where c.id = company_id and c.online_catalog_enabled = true
+      where c.id = company_id and c.online_catalog_enabled = true and c.deleted_at is null
     )
   );
 
@@ -12930,7 +12932,7 @@ create policy "categories select public catalog" on public.categories for select
   using (
     exists (
       select 1 from public.companies c
-      where c.id = company_id and c.online_catalog_enabled = true
+      where c.id = company_id and c.online_catalog_enabled = true and c.deleted_at is null
     )
   );
 
@@ -13282,6 +13284,7 @@ as $$
       or exists (
         select 1 from public.companies c
         where c.id = p_company_id
+          and c.deleted_at is null
           and c.subscription_status in ('active','trial')
           and (c.expires_at is null or c.expires_at >= now())
       )
@@ -13580,7 +13583,7 @@ begin
   if not public.current_user_is_platform_admin() and exists (
     select 1 from public.companies c
     where c.id = p_company_id
-      and (c.subscription_status not in ('active','trial')
+      and (c.deleted_at is not null or c.subscription_status not in ('active','trial')
            or (c.expires_at is not null and c.expires_at < now()))
   ) then
     raise exception 'Esta empresa tiene la suscripcion suspendida o vencida. Contacta al administrador.';
@@ -13840,7 +13843,7 @@ alter default privileges in schema public revoke all on sequences from anon;
 grant select on public.subscription_plans, public.platform_settings to anon;
 
 -- Tienda en línea: solo columnas de catálogo, nunca cost/stock/datos fiscales.
-grant select (id, name, slug, locale, currency_code, online_catalog_enabled)
+grant select (id, name, slug, locale, currency_code, online_catalog_enabled, deleted_at)
   on public.companies to anon;
 grant select (
   id, company_id, category_id, name, price, image_url, unit, is_public_available,

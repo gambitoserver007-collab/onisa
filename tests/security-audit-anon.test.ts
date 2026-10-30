@@ -36,6 +36,8 @@ const PUBLIC_COLUMNS: Record<string, string[]> = {
     "locale",
     "currency_code",
     "online_catalog_enabled",
+    // Solo la fecha de baja: la política de la tienda la necesita para no mostrar empresas eliminadas.
+    "deleted_at",
   ],
   products: [
     "id",

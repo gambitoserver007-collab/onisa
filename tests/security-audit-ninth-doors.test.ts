@@ -924,3 +924,95 @@ describe("9ª pasada: los 9 por validar", () => {
     expect(Number(c)).toBe(0);
   }, 120_000);
 });
+
+// ============================================================ empresa eliminada
+describe("9ª pasada: una empresa marcada como eliminada deja de operar", () => {
+  let db: PGlite;
+
+  beforeAll(async () => {
+    db = await createTestDb();
+  }, 120_000);
+
+  afterAll(async () => {
+    await db.close();
+  });
+
+  it("no vende ni escribe ni muestra su tienda pública; al restaurarla todo vuelve", async () => {
+    const { asAnon } = await import("./helpers/db");
+    const C = await makeCompany(db, "Eliminable");
+    const cashier = await makeUser(db, C.id, "user");
+    const admin = await makeUser(db, C.id, "admin");
+    const p = await makeProduct(db, C.id, C.loc1, "P", 1, 10, 50);
+
+    await db.query(
+      "update public.companies set slug='eliminable', online_catalog_enabled=true where id=$1",
+      [C.id],
+    );
+    await asUser(db, cashier, () =>
+      db.query("select open_cash_session(0,$1)", [C.loc1]),
+    );
+    const sell = () =>
+      asUser(db, cashier, () =>
+        createSale(db, [{ product_id: p, qty: 1, unit_price: 10 }], C.loc1),
+      );
+    const publicRows = async () =>
+      asAnon(db, async () => ({
+        companies: (
+          await db.query(
+            "select id from public.companies where slug='eliminable'",
+          )
+        ).rows.length,
+        products: (
+          await db.query("select id from public.products where company_id=$1", [
+            C.id,
+          ])
+        ).rows.length,
+      }));
+
+    // CONTROL: empresa viva -> vende, el admin escribe y la tienda se ve
+    await sell();
+    expect(await publicRows()).toEqual({ companies: 1, products: 1 });
+
+    await db.query("update public.companies set deleted_at=now() where id=$1", [
+      C.id,
+    ]);
+
+    expect(await rejects(sell)).toMatch(/suspendida o vencida/i);
+    expect(
+      await asUser(db, admin, () =>
+        rejects(() =>
+          db.query(
+            "insert into public.customers (company_id, name) values ($1,'X')",
+            [C.id],
+          ),
+        ),
+      ),
+    ).toMatch(/row-level security/i);
+    expect(await publicRows()).toEqual({ companies: 0, products: 0 });
+
+    // restaurada: vuelve a operar
+    await db.query("update public.companies set deleted_at=null where id=$1", [
+      C.id,
+    ]);
+    await sell();
+    expect(await publicRows()).toEqual({ companies: 1, products: 1 });
+  }, 120_000);
+
+  it("el administrador de plataforma sigue operando aunque su empresa esté marcada como eliminada", async () => {
+    const C = await makeCompany(db, "De la plataforma");
+    const owner = await makeUser(db, C.id, "admin", true);
+    const p = await makeProduct(db, C.id, C.loc1, "P", 1, 10, 50);
+
+    await db.query("update public.companies set deleted_at=now() where id=$1", [
+      C.id,
+    ]);
+    await asUser(db, owner, () =>
+      db.query("select open_cash_session(0,$1)", [C.loc1]),
+    );
+    const sale = await asUser(db, owner, () =>
+      createSale(db, [{ product_id: p, qty: 1, unit_price: 10 }], C.loc1),
+    );
+
+    expect(Number(sale.total)).toBeGreaterThan(0);
+  }, 120_000);
+});

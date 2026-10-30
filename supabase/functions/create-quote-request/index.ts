@@ -110,6 +110,8 @@ Deno.serve(async (req) => {
       .from("companies")
       .select("id, online_catalog_enabled")
       .eq("slug", companySlug)
+      // Auditoría 2026-10 (9ª pasada): una empresa eliminada no recibe solicitudes.
+      .is("deleted_at", null)
       .maybeSingle();
     if (companyErr || !company || !company.online_catalog_enabled) {
       return json({ error: "Esta tienda no tiene catálogo en línea disponible." }, 404);
