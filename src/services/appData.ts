@@ -3044,16 +3044,24 @@ export async function fetchCashReport(
 
   if (filters.openedBy) query = query.eq("opened_by", filters.openedBy);
 
-  // closed_at es timestamptz; dateFrom/dateTo vienen como "YYYY-MM-DD" del
-  // selector de periodo -- se compara por el día completo en hora local del
-  // negocio no hace falta aquí (a diferencia de ventas): un corte casi
-  // siempre cae dentro del mismo día en el que se autorizó, y una
-  // diferencia de husos horarios de a lo más unas horas no cambia qué
-  // corte del día aparece en el reporte.
-  if (filters.dateFrom) query = query.gte("closed_at", filters.dateFrom);
+  // closed_at es timestamptz (UTC); dateFrom/dateTo vienen como "YYYY-MM-DD" del selector de
+  // periodo y son días LOCALES del negocio. Antes se comparaba contra "YYYY-MM-DDT23:59:59" sin zona
+  // (= UTC): un corte cerrado después de las 6 pm en México ya caía en el día UTC siguiente y no salía
+  // en el reporte de su propio día. Los límites se arman en hora local, igual que fetchSales.
+  if (filters.dateFrom) {
+    query = query.gte(
+      "closed_at",
+      new Date(`${filters.dateFrom}T00:00:00`).toISOString(),
+    );
+  }
 
-  if (filters.dateTo)
-    query = query.lte("closed_at", `${filters.dateTo}T23:59:59`);
+  if (filters.dateTo) {
+    const toExclusive = new Date(
+      new Date(`${filters.dateTo}T00:00:00`).getTime() + 24 * 60 * 60 * 1000,
+    ).toISOString();
+
+    query = query.lt("closed_at", toExclusive);
+  }
   const { data, error } = await query;
 
   if (error) throw error;
@@ -4563,6 +4571,10 @@ export interface SaleItemForReturn {
   qty: number;
   unitPrice: number;
   alreadyReturned: number;
+  /** Lo cobrado por el renglón (con IVA) y lo ya reembolsado: para la vista previa del reembolso. */
+  lineTotal: number;
+  refundedAmount: number;
+  paidRatio: number;
 }
 
 export async function fetchSaleItemsForReturn(
@@ -4571,7 +4583,7 @@ export async function fetchSaleItemsForReturn(
   const { data, error } = await supabase
     .from("sale_items")
     .select(
-      "id, product_id, product_name, product_variant_id, variant_label, qty, unit_price",
+      "id, product_id, product_name, product_variant_id, variant_label, qty, unit_price, total",
     )
     .eq("sale_id", saleId);
 
@@ -4580,20 +4592,37 @@ export async function fetchSaleItemsForReturn(
 
   if (!items.length) return [];
 
+  const { data: saleRow } = await supabase
+    .from("sales")
+    .select("total")
+    .eq("id", saleId)
+    .maybeSingle();
+
+  const grossTotal = items.reduce((sum, i) => sum + toNumber(i.total), 0);
+  const paidRatio =
+    grossTotal > 0 && saleRow
+      ? Math.max(0, Math.min(1, toNumber(saleRow.total) / grossTotal))
+      : 1;
+
   const { data: prev } = await supabase
     .from("return_items")
-    .select("sale_item_id, qty")
+    .select("sale_item_id, qty, total")
     .in(
       "sale_item_id",
       items.map((i) => i.id),
     );
 
   const returned = new Map<string, number>();
+  const refunded = new Map<string, number>();
   (prev ?? []).forEach((r) => {
     if (!r.sale_item_id) return;
     returned.set(
       r.sale_item_id,
       (returned.get(r.sale_item_id) ?? 0) + toNumber(r.qty),
+    );
+    refunded.set(
+      r.sale_item_id,
+      (refunded.get(r.sale_item_id) ?? 0) + toNumber(r.total),
     );
   });
 
@@ -4606,6 +4635,9 @@ export async function fetchSaleItemsForReturn(
     qty: toNumber(i.qty),
     unitPrice: toNumber(i.unit_price),
     alreadyReturned: returned.get(i.id) ?? 0,
+    lineTotal: toNumber(i.total),
+    refundedAmount: refunded.get(i.id) ?? 0,
+    paidRatio,
   }));
 }
 

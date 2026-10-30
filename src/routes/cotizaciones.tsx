@@ -53,6 +53,7 @@ import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useCompanyCatalog } from "@/hooks/useCompanyCatalog";
 import { useCurrentLocation } from "@/hooks/useCurrentLocation";
 import { useDemoSession } from "@/hooks/useDemoSession";
+import { lineTotalWithTax } from "@/lib/taxPreview";
 import { ALL_LOCATIONS } from "@/lib/currentLocation";
 import { blockDemoAction } from "@/lib/demoMode";
 import {
@@ -103,11 +104,12 @@ interface QuoteCartItem {
   productId: string;
   name: string;
   price: number;
+  priceIncludesTax?: boolean;
   qty: number;
 }
 
 function CotizacionesPage() {
-  const { formatMoney } = useBusinessSettings();
+  const { formatMoney, settings } = useBusinessSettings();
   const { session, isDemo } = useDemoSession();
   const { products, customers } = useCompanyCatalog();
   const { locations, currentLocationId, hasMultiple } = useCurrentLocation();
@@ -184,6 +186,7 @@ function CotizacionesPage() {
           productId: product.id,
           name: product.name,
           price: product.price,
+          priceIncludesTax: product.priceIncludesTax,
           qty: 1,
         },
       ];
@@ -192,8 +195,19 @@ function CotizacionesPage() {
   };
 
   const cartTotal = useMemo(
-    () => cart.reduce((sum, item) => sum + item.price * item.qty, 0),
-    [cart],
+    () =>
+      cart.reduce(
+        (sum, item) =>
+          sum +
+          lineTotalWithTax(
+            item.price,
+            item.qty,
+            item.priceIncludesTax,
+            settings.taxRate,
+          ),
+        0,
+      ),
+    [cart, settings.taxRate],
   );
 
   const handleSave = async () => {
@@ -424,7 +438,14 @@ function CotizacionesPage() {
                               />
                             </TableCell>
                             <TableCell className="text-right font-semibold">
-                              {formatMoney(item.price * item.qty)}
+                              {formatMoney(
+                                lineTotalWithTax(
+                                  item.price,
+                                  item.qty,
+                                  item.priceIncludesTax,
+                                  settings.taxRate,
+                                ),
+                              )}
                             </TableCell>
                             <TableCell>
                               <Button

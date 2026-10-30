@@ -52,6 +52,7 @@ import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useCompanyCatalog } from "@/hooks/useCompanyCatalog";
 import { useCurrentLocation } from "@/hooks/useCurrentLocation";
 import { useDemoSession } from "@/hooks/useDemoSession";
+import { lineTotalWithTax } from "@/lib/taxPreview";
 import { canRecordNonCashPayments } from "@/lib/permissions";
 import { ALL_LOCATIONS } from "@/lib/currentLocation";
 import { blockDemoAction } from "@/lib/demoMode";
@@ -95,6 +96,7 @@ interface ApartadoCartItem {
   productId: string;
   name: string;
   price: number;
+  priceIncludesTax?: boolean;
   qty: number;
 }
 
@@ -194,6 +196,7 @@ function ApartadosPage() {
           productId: product.id,
           name: product.name,
           price: product.price,
+          priceIncludesTax: product.priceIncludesTax,
           qty: 1,
         },
       ];
@@ -202,8 +205,19 @@ function ApartadosPage() {
   };
 
   const cartTotal = useMemo(
-    () => cart.reduce((sum, item) => sum + item.price * item.qty, 0),
-    [cart],
+    () =>
+      cart.reduce(
+        (sum, item) =>
+          sum +
+          lineTotalWithTax(
+            item.price,
+            item.qty,
+            item.priceIncludesTax,
+            settings.taxRate,
+          ),
+        0,
+      ),
+    [cart, settings.taxRate],
   );
 
   const minDeposit = useMemo(
@@ -426,7 +440,14 @@ function ApartadosPage() {
                               />
                             </TableCell>
                             <TableCell className="text-right font-semibold">
-                              {formatMoney(item.price * item.qty)}
+                              {formatMoney(
+                                lineTotalWithTax(
+                                  item.price,
+                                  item.qty,
+                                  item.priceIncludesTax,
+                                  settings.taxRate,
+                                ),
+                              )}
                             </TableCell>
                             <TableCell>
                               <Button

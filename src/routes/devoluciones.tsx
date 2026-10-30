@@ -44,6 +44,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useBusinessSettings } from "@/hooks/useBusinessSettings";
 import { useDemoSession } from "@/hooks/useDemoSession";
 import { blockDemoAction } from "@/lib/demoMode";
+import { estimateReturnRefund } from "@/lib/taxPreview";
 import {
   createReturn,
   fetchReturns,
@@ -156,13 +157,8 @@ function Devoluciones() {
       .finally(() => setLoadingItems(false));
   }, [saleId]);
 
-  const computedTotal = saleItems.reduce((sum, item) => {
-    const qty = Number(itemQtys[item.id] ?? 0);
-
-    if (!qty || qty <= 0) return sum;
-
-    return sum + qty * item.unitPrice;
-  }, 0);
+  // Mismo cálculo que create_return (con IVA y proporcional a lo realmente pagado).
+  const computedTotal = estimateReturnRefund(saleItems, itemQtys);
 
   const computedUnits = saleItems.reduce((sum, item) => {
     const qty = Number(itemQtys[item.id] ?? 0);
@@ -379,7 +375,11 @@ function Devoluciones() {
                                     )}
                                   </TableCell>
                                   <TableCell className="text-right">
-                                    {formatMoney(item.unitPrice)}
+                                    {formatMoney(
+                                      item.qty > 0
+                                        ? item.lineTotal / item.qty
+                                        : item.unitPrice,
+                                    )}
                                   </TableCell>
                                   <TableCell className="text-right">
                                     {item.qty}
